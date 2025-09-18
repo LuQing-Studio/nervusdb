@@ -238,6 +238,24 @@ rm -rf repo_demo.synapsedb repo_demo.synapsedb.pages repo_demo.synapsedb.wal
 - 实战-代码知识图谱：docs/教学文档/实战-代码知识图谱.md
 - 实战-商城系统：docs/教学文档/实战-商城系统.md
 
+## 使用示例（本地验证）
+
+- 目录总览：docs/使用示例/README.md
+- CLI 快速开始：docs/使用示例/00-全局CLI-快速开始.md
+- 项目接入（本地 tgz / npm link）：
+  - docs/使用示例/01-项目接入-本地tgz安装.md
+  - docs/使用示例/02-项目接入-npm-link.md
+- 查询与联想、事务、治理、流式、快照、可视化与自动化：
+  - docs/使用示例/03-查询与联想-示例.md
+  - docs/使用示例/04-事务与幂等-示例.md
+  - docs/使用示例/05-维护治理-示例.md
+  - docs/使用示例/06-流式查询与大结果-示例.md
+  - docs/使用示例/07-快照一致性与并发-示例.md
+  - docs/使用示例/08-图谱导出与可视化-示例.md
+  - docs/使用示例/09-嵌入式脚本与自动化-示例.md
+  - docs/使用示例/10-消费者项目模板.md
+  - docs/使用示例/99-常见问题与排错.md
+
 ## 架构与存储布局（概览）
 
 - 主数据：`<name>.synapsedb`
