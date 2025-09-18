@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+set -e
+
+echo "[husky] pre-commit: lint-staged"
+pnpm exec lint-staged -c .lintstaged.cjs
