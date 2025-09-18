@@ -3,3 +3,9 @@ set -e
 
 echo "[husky] pre-commit: lint-staged"
 pnpm exec lint-staged -c .lintstaged.cjs
+
+echo "[husky] pre-commit: full lint (strict)"
+pnpm run lint:full:strict
+
+echo "[husky] pre-commit: prettier format check"
+pnpm run format:check

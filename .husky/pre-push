@@ -1,3 +1,11 @@
 #!/usr/bin/env sh
+set -e
+
+echo "[husky] pre-push: full lint (strict)"
+pnpm run lint:full:strict
+
+echo "[husky] pre-push: prettier format check"
+pnpm run format:check
+
 echo "[husky] pre-push: typecheck + lint:core + coverage + build"
 pnpm run ci:prepush
