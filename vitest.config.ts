@@ -13,6 +13,8 @@ export default defineConfig({
       provider: 'v8',
       reportsDirectory: resolve(rootDir, 'coverage'),
       reporter: ['text', 'lcov'],
+      include: ['src/**/*.ts'],
+      exclude: ['src/cli/**', '**/*.d.ts', '**/*.config.*', 'cspell.config.cjs'],
       thresholds: {
         statements: 80,
         branches: 75,
