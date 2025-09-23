@@ -20,7 +20,7 @@
     "spell:md": "cspell lint --no-progress --no-summary README.md docs/**/*.md",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "node -e \"require('fs').mkdirSync('coverage/.tmp', { recursive: true })\" && vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "ci": "pnpm typecheck && pnpm lint:core && pnpm test && pnpm build",
     "ci:prepush": "pnpm typecheck && pnpm lint:core && pnpm test:coverage && pnpm build",
