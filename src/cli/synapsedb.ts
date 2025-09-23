@@ -16,6 +16,7 @@
  *   auto-compact [...args]
  *   gc <db> [...args]
  *   hot <db> [...args]
+ *   readers <db> [--json] [--watch] [--details]
  *   repair-page <db> <order> <primary>
  */
 
@@ -51,6 +52,7 @@ function usage(): void {
     '  auto-compact [...args]',
     '  gc <db> [...args]',
     '  hot <db> [...args]',
+    '  readers <db> [--json] [--watch] [--details]',
     '  repair-page <db> <order> <primary>',
   ];
   console.log(lines.join('\n'));
@@ -108,6 +110,11 @@ async function main() {
     }
     case 'hot': {
       const code = await run(rel('./hot.js'), rest);
+      process.exit(code);
+      break;
+    }
+    case 'readers': {
+      const code = await run(rel('./readers.js'), rest);
       process.exit(code);
       break;
     }

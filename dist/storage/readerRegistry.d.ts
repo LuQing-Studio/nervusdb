@@ -34,6 +34,14 @@ export declare function getActiveReaders(directory: string): Promise<ReaderInfo[
  */
 export declare function cleanupProcessReaders(directory: string, pid: number): Promise<void>;
 /**
+ * 获取当前所有活跃读者使用的 epoch 集合
+ */
+export declare function getActiveEpochs(directory: string): Promise<number[]>;
+/**
+ * 检查指定 epoch 是否正在被读者使用
+ */
+export declare function isEpochInUse(directory: string, epoch: number): Promise<boolean>;
+/**
  * 清理所有过期的reader文件
  * 用于维护操作
  */

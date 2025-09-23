@@ -44,11 +44,13 @@ export async function garbageCollectPages(dbPath, options) {
             await fs.unlink(tmp);
         }
         catch { }
-        const src = await fs.open(file, 'r');
-        const dst = await fs.open(tmp, 'w');
+        let src = null;
+        let dst = null;
         let offset = 0;
         const newPages = [];
         try {
+            src = await fs.open(file, 'r');
+            dst = await fs.open(tmp, 'w');
             for (const page of lookup.pages) {
                 const buf = Buffer.allocUnsafe(page.length);
                 await src.read(buf, 0, page.length, page.offset);
@@ -65,8 +67,10 @@ export async function garbageCollectPages(dbPath, options) {
             await dst.sync();
         }
         finally {
-            await src.close();
-            await dst.close();
+            if (src)
+                await src.close();
+            if (dst)
+                await dst.close();
         }
         await fs.rename(tmp, file);
         // 更新该顺序的 pages 映射（offset 变化）

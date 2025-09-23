@@ -64,11 +64,15 @@ export async function garbageCollectPages(
     try {
       await fs.unlink(tmp);
     } catch {}
-    const src = await fs.open(file, 'r');
-    const dst = await fs.open(tmp, 'w');
+
+    let src: fs.FileHandle | null = null;
+    let dst: fs.FileHandle | null = null;
     let offset = 0;
     const newPages: typeof lookup.pages = [];
     try {
+      src = await fs.open(file, 'r');
+      dst = await fs.open(tmp, 'w');
+
       for (const page of lookup.pages) {
         const buf = Buffer.allocUnsafe(page.length);
         await src.read(buf, 0, page.length, page.offset);
@@ -84,8 +88,8 @@ export async function garbageCollectPages(
       }
       await dst.sync();
     } finally {
-      await src.close();
-      await dst.close();
+      if (src) await src.close();
+      if (dst) await dst.close();
     }
     await fs.rename(tmp, file);
     // 更新该顺序的 pages 映射（offset 变化）

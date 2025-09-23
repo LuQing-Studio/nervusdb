@@ -22,10 +22,12 @@ export declare class PagedIndexWriter {
     private readonly buffers;
     private readonly pages;
     private readonly compression;
+    private readonly pendingWrites;
     constructor(filePath: string, options: PagedIndexOptions);
     push(triple: OrderedTriple, primary: number): void;
     finalize(): Promise<PageMeta[]>;
-    private flushPage;
+    private flushPageToPending;
+    private batchWritePages;
 }
 export interface PagedIndexReaderOptions {
     directory: string;

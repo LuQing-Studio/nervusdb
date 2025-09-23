@@ -31,6 +31,7 @@ export class PagedIndexWriter {
   private readonly buffers = new Map<number, OrderedTriple[]>();
   private readonly pages: PageMeta[] = [];
   private readonly compression: CompressionOptions;
+  private readonly pendingWrites: Array<{ primary: number; entries: OrderedTriple[] }> = [];
 
   constructor(
     private readonly filePath: string,
@@ -48,63 +49,83 @@ export class PagedIndexWriter {
     page.push(triple);
 
     if (page.length >= this.pageSize) {
-      void this.flushPage(primary);
+      this.flushPageToPending(primary);
     }
   }
 
   async finalize(): Promise<PageMeta[]> {
+    // 将所有剩余的缓冲页面添加到待写入队列
     for (const [primary, entries] of this.buffers.entries()) {
       if (entries.length > 0) {
-        await this.flushPage(primary);
+        this.flushPageToPending(primary);
       }
     }
     this.buffers.clear();
+
+    // 批量写入所有页面（一次打开，多次写入，一次sync）
+    if (this.pendingWrites.length > 0) {
+      await this.batchWritePages();
+    }
+
     return [...this.pages];
   }
 
-  private async flushPage(primary: number): Promise<void> {
+  private flushPageToPending(primary: number): void {
     const entries = this.buffers.get(primary);
     if (!entries || entries.length === 0) {
       return;
     }
 
-    const meta = await appendTriples(this.filePath, entries, this.compression);
-    this.pages.push({ primaryValue: primary, ...meta });
+    // 复制条目到待写入队列，避免引用问题
+    this.pendingWrites.push({ primary, entries: [...entries] });
     entries.length = 0;
   }
-}
 
-interface AppendMeta {
-  offset: number;
-  length: number;
-  rawLength?: number;
-  crc32?: number;
-}
+  private async batchWritePages(): Promise<void> {
+    const handle = await fs.open(this.filePath, 'a');
+    const newPages: PageMeta[] = []; // 1. 创建临时元数据数组
+    try {
+      let currentOffset = (await handle.stat()).size;
 
-async function appendTriples(
-  filePath: string,
-  triples: OrderedTriple[],
-  compression: CompressionOptions,
-): Promise<AppendMeta> {
-  const handle = await fs.open(filePath, 'a');
-  try {
-    const buffer = Buffer.allocUnsafe(triples.length * 12);
-    triples.forEach((triple, index) => {
-      const offset = index * 12;
-      buffer.writeUInt32LE(triple.subjectId, offset);
-      buffer.writeUInt32LE(triple.predicateId, offset + 4);
-      buffer.writeUInt32LE(triple.objectId, offset + 8);
-    });
+      // 批量写入所有待处理的页面
+      for (const { primary, entries } of this.pendingWrites) {
+        const buffer = Buffer.allocUnsafe(entries.length * 12);
+        entries.forEach((triple, index) => {
+          const offset = index * 12;
+          buffer.writeUInt32LE(triple.subjectId, offset);
+          buffer.writeUInt32LE(triple.predicateId, offset + 4);
+          buffer.writeUInt32LE(triple.objectId, offset + 8);
+        });
 
-    const compressed = compressBuffer(buffer, compression);
-    const crc = crc32(compressed);
-    const stats = await handle.stat();
-    const offset = stats.size;
-    await handle.write(compressed, 0, compressed.length, offset);
-    await handle.sync();
-    return { offset, length: compressed.length, rawLength: buffer.length, crc32: crc };
-  } finally {
-    await handle.close();
+        const compressed = compressBuffer(buffer, this.compression);
+        const crc = crc32(compressed);
+
+        // 写入数据（不立即sync）
+        await handle.write(compressed, 0, compressed.length, currentOffset);
+
+        // 2. 记录页面元数据到临时数组
+        newPages.push({
+          primaryValue: primary,
+          offset: currentOffset,
+          length: compressed.length,
+          rawLength: buffer.length,
+          crc32: crc,
+        });
+
+        currentOffset += compressed.length;
+      }
+
+      // 批量完成后只执行一次sync
+      await handle.sync();
+
+      // 3. sync 成功后，原子性地更新实例的元数据
+      this.pages.push(...newPages);
+    } finally {
+      await handle.close();
+    }
+
+    // 清空待写入队列
+    this.pendingWrites.length = 0;
   }
 }
 

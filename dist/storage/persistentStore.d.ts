@@ -39,9 +39,11 @@ export declare class PersistentStore {
     private constructor();
     private dirty;
     private wal;
+    private closed;
     private tombstones;
     private hotness;
     private lock?;
+    private propertyIndexManager;
     private batchDepth;
     private batchMetaStack;
     private txStack;
@@ -82,6 +84,11 @@ export declare class PersistentStore {
     getNodeProperties(nodeId: number): Record<string, unknown> | undefined;
     getEdgeProperties(key: TripleKey): Record<string, unknown> | undefined;
     query(criteria: Partial<EncodedTriple>): EncodedTriple[];
+    /**
+     * 纯磁盘查询方法：仅依赖分页索引，不使用内存缓存
+     * 用于快照查询期间，确保内存占用最小化
+     */
+    private queryFromDisk;
     resolveRecords(triples: EncodedTriple[]): FactRecord[];
     private toFactRecord;
     flush(): Promise<void>;
@@ -101,5 +108,25 @@ export declare class PersistentStore {
     private stageAdd;
     private applyStage;
     private peekTx;
+    /**
+     * 重建属性索引
+     */
+    private rebuildPropertyIndex;
+    /**
+     * 获取属性索引管理器的内存索引
+     */
+    getPropertyIndex(): import("./propertyIndex.js").MemoryPropertyIndex;
+    /**
+     * 应用属性变更到索引
+     */
+    private applyPropertyIndexChange;
+    /**
+     * 更新节点属性索引
+     */
+    private updateNodePropertyIndex;
+    /**
+     * 更新边属性索引
+     */
+    private updateEdgePropertyIndex;
 }
 //# sourceMappingURL=persistentStore.d.ts.map

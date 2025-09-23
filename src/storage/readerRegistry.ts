@@ -149,6 +149,26 @@ export async function cleanupProcessReaders(directory: string, pid: number): Pro
 }
 
 /**
+ * 获取当前所有活跃读者使用的 epoch 集合
+ */
+export async function getActiveEpochs(directory: string): Promise<number[]> {
+  const readers = await getActiveReaders(directory);
+  const epochs = new Set<number>();
+  for (const reader of readers) {
+    epochs.add(reader.epoch);
+  }
+  return Array.from(epochs).sort((a, b) => a - b);
+}
+
+/**
+ * 检查指定 epoch 是否正在被读者使用
+ */
+export async function isEpochInUse(directory: string, epoch: number): Promise<boolean> {
+  const readers = await getActiveReaders(directory);
+  return readers.some((reader) => reader.epoch === epoch);
+}
+
+/**
  * 清理所有过期的reader文件
  * 用于维护操作
  */

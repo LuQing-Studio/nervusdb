@@ -34,6 +34,7 @@
     "db:auto-compact": "tsx src/cli/auto_compact.ts",
     "db:gc": "tsx src/cli/gc.ts",
     "db:hot": "tsx src/cli/hot.ts",
+    "db:readers": "tsx src/cli/readers.ts",
     "db:repair-page": "tsx src/cli/repair_page.ts"
   },
   "bin": {

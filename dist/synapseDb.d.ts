@@ -1,6 +1,6 @@
 import { FactInput, FactRecord } from './storage/persistentStore.js';
 import { TripleKey } from './storage/propertyStore.js';
-import { FactCriteria, FrontierOrientation, QueryBuilder } from './query/queryBuilder.js';
+import { FactCriteria, FrontierOrientation, QueryBuilder, PropertyFilter } from './query/queryBuilder.js';
 import { SynapseDBOpenOptions, CommitBatchOptions, BeginBatchOptions } from './types/openOptions.js';
 export interface FactOptions {
     subjectProperties?: Record<string, unknown>;
@@ -62,12 +62,56 @@ export declare class SynapseDB {
         predicate: string;
         object: string;
     }>, batchSize?: number): AsyncGenerator<FactRecord[], void, unknown>;
+    findStream(criteria?: Partial<{
+        subject: string;
+        predicate: string;
+        object: string;
+    }>, options?: {
+        batchSize?: number;
+    }): AsyncIterable<FactRecord[]>;
     getNodeId(value: string): number | undefined;
     getNodeValue(id: number): string | undefined;
     getNodeProperties(nodeId: number): Record<string, unknown> | null;
     getEdgeProperties(key: TripleKey): Record<string, unknown> | null;
     flush(): Promise<void>;
     find(criteria: FactCriteria, options?: {
+        anchor?: FrontierOrientation;
+    }): QueryBuilder;
+    /**
+     * 基于节点属性进行查询
+     * @param propertyFilter 属性过滤条件
+     * @param options 查询选项
+     * @example
+     * ```typescript
+     * // 查找所有年龄为25的用户
+     * const users = db.findByNodeProperty(
+     *   { propertyName: 'age', value: 25 },
+     *   { anchor: 'subject' }
+     * ).all();
+     *
+     * // 查找年龄在25-35之间的用户
+     * const adults = db.findByNodeProperty({
+     *   propertyName: 'age',
+     *   range: { min: 25, max: 35, includeMin: true, includeMax: true }
+     * }).all();
+     * ```
+     */
+    findByNodeProperty(propertyFilter: PropertyFilter, options?: {
+        anchor?: FrontierOrientation;
+    }): QueryBuilder;
+    /**
+     * 基于边属性进行查询
+     * @param propertyFilter 属性过滤条件
+     * @param options 查询选项
+     * @example
+     * ```typescript
+     * // 查找所有权重为0.8的关系
+     * const strongRelations = db.findByEdgeProperty(
+     *   { propertyName: 'weight', value: 0.8 }
+     * ).all();
+     * ```
+     */
+    findByEdgeProperty(propertyFilter: PropertyFilter, options?: {
         anchor?: FrontierOrientation;
     }): QueryBuilder;
     deleteFact(fact: FactInput): void;
@@ -82,5 +126,5 @@ export declare class SynapseDB {
         lsmMemtable: number;
     };
 }
-export type { FactInput, FactRecord, SynapseDBOpenOptions, CommitBatchOptions, BeginBatchOptions };
+export type { FactInput, FactRecord, SynapseDBOpenOptions, CommitBatchOptions, BeginBatchOptions, PropertyFilter, FrontierOrientation, };
 //# sourceMappingURL=synapseDb.d.ts.map

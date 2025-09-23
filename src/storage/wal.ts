@@ -47,6 +47,12 @@ export class WalWriter {
         offset = stat.size;
       }
     } catch {
+      // 如果之前打开了文件，先关闭
+      if (fd! !== undefined) {
+        try {
+          await fd.close();
+        } catch {}
+      }
       fd = await fs.open(walPath, 'w+');
       await writeHeader(fd);
       offset = 12;

@@ -43,24 +43,39 @@ export async function autoCompact(
   dbPath: string,
   options: AutoCompactOptions = {},
 ): Promise<AutoCompactDecision> {
+  console.log(`🔧 Starting auto-compact analysis for: ${dbPath}`);
+  console.log(`   Mode: ${options.mode ?? 'incremental'}`);
+  console.log(`   Min merge pages: ${options.minMergePages ?? 2}`);
+  console.log(`   Dry run: ${options.dryRun ?? false}`);
+
   const manifest = await readPagedManifest(`${dbPath}.pages`);
   if (!manifest) {
+    console.log(`❌ No paged manifest found`);
     return { selectedOrders: [] };
   }
+
+  console.log(`📊 Manifest summary:`);
+  console.log(`   Total lookups: ${manifest.lookups.length}`);
+  console.log(`   Page size: ${manifest.pageSize}`);
+  console.log(`   Tombstones: ${manifest.tombstones?.length ?? 0}`);
+
   if (options.respectReaders) {
     try {
       const { getActiveReaders } = await import('../storage/readerRegistry.js');
       const readers = await getActiveReaders(`${dbPath}.pages`);
       if (readers.length > 0) {
+        console.log(`🔒 Skipping compaction due to ${readers.length} active readers`);
         return {
           selectedOrders: [],
           skipped: true,
           reason: 'active_readers',
           readers: readers.length,
         };
+      } else {
+        console.log(`✅ No active readers found - proceeding with compaction`);
       }
     } catch {
-      // ignore registry failures
+      console.log(`⚠️  Failed to check active readers - proceeding anyway`);
     }
   }
 
@@ -68,9 +83,17 @@ export async function autoCompact(
   const minMergePages = options.minMergePages ?? 2;
   const tombstones = new Set((manifest.tombstones ?? []).map((t) => `${t[0]}:${t[1]}:${t[2]}`));
 
+  console.log(`\n🎯 Analyzing orders: [${orders.join(', ')}]`);
+
   const selected = new Set<IndexOrder>();
   const onlyPrimaries: Partial<Record<IndexOrder, number[]>> = {};
   const hot = await readHotness(`${dbPath}.pages`).catch(() => null);
+
+  if (hot) {
+    console.log(`🔥 Hotness data loaded (updated: ${new Date(hot.updatedAt).toISOString()})`);
+  } else {
+    console.log(`📈 No hotness data available`);
+  }
   const getCountsForOrder = (order: IndexOrder) => {
     if (!hot) return {} as Record<string, number>;
     const a = hot.counts[order] ?? {};
@@ -91,18 +114,53 @@ export async function autoCompact(
   };
 
   for (const order of orders) {
+    console.log(`\n📋 Analyzing order: ${order}`);
     const lookup = manifest.lookups.find((l) => l.order === order);
-    if (!lookup || lookup.pages.length === 0) continue;
+    if (!lookup || lookup.pages.length === 0) {
+      console.log(`   ❌ No lookup or empty pages`);
+      continue;
+    }
+
+    console.log(`   📄 Total pages: ${lookup.pages.length}`);
+
     // 统计 primary → 页数
     const cnt = new Map<number, number>();
     for (const p of lookup.pages) cnt.set(p.primaryValue, (cnt.get(p.primaryValue) ?? 0) + 1);
-    const hasMergeCandidate = [...cnt.values()].some((c) => c >= minMergePages);
-    if (hasMergeCandidate) selected.add(order);
+
+    const multiPagePrimaries = [...cnt.entries()].filter(
+      ([, pageCount]) => pageCount >= minMergePages,
+    );
+    const hasMergeCandidate = multiPagePrimaries.length > 0;
+
+    console.log(`   🔗 Unique primaries: ${cnt.size}`);
+    console.log(
+      `   📊 Multi-page primaries (>=${minMergePages} pages): ${multiPagePrimaries.length}`,
+    );
+
+    if (hasMergeCandidate) {
+      selected.add(order);
+      console.log(`   ✅ Selected for compaction (merge candidates found)`);
+      multiPagePrimaries.slice(0, 5).forEach(([primary, pageCount]) => {
+        console.log(`      • Primary ${primary}: ${pageCount} pages`);
+      });
+      if (multiPagePrimaries.length > 5) {
+        console.log(`      • ... and ${multiPagePrimaries.length - 5} more`);
+      }
+    }
+
     // 简化墓碑触发：仅依据有无 tombstones（阈值在 compaction 内二次判定）
-    if (tombstones.size > 0) selected.add(order);
+    if (tombstones.size > 0) {
+      if (!selected.has(order)) {
+        selected.add(order);
+        console.log(`   ✅ Selected for compaction (tombstone cleanup needed)`);
+      } else {
+        console.log(`   📰 Also has tombstones to clean`);
+      }
+    }
 
     // 热度驱动（增量模式）：选取热度超过阈值且拥有多页的 primary
     if (options.mode !== 'rewrite' && hot && options.hotThreshold && options.hotThreshold > 0) {
+      console.log(`   🔥 Hot-based analysis (threshold: ${options.hotThreshold})`);
       const counts = getCountsForOrder(order);
       const candidates: Array<{ p: number; c: number; pages: number; score: number }> = [];
       const w = {
@@ -111,6 +169,10 @@ export async function autoCompact(
         tomb: options.scoreWeights?.tomb ?? 0.5,
       };
       const minScore = options.minScore ?? 1;
+
+      console.log(`   📊 Score weights: hot=${w.hot}, pages=${w.pages}, tomb=${w.tomb}`);
+      console.log(`   🎯 Min score threshold: ${minScore}`);
+
       for (const [pval, count] of cnt.entries()) {
         if (count <= 1) continue; // 非多页
         const pvStr = String(pval);
@@ -118,23 +180,77 @@ export async function autoCompact(
         // 评分：热度*wh + (页数-1)*wp + (tombstones>0?1:0)*wt
         const tombTerm = tombstones.size > 0 ? 1 : 0;
         const score = hotCount * w.hot + (count - 1) * w.pages + tombTerm * w.tomb;
-        if (hotCount >= options.hotThreshold && score >= minScore)
+
+        const scoreDetail = {
+          primary: pval,
+          hotness: hotCount,
+          pageCount: count,
+          fragmentation: count - 1,
+          score: {
+            hotness: hotCount * w.hot,
+            pageCount: (count - 1) * w.pages,
+            tombstone: tombTerm * w.tomb,
+            total: score,
+          },
+        };
+
+        if (hotCount >= options.hotThreshold && score >= minScore) {
+          console.log(`   ✅ Primary ${pval} qualifies:`);
+          console.log(`      • Hotness: ${hotCount} (score: +${scoreDetail.score.hotness})`);
+          console.log(`      • Pages: ${count} (score: +${scoreDetail.score.pageCount})`);
+          console.log(
+            `      • Tombstone factor: ${tombTerm} (score: +${scoreDetail.score.tombstone})`,
+          );
+          console.log(`      • Total score: ${scoreDetail.score.total}`);
+          console.log(`      • Action: INCLUDE`);
+          console.log(
+            `      • Reason: score >= ${minScore} AND hotness >= ${options.hotThreshold}`,
+          );
+
           candidates.push({ p: pval, c: hotCount, pages: count, score });
+        } else {
+          const reasons = [];
+          if (hotCount < options.hotThreshold)
+            reasons.push(`hotness ${hotCount} < ${options.hotThreshold}`);
+          if (score < minScore) reasons.push(`score ${score} < ${minScore}`);
+
+          console.log(`   ❌ Primary ${pval} excluded:`);
+          console.log(`      • Hotness: ${hotCount}`);
+          console.log(`      • Pages: ${count}`);
+          console.log(`      • Total score: ${scoreDetail.score.total}`);
+          console.log(`      • Action: SKIP`);
+          console.log(`      • Reason: ${reasons.join(' AND ')}`);
+        }
       }
+
       // 优先按分数、再按热度排序
       const sorted = candidates.sort((a, b) => b.score - a.score || b.c - a.c);
       const topK = options.maxPrimariesPerOrder
         ? sorted.slice(0, options.maxPrimariesPerOrder)
         : sorted;
+
       if (topK.length > 0) {
+        console.log(`   🎯 Top ${topK.length} hot primaries selected:`);
+        topK.forEach((c, i) => {
+          console.log(
+            `      ${i + 1}. Primary ${c.p}: hotness=${c.c}, pages=${c.pages}, score=${c.score}`,
+          );
+        });
+
         (onlyPrimaries as any)[order] = topK.map((x) => x.p);
-        selected.add(order);
+        if (!selected.has(order)) {
+          selected.add(order);
+          console.log(`   ✅ Selected for compaction (hot primaries found)`);
+        }
+      } else {
+        console.log(`   ❌ No hot primaries qualify for incremental compaction`);
       }
     }
   }
 
   let selectedOrders = [...selected];
 
+  console.log(`\n📈 LSM segment analysis:`);
   // 评估是否并入 LSM 段
   let includeLsmSegments = options.includeLsmSegments ?? false;
   if (!includeLsmSegments && options.includeLsmSegmentsAuto) {
@@ -145,18 +261,45 @@ export async function autoCompact(
       const triples = (lsm.segments ?? []).reduce((a, s) => a + (s.count ?? 0), 0);
       const segTh = options.lsmSegmentsThreshold ?? 1;
       const triTh = options.lsmTriplesThreshold ?? options.pageSize ?? manifest.pageSize ?? 1024;
-      if (segs >= segTh || triples >= triTh) includeLsmSegments = true;
+
+      console.log(`   📊 LSM segments: ${segs}`);
+      console.log(`   📊 LSM triples: ${triples}`);
+      console.log(`   🎯 Thresholds: segments >= ${segTh}, triples >= ${triTh}`);
+
+      if (segs >= segTh || triples >= triTh) {
+        includeLsmSegments = true;
+        console.log(`   ✅ Will include LSM segments in compaction`);
+        const reasons = [];
+        if (segs >= segTh) reasons.push(`segments ${segs} >= ${segTh}`);
+        if (triples >= triTh) reasons.push(`triples ${triples} >= ${triTh}`);
+        console.log(`   📋 Reason: ${reasons.join(' OR ')}`);
+      } else {
+        console.log(`   ❌ LSM segments below threshold - excluding`);
+      }
     } catch {
-      /* ignore */
+      console.log(`   ⚠️  No LSM manifest found - skipping LSM analysis`);
     }
+  } else if (includeLsmSegments) {
+    console.log(`   ✅ LSM segments explicitly included`);
+  } else {
+    console.log(`   ❌ LSM segments not requested`);
   }
 
   if (selectedOrders.length === 0 && includeLsmSegments && !(options.dryRun ?? false)) {
     // 当仅因为 LSM 段需要并入时，至少对指定 orders 执行一次合并
+    console.log(`\n🔄 No orders selected but LSM merge needed - selecting all orders`);
     selectedOrders = orders;
   }
 
-  if (selectedOrders.length === 0) return { selectedOrders };
+  console.log(`\n🎯 Final compaction decision:`);
+  console.log(`   Selected orders: [${selectedOrders.join(', ')}]`);
+  console.log(`   Include LSM segments: ${includeLsmSegments}`);
+  console.log(`   Dry run: ${options.dryRun ?? false}`);
+
+  if (selectedOrders.length === 0) {
+    console.log(`\n✅ No compaction needed - all indexes are optimal`);
+    return { selectedOrders };
+  }
 
   const compactOpts: CompactOptions = {
     orders: selectedOrders,
@@ -172,9 +315,24 @@ export async function autoCompact(
     includeLsmSegments,
   };
 
+  console.log(`\n🚀 Starting compaction...`);
   const stats = await compactDatabase(dbPath, compactOpts);
-  if (options.autoGC && !options.dryRun) {
-    await garbageCollectPages(dbPath);
+
+  console.log(`\n📊 Compaction completed:`);
+  console.log(`   Pages before: ${stats.pagesBefore ?? 0}`);
+  console.log(`   Pages after: ${stats.pagesAfter ?? 0}`);
+  console.log(`   Primaries merged: ${stats.primariesMerged ?? 0}`);
+  console.log(`   Removed by tombstones: ${stats.removedByTombstones ?? 0}`);
+  if (stats.ordersRewritten) {
+    console.log(`   Orders processed: [${stats.ordersRewritten.join(', ')}]`);
   }
+
+  if (options.autoGC && !options.dryRun) {
+    console.log(`\n🗑️  Running auto garbage collection...`);
+    await garbageCollectPages(dbPath);
+    console.log(`✅ Garbage collection completed`);
+  }
+
+  console.log(`\n✅ Auto-compact finished successfully`);
   return { selectedOrders, compact: stats };
 }
