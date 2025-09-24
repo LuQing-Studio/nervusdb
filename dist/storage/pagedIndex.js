@@ -265,7 +265,8 @@ function* iterateTriples(buffer) {
 const MANIFEST_NAME = 'index-manifest.json';
 export async function writePagedManifest(directory, manifest) {
     const file = join(directory, MANIFEST_NAME);
-    const tmp = `${file}.tmp`;
+    // 使用唯一的临时文件名，避免并发写入时的冲突（同一目录下可能并发调用）
+    const tmp = `${file}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     // 写入紧凑 JSON，减少 I/O 体积并加快序列化
     const json = Buffer.from(JSON.stringify(manifest), 'utf8');
     const fh = await fs.open(tmp, 'w');

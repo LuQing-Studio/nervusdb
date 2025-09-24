@@ -35,6 +35,7 @@ export declare class SynapseDB {
     private readonly store;
     private constructor();
     private _cypherSupport?;
+    private snapshotDepth;
     /**
      * 获取（或延迟创建）Cypher 支持实例
      */

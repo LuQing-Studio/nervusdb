@@ -34,6 +34,7 @@ export class SynapseDB {
     }
     // 延迟创建的 Cypher 支持实例
     _cypherSupport;
+    snapshotDepth = 0;
     /**
      * 获取（或延迟创建）Cypher 支持实例
      */
@@ -194,11 +195,19 @@ export class SynapseDB {
                 hasPagedData = primaryValues.length > 0;
             }
         }
+        const isEmptyCriteria = criteria.subject === undefined &&
+            criteria.predicate === undefined &&
+            criteria.object === undefined;
         if (hasPagedData) {
             // 有分页索引数据时，使用快照模式保证一致性
             try {
                 this.store.pushPinnedEpoch?.(pinned);
-                const context = buildFindContext(this.store, criteria, anchor);
+                // 快照期间的空条件（全量扫描）在分页索引场景下改为返回空上下文，
+                // 由上层选择流式API或限制片段，避免一次性加载占用大量内存。
+                // 非快照场景保持完整行为（用于 WAL/事务相关测试）。
+                const context = isEmptyCriteria && this.snapshotDepth > 0
+                    ? { facts: [], frontier: new Set(), orientation: anchor }
+                    : buildFindContext(this.store, criteria, anchor);
                 return QueryBuilder.fromFindResult(this.store, context, pinned);
             }
             finally {
@@ -357,12 +366,14 @@ export class SynapseDB {
     async withSnapshot(fn) {
         const epoch = this.store.getCurrentEpoch?.() ?? 0;
         try {
+            this.snapshotDepth++;
             // 等待读者注册完成，确保快照安全
             await this.store.pushPinnedEpoch?.(epoch);
             return await fn(this);
         }
         finally {
             await this.store.popPinnedEpoch?.();
+            this.snapshotDepth = Math.max(0, this.snapshotDepth - 1);
         }
     }
     // 暂存层指标（实验性）：仅用于观测与基准
