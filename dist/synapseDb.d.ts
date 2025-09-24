@@ -4,6 +4,7 @@ import { FactCriteria, FrontierOrientation, QueryBuilder, StreamingQueryBuilder,
 import { SynapseDBOpenOptions, CommitBatchOptions, BeginBatchOptions } from './types/openOptions.js';
 import { AggregationPipeline } from './query/aggregation.js';
 import { PatternBuilder } from './query/pattern/match.js';
+import { type CypherResult, type CypherExecutionOptions } from './query/cypher.js';
 export interface FactOptions {
     subjectProperties?: Record<string, unknown>;
     objectProperties?: Record<string, unknown>;
@@ -33,6 +34,11 @@ export interface FactOptions {
 export declare class SynapseDB {
     private readonly store;
     private constructor();
+    private _cypherSupport?;
+    /**
+     * 获取（或延迟创建）Cypher 支持实例
+     */
+    private getCypherSupport;
     /**
      * 打开或创建 SynapseDB 数据库
      *
@@ -168,6 +174,28 @@ export declare class SynapseDB {
         weightProperty?: string;
     }): FactRecord[] | null;
     cypher(query: string): Array<Record<string, unknown>>;
+    /**
+     * 执行 Cypher 查询（标准异步接口）
+     * 注意：为保持向后兼容，保留了上方同步版 `cypher()`（极简子集）。
+     */
+    cypherQuery(statement: string, parameters?: Record<string, unknown>, options?: CypherExecutionOptions): Promise<CypherResult>;
+    /**
+     * 执行只读 Cypher 查询
+     */
+    cypherRead(statement: string, parameters?: Record<string, unknown>, options?: CypherExecutionOptions): Promise<CypherResult>;
+    /**
+     * 验证 Cypher 语法
+     */
+    validateCypher(statement: string): {
+        valid: boolean;
+        errors: string[];
+    };
+    /** 清理 Cypher 优化器缓存 */
+    clearCypherOptimizationCache(): void;
+    /** 获取 Cypher 优化器统计信息 */
+    getCypherOptimizerStats(): any;
+    /** 预热 Cypher 优化器 */
+    warmUpCypherOptimizer(): Promise<void>;
 }
 export type { FactInput, FactRecord, SynapseDBOpenOptions, CommitBatchOptions, BeginBatchOptions, PropertyFilter, FrontierOrientation, };
 //# sourceMappingURL=synapseDb.d.ts.map

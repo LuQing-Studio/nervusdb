@@ -1,5 +1,6 @@
 import { promises as fsp } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { initializeIfMissing, readStorageFile, writeStorageFile } from './fileHeader.js';
 import { StringDictionary } from './dictionary.js';
 import { PropertyStore } from './propertyStore.js';
@@ -48,14 +49,27 @@ export class PersistentStore {
     snapshotRefCount = 0;
     activeReaderOperation = null;
     lsm;
+    // 内存模式（:memory:）支持：使用临时文件路径并在关闭时清理
+    memoryMode = false;
+    memoryBasePath;
     static async open(path, options = {}) {
-        await initializeIfMissing(path);
+        // 为 ':memory:' 提供真正的内存数据库语义：映射到唯一的临时路径
+        let effectivePath = path;
+        let memoryMode = false;
+        if (path === ':memory:') {
+            memoryMode = true;
+            const unique = `synapsedb-memory-${process.pid}-${Date.now()}-${Math.random()
+                .toString(36)
+                .slice(2)}`;
+            effectivePath = join(tmpdir(), `${unique}.synapsedb`);
+        }
+        await initializeIfMissing(effectivePath);
         // 当存在写锁且尝试以无锁模式打开时，若 WAL 非空（存在未落盘的写入），拒绝无锁访问
         // 用于防止已加锁写者运行期间，第二个“伪读者”的无锁写入引发并发风险
         try {
             if (options.enableLock === false) {
-                const lockPath = `${path}.lock`;
-                const walPath = `${path}.wal`;
+                const lockPath = `${effectivePath}.lock`;
+                const walPath = `${effectivePath}.wal`;
                 // 检查锁文件是否存在
                 const [lstat, wstat] = await Promise.allSettled([fsp.stat(lockPath), fsp.stat(walPath)]);
                 const locked = lstat.status === 'fulfilled';
@@ -69,7 +83,7 @@ export class PersistentStore {
         catch {
             // 防御性：出现异常时不影响正常打开流程
         }
-        const sections = await readStorageFile(path);
+        const sections = await readStorageFile(effectivePath);
         const dictionary = StringDictionary.deserialize(sections.dictionary);
         // 架构重构：不再加载完整TripleStore到内存，改为仅加载增量数据
         // 历史数据通过分页索引访问，只有WAL重放数据加载到内存
@@ -77,7 +91,7 @@ export class PersistentStore {
         const propertyStore = PropertyStore.deserialize(sections.properties);
         const indexes = TripleIndexes.deserialize(sections.indexes);
         // 初次打开且无 manifest 时，将以全量方式重建分页索引，无需在内存中保有全部索引
-        const indexDirectory = options.indexDirectory ?? `${path}.pages`;
+        const indexDirectory = options.indexDirectory ?? `${effectivePath}.pages`;
         // 清理当前进程可能残留的旧reader文件（防止上次异常退出的残留）
         try {
             await cleanupProcessReaders(indexDirectory, process.pid);
@@ -85,7 +99,10 @@ export class PersistentStore {
         catch {
             // 忽略清理错误，不影响数据库打开
         }
-        const store = new PersistentStore(path, dictionary, triples, propertyStore, indexes, indexDirectory);
+        const store = new PersistentStore(effectivePath, dictionary, triples, propertyStore, indexes, indexDirectory);
+        // 标记内存模式并记录基础路径，供 close() 清理
+        store.memoryMode = memoryMode;
+        store.memoryBasePath = effectivePath;
         if (options.enableLock) {
             store.lock = await acquireLock(path);
         }
@@ -98,14 +115,14 @@ export class PersistentStore {
         // 初始化标签管理器
         store.labelManager = new LabelManager(indexDirectory);
         // WAL 重放（将未持久化的增量恢复到内存与 staging）
-        store.wal = await WalWriter.open(path);
+        store.wal = await WalWriter.open(effectivePath);
         // 持久 txId 去重：读取注册表（可选）
         const { readTxIdRegistry, writeTxIdRegistry, toSet, mergeTxIds } = await import('./txidRegistry.js');
         const persistentTx = options.enablePersistentTxDedupe === true;
         const maxTx = options.maxRememberTxIds ?? 1000;
         const reg = persistentTx ? await readTxIdRegistry(indexDirectory) : { version: 1, txIds: [] };
         const knownTx = persistentTx ? toSet(reg) : undefined;
-        const replay = await new WalReplayer(path).replay(knownTx);
+        const replay = await new WalReplayer(effectivePath).replay(knownTx);
         for (const f of replay.addFacts)
             store.addFactDirect(f);
         for (const f of replay.deleteFacts)
@@ -1215,6 +1232,25 @@ export class PersistentStore {
         if (this.lsm) {
             this.lsm.drain(); // 清空 memtable
             this.lsm = undefined;
+        }
+        // 若为内存模式（:memory:），清理临时文件与目录
+        if (this.memoryMode && this.memoryBasePath) {
+            try {
+                await fsp.rm(`${this.memoryBasePath}.pages`, { recursive: true, force: true });
+            }
+            catch { }
+            try {
+                await fsp.unlink(`${this.memoryBasePath}.wal`).catch(() => { });
+            }
+            catch { }
+            try {
+                await fsp.unlink(`${this.memoryBasePath}.lock`).catch(() => { });
+            }
+            catch { }
+            try {
+                await fsp.unlink(this.memoryBasePath).catch(() => { });
+            }
+            catch { }
         }
     }
     bumpHot(order, primary) {

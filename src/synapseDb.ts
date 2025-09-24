@@ -20,6 +20,13 @@ import { AggregationPipeline } from './query/aggregation.js';
 import { VariablePathBuilder } from './query/path/variable.js';
 import { PatternBuilder } from './query/pattern/match.js';
 import { MinHeap } from './utils/minHeap.js';
+// Cypher 支持（异步 API）
+import {
+  createCypherSupport,
+  type CypherSupport,
+  type CypherResult,
+  type CypherExecutionOptions,
+} from './query/cypher.js';
 
 export interface FactOptions {
   subjectProperties?: Record<string, unknown>;
@@ -50,6 +57,18 @@ export interface FactOptions {
  */
 export class SynapseDB {
   private constructor(private readonly store: PersistentStore) {}
+  // 延迟创建的 Cypher 支持实例
+  private _cypherSupport?: CypherSupport;
+
+  /**
+   * 获取（或延迟创建）Cypher 支持实例
+   */
+  private getCypherSupport(): CypherSupport {
+    if (!this._cypherSupport) {
+      this._cypherSupport = createCypherSupport(this.store);
+    }
+    return this._cypherSupport;
+  }
 
   /**
    * 打开或创建 SynapseDB 数据库
@@ -824,6 +843,61 @@ export class SynapseDB {
       out.push(env);
     }
     return out;
+  }
+
+  // ------------------
+  // Cypher 异步标准接口
+  // ------------------
+
+  /**
+   * 执行 Cypher 查询（标准异步接口）
+   * 注意：为保持向后兼容，保留了上方同步版 `cypher()`（极简子集）。
+   */
+  async cypherQuery(
+    statement: string,
+    parameters: Record<string, unknown> = {},
+    options: CypherExecutionOptions = {},
+  ): Promise<CypherResult> {
+    const cypher = this.getCypherSupport();
+    return cypher.cypher(statement, parameters, options);
+  }
+
+  /**
+   * 执行只读 Cypher 查询
+   */
+  async cypherRead(
+    statement: string,
+    parameters: Record<string, unknown> = {},
+    options: CypherExecutionOptions = {},
+  ): Promise<CypherResult> {
+    const cypher = this.getCypherSupport();
+    return cypher.cypherRead(statement, parameters, options);
+  }
+
+  /**
+   * 验证 Cypher 语法
+   */
+  validateCypher(statement: string): { valid: boolean; errors: string[] } {
+    const cypher = this.getCypherSupport();
+    return cypher.validateCypher(statement);
+  }
+
+  /** 清理 Cypher 优化器缓存 */
+  clearCypherOptimizationCache(): void {
+    const cypher = this.getCypherSupport();
+    cypher.clearOptimizationCache();
+  }
+
+  /** 获取 Cypher 优化器统计信息 */
+  getCypherOptimizerStats(): any {
+    const cypher = this.getCypherSupport();
+    return cypher.getOptimizerStats();
+  }
+
+  /** 预热 Cypher 优化器 */
+  async warmUpCypherOptimizer(): Promise<void> {
+    const cypher = this.getCypherSupport();
+    await cypher.warmUpOptimizer();
   }
 }
 

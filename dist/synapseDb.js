@@ -4,6 +4,8 @@ import { AggregationPipeline } from './query/aggregation.js';
 import { VariablePathBuilder } from './query/path/variable.js';
 import { PatternBuilder } from './query/pattern/match.js';
 import { MinHeap } from './utils/minHeap.js';
+// Cypher 支持（异步 API）
+import { createCypherSupport, } from './query/cypher.js';
 /**
  * SynapseDB - 嵌入式三元组知识库
  *
@@ -29,6 +31,17 @@ export class SynapseDB {
     store;
     constructor(store) {
         this.store = store;
+    }
+    // 延迟创建的 Cypher 支持实例
+    _cypherSupport;
+    /**
+     * 获取（或延迟创建）Cypher 支持实例
+     */
+    getCypherSupport() {
+        if (!this._cypherSupport) {
+            this._cypherSupport = createCypherSupport(this.store);
+        }
+        return this._cypherSupport;
     }
     /**
      * 打开或创建 SynapseDB 数据库
@@ -671,6 +684,46 @@ export class SynapseDB {
             out.push(env);
         }
         return out;
+    }
+    // ------------------
+    // Cypher 异步标准接口
+    // ------------------
+    /**
+     * 执行 Cypher 查询（标准异步接口）
+     * 注意：为保持向后兼容，保留了上方同步版 `cypher()`（极简子集）。
+     */
+    async cypherQuery(statement, parameters = {}, options = {}) {
+        const cypher = this.getCypherSupport();
+        return cypher.cypher(statement, parameters, options);
+    }
+    /**
+     * 执行只读 Cypher 查询
+     */
+    async cypherRead(statement, parameters = {}, options = {}) {
+        const cypher = this.getCypherSupport();
+        return cypher.cypherRead(statement, parameters, options);
+    }
+    /**
+     * 验证 Cypher 语法
+     */
+    validateCypher(statement) {
+        const cypher = this.getCypherSupport();
+        return cypher.validateCypher(statement);
+    }
+    /** 清理 Cypher 优化器缓存 */
+    clearCypherOptimizationCache() {
+        const cypher = this.getCypherSupport();
+        cypher.clearOptimizationCache();
+    }
+    /** 获取 Cypher 优化器统计信息 */
+    getCypherOptimizerStats() {
+        const cypher = this.getCypherSupport();
+        return cypher.getOptimizerStats();
+    }
+    /** 预热 Cypher 优化器 */
+    async warmUpCypherOptimizer() {
+        const cypher = this.getCypherSupport();
+        await cypher.warmUpOptimizer();
     }
 }
 function inferAnchor(criteria) {

@@ -55,6 +55,8 @@ export declare class PersistentStore {
     private snapshotRefCount;
     private activeReaderOperation;
     private lsm?;
+    private memoryMode;
+    private memoryBasePath?;
     static open(path: string, options?: PersistentStoreOptions): Promise<PersistentStore>;
     private pagedReaders;
     private hydratePagedReaders;

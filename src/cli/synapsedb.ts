@@ -18,6 +18,8 @@
  *   hot <db> [...args]
  *   readers <db> [--json] [--watch] [--details]
  *   repair-page <db> <order> <primary>
+ *   cypher <db> [--query|-q <cypher>] [--file <path>] [--readonly] [--optimize[=basic|aggressive]] [--params JSON] [--format table|json] [--limit N]
+ *   benchmark [run|core|search|graph|spatial|regression|memory-leak] [...args]
  */
 
 import { spawn } from 'node:child_process';
@@ -54,6 +56,8 @@ function usage(): void {
     '  hot <db> [...args]',
     '  readers <db> [--json] [--watch] [--details]',
     '  repair-page <db> <order> <primary>',
+    '  cypher <db> [--query|-q <cypher>] [--file <path>] [--readonly] [--optimize[=basic|aggressive]] [--params JSON] [--format table|json] [--limit N]',
+    '  benchmark [run|core|search|graph|spatial|regression|memory-leak] [...args]',
   ];
   console.log(lines.join('\n'));
 }
@@ -120,6 +124,16 @@ async function main() {
     }
     case 'repair-page': {
       const code = await run(rel('./repair_page.js'), rest);
+      process.exit(code);
+      break;
+    }
+    case 'cypher': {
+      const code = await run(rel('./cypher.js'), ['cypher', ...rest]);
+      process.exit(code);
+      break;
+    }
+    case 'benchmark': {
+      const code = await run(rel('./benchmark.js'), rest);
       process.exit(code);
       break;
     }
