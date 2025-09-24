@@ -13,9 +13,11 @@ export default defineConfig({
     pool: 'forks',
     poolOptions: {
       forks: {
+        // 单进程串行运行测试，降低峰值内存和句柄压力
+        singleFork: true,
         minForks: 1,
-        maxForks: 2,
-        execArgv: ['--max-old-space-size=2048']
+        maxForks: 1,
+        execArgv: ['--max-old-space-size=4096']
       }
     },
     // 保守起见，禁用文件级并发执行，降低资源争用
