@@ -9,6 +9,18 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     testTimeout: 20000,
+    // IO 与磁盘操作较多，限制并发线程以避免句柄/内存压力导致 worker 崩溃
+    pool: 'threads',
+    poolOptions: {
+      threads: {
+        minThreads: 1,
+        maxThreads: 2
+      }
+    },
+    // 保守起见，禁用文件级并发执行，降低资源争用
+    sequence: {
+      concurrent: false
+    },
     include: ['tests/**/*.test.ts'],
     coverage: {
       provider: 'v8',
