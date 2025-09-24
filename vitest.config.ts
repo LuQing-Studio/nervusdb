@@ -9,12 +9,13 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     testTimeout: 20000,
-    // IO 与磁盘操作较多，限制并发线程以避免句柄/内存压力导致 worker 崩溃
-    pool: 'threads',
+    // IO 与磁盘操作较多，使用 forks 池并限制并发，增加可用堆内存，避免 OOM/句柄压力
+    pool: 'forks',
     poolOptions: {
-      threads: {
-        minThreads: 1,
-        maxThreads: 2
+      forks: {
+        minForks: 1,
+        maxForks: 2,
+        execArgv: ['--max-old-space-size=2048']
       }
     },
     // 保守起见，禁用文件级并发执行，降低资源争用
