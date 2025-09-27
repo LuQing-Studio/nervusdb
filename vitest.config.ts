@@ -9,18 +9,17 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     testTimeout: 20000,
-    // IO 与磁盘操作较多，使用 forks 池并限制并发，增加可用堆内存，避免 OOM/句柄压力
+    // IO 与磁盘操作较多，使用 forks 池进行适度并发，避免内存累积
     pool: 'forks',
     poolOptions: {
       forks: {
-        // 单进程串行运行测试，降低峰值内存和句柄压力
-        singleFork: true,
+        // 允许多进程并行运行，避免单进程内存累积问题
         minForks: 1,
-        maxForks: 1,
-        execArgv: ['--max-old-space-size=4096']
+        maxForks: 2, // 减少并发度，降低内存压力
+        execArgv: ['--max-old-space-size=8192'] // 增加每个fork进程的内存(应对JIT编译峰值)
       }
     },
-    // 保守起见，禁用文件级并发执行，降低资源争用
+    // 禁用文件级并发，确保任何时候只有一个测试在初始化，避免内存峰值
     sequence: {
       concurrent: false
     },

@@ -107,3 +107,11 @@ docs/
 
 - 📝 日常任务 → `docs/todo/`
 - 🚀 里程碑规划 → `docs/milestones/`
+
+---
+
+### 算法优化
+
+- **[ ] 实现 Louvain 算法的图折叠功能 (`buildCommunityGraph`)**
+  - **位置:** `src/algorithms/community.ts`
+  - **描述:** 当前 `buildCommunityGraph` 方法是一个存根，仅返回原图的克隆，导致无法进行多层次优化。为避免无限循环，已添加临时的防御性跳出机制。需要完整实现图折叠逻辑，将同一社区的节点合并为超节点，以完成完整的 Louvain 算法，并移除临时的跳出机制。

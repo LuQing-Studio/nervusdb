@@ -47,6 +47,7 @@ export class LouvainCommunityDetection implements CommunityDetectionAlgorithm {
     let level = 0;
 
     while (true) {
+      console.log('[DEBUG] Louvain: Entering main loop, level', level);
       // 第一阶段：局部优化
       const { newCommunities, improved } = this.louvainPhaseOne(
         currentGraph,
@@ -72,7 +73,15 @@ export class LouvainCommunityDetection implements CommunityDetectionAlgorithm {
       });
 
       // 第二阶段：图折叠
+      const previousNodeCount = currentGraph.getNodes().length;
       currentGraph = this.buildCommunityGraph(currentGraph, communities);
+      const currentNodeCount = currentGraph.getNodes().length;
+
+      // 防御性编程：如果图没有被折叠（节点数未减少），则跳出循环避免死循环
+      if (currentNodeCount === previousNodeCount) {
+        // console.warn('[WARN] Louvain: Graph folding not implemented. Breaking loop to prevent infinite execution.');
+        break;
+      }
 
       // 更新社区映射为新图的节点
       const newNodes = currentGraph.getNodes();
@@ -155,6 +164,7 @@ export class LouvainCommunityDetection implements CommunityDetectionAlgorithm {
     tolerance: number,
     randomness: number
   ): { newCommunities: Map<string, number>; improved: boolean } {
+    console.log('[DEBUG] Louvain: Entering phase one...');
     const nodes = graph.getNodes();
     let communities = new Map(initialCommunities);
     let improved = false;
@@ -212,6 +222,7 @@ export class LouvainCommunityDetection implements CommunityDetectionAlgorithm {
       }
     }
 
+    console.log('[DEBUG] Louvain: Exiting phase one, improved:', improved);
     return { newCommunities: communities, improved };
   }
 
@@ -251,6 +262,7 @@ export class LouvainCommunityDetection implements CommunityDetectionAlgorithm {
    * 构建社区图（将同一社区的节点合并）
    */
   private buildCommunityGraph(graph: Graph, communities: Map<string, number>): Graph {
+    console.log('[DEBUG] Louvain: Building community graph (currently cloning)...');
     // 为简化实现，这里返回原图的克隆
     // 在实际实现中，应该将同一社区的节点合并为一个超节点
     return graph.clone();
