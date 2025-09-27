@@ -21,6 +21,11 @@ pnpm run format:write
 # 将格式化产生的变更加入本次提交
 git add README.md docs/**/*.md .agents/**/*.md .github/**/*.yml package.json || true
 
-echo "[husky] pre-commit: full CI (typecheck + lint + tests + build)"
-# 运行完整的本地校验流程，任何一步失败将阻止提交
-pnpm run ci
+# 仅当提交中包含源码/测试改动时，才运行完整 CI（含覆盖率门槛）
+CHANGED_FILES=$(git diff --cached --name-only)
+if echo "$CHANGED_FILES" | grep -Eq '^(src/|tests/|vitest\.config\.ts$|tsconfig.*|eslint\.config\.js$)'; then
+  echo "[husky] pre-commit: full CI with coverage (typecheck + lint + test:coverage + build)"
+  pnpm run ci
+else
+  echo "[husky] pre-commit: skip full CI (no src/tests changes)"
+fi
