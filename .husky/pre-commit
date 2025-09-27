@@ -20,3 +20,7 @@ pnpm run format:write
 
 # 将格式化产生的变更加入本次提交
 git add README.md docs/**/*.md .agents/**/*.md .github/**/*.yml package.json || true
+
+echo "[husky] pre-commit: full CI (typecheck + lint + tests + build)"
+# 运行完整的本地校验流程，任何一步失败将阻止提交
+pnpm run ci
