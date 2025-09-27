@@ -270,7 +270,8 @@ export class LouvainCommunityDetection implements CommunityDetectionAlgorithm {
 /**
  * 标签传播算法实现
  */
-  detectCommunities(graph: Graph): CommunityResult {
+export class LabelPropagationCommunityDetection implements CommunityDetectionAlgorithm {
+  detectCommunities(graph: Graph, options: AlgorithmOptions = {}): CommunityResult {
     const { maxIterations = 100 } = options;
 
     const nodes = graph.getNodes();

@@ -363,6 +363,7 @@ export class ClosenessCentrality implements CentralityAlgorithm {
 /**
  * 度中心性算法实现
  */
+export class DegreeCentrality implements CentralityAlgorithm {
   compute(graph: Graph): CentralityResult {
     const nodes = graph.getNodes();
     const degree = new Map<string, number>();
