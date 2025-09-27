@@ -19,8 +19,7 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
+        # The version is automatically read from the package.json's packageManager field
 
       - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
