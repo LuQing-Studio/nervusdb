@@ -12,7 +12,7 @@ import {
   FullTextSearchResultWithFacts,
 } from './synapsedbExtension.js';
 
-import { SearchOptions, SearchResult } from './types.js';
+import type { SearchOptions, SearchResult } from './types.js';
 
 /**
  * 扩展 SynapseDB 类的接口，添加全文搜索方法

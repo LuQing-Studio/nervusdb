@@ -4,7 +4,7 @@
  * 提供TF-IDF、BM25等经典相关性评分算法
  */
 
-import { Document, DocumentCorpus, RelevanceScorer } from './types.js';
+import type { Document, DocumentCorpus, RelevanceScorer } from './types.js';
 
 /**
  * TF-IDF相关性评分器

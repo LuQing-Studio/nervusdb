@@ -9,7 +9,7 @@ import { MemoryGraph } from '../algorithms/graph.js';
 import { GraphAlgorithmSuiteImpl } from '../algorithms/suite.js';
 import { FullTextSearchFactory } from '../fulltext/engine.js';
 import { SpatialGeometryImpl } from '../spatial/geometry.js';
-import { BenchmarkSuite } from './types.js';
+import type { BenchmarkSuite } from './types.js';
 import { BenchmarkUtils } from './runner.js';
 
 /**

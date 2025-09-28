@@ -5,7 +5,14 @@
  * 以及针对SynapseDB优化的路径搜索实现
  */
 
-import { Graph, PathAlgorithm, PathOptions, Path, ShortestPathResult, GraphEdge } from './types.js';
+import type {
+  Graph,
+  PathAlgorithm,
+  PathOptions,
+  Path,
+  ShortestPathResult,
+  GraphEdge,
+} from './types.js';
 
 /**
  * Dijkstra 最短路径算法实现

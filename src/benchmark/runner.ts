@@ -4,7 +4,7 @@
  * 提供统一的性能测试执行框架，支持多种测试模式和结果收集
  */
 
-import {
+import type {
   BenchmarkTest,
   BenchmarkSuite,
   BenchmarkResult,

@@ -40,11 +40,11 @@ export default defineConfig({
         'cspell.config.cjs',
         // 仅保留类型/配置与 CLI（不参与覆盖率门槛）
         'src/types/**',
-        'src/algorithms/types.ts',
-        'src/benchmark/types.ts',
         
         
-        'src/fulltext/types.ts',
+        
+        
+        
       ],
       thresholds: {
         statements: 80,

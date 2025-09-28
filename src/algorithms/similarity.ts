@@ -4,7 +4,7 @@
  * 提供各种图节点相似度计算方法，包括结构相似度和语义相似度
  */
 
-import { Graph, SimilarityAlgorithm, SimilarityResult } from './types.js';
+import type { Graph, SimilarityAlgorithm, SimilarityResult } from './types.js';
 
 /**
  * Jaccard相似度算法实现

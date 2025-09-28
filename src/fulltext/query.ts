@@ -4,7 +4,7 @@
  * 提供布尔查询、模糊搜索、短语查询等完整的查询处理功能
  */
 
-import {
+import type {
   Query,
   BooleanQuery,
   SearchOptions,

@@ -4,7 +4,7 @@
  * 整合所有全文搜索组件，提供统一的搜索API
  */
 
-import {
+import type {
   FullTextConfig,
   FullTextSearchEngine,
   Document,

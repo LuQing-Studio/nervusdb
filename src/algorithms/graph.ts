@@ -4,7 +4,7 @@
  * 提供内存图存储和基础图操作功能
  */
 
-import { Graph, GraphNode, GraphEdge, GraphStats } from './types.js';
+import type { Graph, GraphNode, GraphEdge, GraphStats } from './types.js';
 
 /**
  * 内存图实现
