@@ -1,60 +1,72 @@
-# 01 · 项目接入（本地 tgz 安装）
+# 示例 01 · 项目接入（本地 tgz 安装）
 
-> 适用于“尚未发布到 npm / 私有源”的本地验证；推荐方式。
+## 目标
 
-## 1）在 SynapseDB 仓库打包
+- 将 SynapseDB 以 tgz 包形式安装到现有项目
+- 验证构建产物与 TypeScript 类型无缝工作
+
+## 前提
+
+- 已执行 `pnpm build`
+- 目标项目支持 ESM 或具备 tsconfig 配置
+
+## 步骤 1：打包
 
 ```bash
-pnpm build && pnpm pack
-# 生成 synapsedb-<version>.tgz
+pnpm pack
 ```
 
-## 2）在你的业务项目中安装 tgz
+生成文件形如：`synapsedb-1.1.0.tgz`
+
+## 步骤 2：在目标项目安装
 
 ```bash
-# 进入你的业务项目根目录
-npm i ../path/to/synapsedb-1.0.0.tgz
+cd /path/to/your-app
+pnpm add ../SynapseDB/synapsedb-1.1.0.tgz
 ```
 
-## 3）最小示例（ESM）
+或使用 npm：`npm install ../SynapseDB/synapsedb-1.1.0.tgz`
 
-新建 `scripts/demo.mts`：
+## 步骤 3：TypeScript 配置
+
+`tsconfig.json`
+
+```json
+{
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "esModuleInterop": true,
+    "resolveJsonModule": true
+  }
+}
+```
+
+## 步骤 4：编写测试代码
 
 ```ts
 import { SynapseDB } from 'synapsedb';
 
-const db = await SynapseDB.open('mydb.synapsedb', {
-  pageSize: 1024,
-  enableLock: true,
-  registerReader: true,
-  compression: { codec: 'brotli', level: 4 },
-});
-
-db.addFact({ subject: 'Alice', predicate: 'KNOWS', object: 'Bob' });
-
-db.addFact({ subject: 'Bob', predicate: 'KNOWS', object: 'Carol' });
-
-const friends = db.find({ subject: 'Alice', predicate: 'KNOWS' }).follow('KNOWS').all();
-
-console.log(
-  'Alice 的二跳朋友：',
-  friends.map((x) => x.object),
-);
-
-await db.flush();
+const db = await SynapseDB.open('app.synapsedb', { enableLock: true });
+await db.addFact({ subject: 'user:alice', predicate: 'FRIEND_OF', object: 'user:bob' });
+console.log(await db.find({ predicate: 'FRIEND_OF' }).all());
 await db.close();
 ```
 
-运行（任选其一）：
+## 步骤 5：打包或部署
 
-```bash
-npx tsx scripts/demo.mts
-# 或
-node --loader ts-node/esm scripts/demo.mts
-```
+- Webpack / Vite / tsup：确保 `external` 排除 `synapsedb` 或配置为 ESM
+- 若使用 Docker，记得将 `node_modules` 与数据目录一并复制
 
-## 4）注意事项
+## 常见问题
 
-- 你的项目需为 ESM（package.json: `{ "type": "module" }`）或使用 ESM 运行器
-- 生产建议 `enableLock: true`（写锁）与 `registerReader: true`
-- 写入后 `await db.flush()` 保证持久化与索引合并
+| 现象                   | 原因                    | 解决                                                                                |
+| ---------------------- | ----------------------- | ----------------------------------------------------------------------------------- |
+| `ERR_MODULE_NOT_FOUND` | ESM 配置缺失            | 设置 `"type": "module"` 或使用 `await import`                                       |
+| 类型提示缺失           | IDE 未加载项目 tsconfig | 在 VSCode 中执行 `TypeScript: Select TypeScript Version` -> `Use Workspace Version` |
+| 包含源码路径           | 未执行 `pnpm build`     | 打包前务必构建，tgz 会包含 dist/                                                    |
+
+## 延伸阅读
+
+- [示例 02 · 项目接入（npm link）](02-项目接入-npm-link.md)
+- [教程 08 · 部署与最佳实践](../教学文档/教程-08-部署与最佳实践.md)

@@ -1,29 +1,55 @@
-# 02 · 项目接入（npm link 开发联调）
+# 示例 02 · 项目接入（npm link）
 
-> 适合本地双仓联调：在 SynapseDB 仓库 link，一次更改，多处引用。
+## 目标
 
-## 1）在 SynapseDB 仓库执行 link
+- 在多仓协同开发时，通过 npm link 将 SynapseDB 作为本地依赖
+- 支持边修改边在业务项目中调试
 
-```bash
-npm link
-```
-
-## 2）在你的业务项目中 link 进来
+## 步骤 1：在 SynapseDB 仓库创建 link
 
 ```bash
-npm link synapsedb
+cd /Volumes/WorkDrive/Develop/github/SynapseDB
+pnpm build
+npm link    # 或 pnpm link --global
 ```
 
-## 3）使用方式同“本地 tgz”示例
-
-- import：`import { SynapseDB } from 'synapsedb'`
-- 运行脚本同上
-
-## 4）还原
+## 步骤 2：在业务项目中引用
 
 ```bash
-# 在业务项目
-npm unlink synapsedb && npm i
-# 在 SynapseDB 仓库
-npm unlink
+cd /path/to/your-app
+npm link synapsedb    # 或 pnpm link synapsedb
 ```
+
+## 步骤 3：刷新类型
+
+- 业务项目运行 `pnpm install`
+- IDE 中执行 TypeScript 重载，确保读取到本地包
+
+## 步骤 4：调试流程
+
+- 在 SynapseDB 中修改源码 → `pnpm build`
+- 业务项目重新运行测试或服务
+- 可使用 `pnpm dev`（SynapseDB）+ `npm run dev`（业务项目）双向 watch
+
+## 步骤 5：解除 link
+
+```bash
+cd /path/to/your-app
+npm unlink synapsedb --no-save
+npm install synapsedb
+```
+
+或在全局：`npm unlink synapsedb`
+
+## 常见问题
+
+| 现象                 | 原因                         | 解决                                      |
+| -------------------- | ---------------------------- | ----------------------------------------- |
+| 业务项目找不到包     | 未执行 `npm link` 或路径错误 | 重新 link，确认包名 `synapsedb`           |
+| 类型提示与源码不一致 | 未重新 build                 | 每次源码变更后执行 `pnpm build`           |
+| Windows 上权限问题   | 全局 npm 目录需要管理员权限  | 使用 `nvm`/`fnm` 安装 Node 或以管理员运行 |
+
+## 延伸阅读
+
+- [示例 01 · 本地 tgz 安装](01-项目接入-本地tgz安装.md)
+- [教程 01 · 安装与环境](../教学文档/教程-01-安装与环境.md)

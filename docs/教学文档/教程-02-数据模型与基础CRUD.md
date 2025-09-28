@@ -1,66 +1,126 @@
 # 教程 02 · 数据模型与基础 CRUD
 
-## 数据模型
+## 目标
 
-- 事实（Fact）：`{ subject, predicate, object }`，均为字符串
-- 存储时内部编码为数字 ID（三元组：`{ subjectId, predicateId, objectId }`）
-- 属性：
-  - 节点属性（主语/宾语）：`get/setNodeProperties(nodeId, props)`
-  - 边属性（三元组键）：`get/setEdgeProperties({subjectId,predicateId,objectId}, props)`
+- 理解 SynapseDB 的数据模型：三元组、属性、节点 ID、边 ID
+- 掌握基础写入、查询、删除与 flush 流程
+- 使用事务批次与类型安全包装器完成一次完整写入
 
-## 基础增删改查
+## 前置要求
+
+- 已完成 [教程 01 · 安装与环境](教程-01-安装与环境.md)
+- 拥有演示库 `demo.synapsedb`
+
+## 核心概念
+
+| 概念    | 说明                                                             |
+| ------- | ---------------------------------------------------------------- |
+| Fact    | `{ subject, predicate, object }` 构成的三元组，内部映射为数字 ID |
+| Node ID | `getNodeId(value)` 得到的整数标识，对应字符串值                  |
+| 属性    | 节点或边附带的 JSON 文档，存储在属性区并带 `__v` 版本号          |
+| 批次    | `beginBatch` ~ `commitBatch/abortBatch`，写入 WAL v2             |
+| flush   | 持久化数据并触发增量索引合并，重置 WAL                           |
+
+## 操作步骤
+
+### 1. 写入三元组
 
 ```ts
 import { SynapseDB } from 'synapsedb';
 
 const db = await SynapseDB.open('demo.synapsedb');
+await db.addFact({ subject: 'user:alice', predicate: 'FRIEND_OF', object: 'user:bob' });
+await db.addFact({ subject: 'user:bob', predicate: 'FRIEND_OF', object: 'user:carol' });
+```
 
-// Create：新增事实（可附带属性）
-const rec = db.addFact(
-  { subject: 'Alice', predicate: 'knows', object: 'Bob' },
-  { edgeProperties: { weight: 1 } },
+### 2. 写入属性
+
+```ts
+await db.addFact(
+  { subject: 'user:alice', predicate: 'WORKS_AT', object: 'team:rnd' },
+  {
+    subjectProperties: { labels: ['Person'], title: 'Staff Engineer' },
+    objectProperties: { labels: ['Team'], manager: 'user:bob' },
+    edgeProperties: { since: '2023-01-01', strength: 0.9 },
+  },
 );
+```
 
-// Read：点查 / 列表 / 流式
-const all = db.listFacts();
-const knows = db.find({ predicate: 'knows' }).all();
-for await (const batch of db.streamFacts({ predicate: 'knows' }, 500)) {
-  // 批处理
+### 3. 查询与取值
+
+```ts
+const facts = await db.find({ subject: 'user:alice' }).all();
+for (const fact of facts) {
+  console.log(fact.subject, fact.predicate, fact.object);
+  console.log(fact.subjectProperties, fact.edgeProperties);
 }
 
-// Update：属性更新（节点/边）
-db.setNodeProperties(rec.subjectId, { title: 'Engineer' });
-db.setEdgeProperties(
-  { subjectId: rec.subjectId, predicateId: rec.predicateId, objectId: rec.objectId },
-  { weight: 2 },
-);
+const nodeId = await db.getNodeId('user:alice');
+const nodeProps = await db.getNodeProperties(nodeId);
+```
 
-// Delete：逻辑删除（写入 tombstone，查询自动过滤）
-db.deleteFact({ subject: 'Alice', predicate: 'knows', object: 'Bob' });
+### 4. 删除事实
 
-// 落盘持久化（字典/三元组/属性 + 分页索引合并 + WAL 重置 + 热度写入）
+```ts
+await db.deleteFact({ subject: 'user:bob', predicate: 'FRIEND_OF', object: 'user:carol' });
+```
+
+> 删除操作写入 tombstone，后续 compaction/GC 会清理。
+
+### 5. 批次写入
+
+```ts
+db.beginBatch({ txId: 'tx-2025-0001', sessionId: 'ingest-service' });
+db.addFact({ subject: 'repo:core', predicate: 'DEPENDS_ON', object: 'repo:storage' });
+db.addFact({ subject: 'repo:core', predicate: 'DEPENDS_ON', object: 'repo:query' });
+db.commitBatch();
+```
+
+### 6. flush 与关闭
+
+```ts
 await db.flush();
 await db.close();
 ```
 
-## 事实“改写”建议
-
-事实的 S/P/O 变动通常视为“删后加”的语义更清晰：
+## 类型安全包装器
 
 ```ts
-db.beginBatch();
-db.deleteFact({ subject: 'Alice', predicate: 'knows', object: 'Bob' });
-db.addFact({ subject: 'Alice', predicate: 'knows', object: 'Carol' });
-db.commitBatch();
+import { TypedSynapseDB } from '@/typedSynapseDb';
+
+interface NodeProps {
+  labels: string[];
+  kind: 'Person' | 'Team' | 'Repo';
+}
+interface EdgeProps {
+  since?: string;
+  weight?: number;
+}
+
+const typed = await TypedSynapseDB.open<NodeProps, EdgeProps>('demo.synapsedb');
+const repos = await typed
+  .find({ predicate: 'DEPENDS_ON' })
+  .where((edge) => edge.edgeProperties?.weight! >= 0.5)
+  .limit(10)
+  .all();
 ```
 
-## 读取属性
+## 验证
 
-```ts
-const propsNode = db.getNodeProperties(rec.subjectId); // Record | null
-const propsEdge = db.getEdgeProperties({
-  subjectId: rec.subjectId,
-  predicateId: rec.predicateId,
-  objectId: rec.objectId,
-});
-```
+- `synapsedb stats demo.synapsedb --summary` 中文件数、墓碑、热度符合预期
+- `synapsedb dump demo.synapsedb SPO <primary>` 可看到新增事实与 tombstone
+
+## 常见问题
+
+| 情况             | 原因                              | 解决                                       |
+| ---------------- | --------------------------------- | ------------------------------------------ |
+| 查询结果为空     | 三元组未写入或未 flush            | 检查 `addFact` 是否成功、执行 `db.flush()` |
+| 属性未更新       | 版本冲突或 JSON 不合法            | 确保属性为纯 JSON；查看 `__v` 版本控制     |
+| `getNodeId` 报错 | 节点不存在                        | 先写入或处理 `undefined` 结果              |
+| 批次 commit 超时 | 未调用 `commitBatch` 或被异常中断 | 适时 `abortBatch` 并重试                   |
+
+## 延伸阅读
+
+- [教程 03 · 查询与链式联想](教程-03-查询与链式联想.md)
+- [docs/使用示例/03-查询与联想-示例.md](../使用示例/03-查询与联想-示例.md)
+- [docs/使用示例/TypeScript类型系统使用指南.md](../使用示例/TypeScript类型系统使用指南.md)

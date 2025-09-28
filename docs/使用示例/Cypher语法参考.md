@@ -1,57 +1,68 @@
-# Cypher 语法参考（SynapseDB）
+# Cypher 语法参考
 
-本文档总结 SynapseDB 当前支持的 Cypher 语法子集与用法示例，并给出到内部执行引擎的能力映射，便于开发与迁移。
+## 支持概览
 
-## 支持范围（概览）
+| 特性                            | 状态         |
+| ------------------------------- | ------------ |
+| `MATCH (a)-[r]->(b)`            | ✅           |
+| 标签过滤 `(n:Label)`            | ✅           |
+| 属性过滤 `WHERE r.weight > 0.5` | ✅           |
+| 路径长度 `[*1..3]`              | ✅           |
+| 变量路径赋值 `p = (...)`        | ✅           |
+| 聚合 `RETURN count(*)`          | ✅           |
+| `ORDER BY` / `LIMIT`            | ✅           |
+| `OPTIONAL MATCH`                | ⬜（规划中） |
+| `UNION`                         | ✅           |
+| 子查询 `CALL { ... }`           | ⬜           |
 
-- MATCH/WHERE/RETURN/WITH 基本子句
-- 节点与关系模式：`(a:Label {k:v})-[r:TYPE*min..max]->(b)`
-- 变长路径：`*1..N`
-- 投影/别名/聚合（示例级）
-- LIMIT/ORDER BY（在编译与优化层支持）
-- 参数化查询：`$param`
+## 基本查询
 
-不支持或规划中：
-
-- CREATE/SET/DELETE/MERGE（计划逐步开放写路径）
-
-## 快速上手
-
-```ts
-const res = await db.cypherRead(
-  'MATCH (p:Person)-[:KNOWS]->(f:Person) WHERE f.age > $minAge RETURN p,f LIMIT $limit',
-  { minAge: 25, limit: 10 },
-);
+```cypher
+MATCH (u:Person)-[:FRIEND_OF]->(v:Person)
+WHERE u.city = 'Shanghai'
+RETURN v LIMIT 10;
 ```
 
-同步极简子集（兼容）：
+## 变长路径
 
-```ts
-const rows = db.cypher('MATCH (a)-[:REL*2..3]->(b) RETURN a,b');
+```cypher
+MATCH p = (a:Person { id: 'user:alice' })-[:FRIEND_OF*1..4]->(b:Person)
+RETURN p;
 ```
 
-## 语法要点
+## 聚合
 
-- 节点：`(var:Label1:Label2 {k1: v1, k2: v2})`
-- 关系：`-[r:TYPE {k:v}]->`，方向 `->`/`<-`/`-`
-- 变长路径：`*min..max`，如 `*1..3`
-- WHERE：支持比较与属性访问，如 `a.age > 25`
-- RETURN：投影变量或属性，支持别名：`RETURN a.name AS name`
-
-## CLI 使用
-
-```
-synapsedb cypher data.synapsedb -q "MATCH (n) RETURN n LIMIT 5" --readonly
-synapsedb cypher data.synapsedb --file query.cql --optimize=aggressive --params '{"minAge":25}'
+```cypher
+MATCH (:Person)-[r:FRIEND_OF]->(b:Person)
+RETURN b.dept AS dept, count(*) AS friendCount
+ORDER BY friendCount DESC
+LIMIT 5;
 ```
 
-## 能力映射
+## 组合查询
 
-- 解析/编译/优化/执行：`src/query/pattern/*`, `src/query/cypher.ts`
-- 数据库入口：`src/synapseDb.ts`（`cypherQuery/cypherRead/validateCypher`）
-- 测试用例：`tests/cypher_basic.test.ts`, `tests/cypher_optimization.test.ts`, `tests/cypher_variable_path.test.ts`
+```cypher
+MATCH (p:Person { id: 'user:alice' })-[:FRIEND_OF]->(f)
+UNION
+MATCH (p:Person { id: 'user:alice' })-[:WORKS_WITH]->(f)
+RETURN DISTINCT f;
+```
 
 ## 注意事项
 
-- 写操作默认禁用；只读模式下强制检查（`cypherRead`）。
-- 大结果建议配合 LIMIT 与分页策略；或改用编程式查询流式返回。
+- 属性名称区分大小写
+- 标签用 `labels` 属性存储，常见写法：`WHERE 'Person' IN labels(b)`
+- 返回值为 JSON，字段名与 RETURN 列一致
+
+## 故障排查
+
+| 症状       | 解决                                                 |
+| ---------- | ---------------------------------------------------- |
+| 报语法错误 | 检查逗号、括号、大小写；目前不支持的语法会在日志提示 |
+| 结果为空   | 确认标签、属性是否存在；可用 QueryBuilder 验证       |
+| 变长路径慢 | 限制长度或增加条件过滤                               |
+
+## 延伸阅读
+
+- [docs/教学文档/教程-03-查询与链式联想.md](../教学文档/教程-03-查询与链式联想.md)
+- [docs/使用示例/03-查询与联想-示例.md](03-查询与联想-示例.md)
