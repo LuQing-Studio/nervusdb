@@ -23,7 +23,7 @@ describe('GraphQL 基础功能测试', () => {
 
   beforeEach(async () => {
     db = await SynapseDB.open(':memory:');
-    gqlService = graphql(db.store);
+    gqlService = graphql(db.getStore());
 
     // 创建测试数据
     await setupTestData(db);
@@ -36,7 +36,7 @@ describe('GraphQL 基础功能测试', () => {
 
   describe('Schema 发现', () => {
     it('应该发现实体类型', async () => {
-      const discovery = new SchemaDiscovery(db.store);
+      const discovery = new SchemaDiscovery(db.getStore());
       const entityTypes = await discovery.discoverEntityTypes();
 
       expect(entityTypes.length).toBeGreaterThan(0);
@@ -48,7 +48,7 @@ describe('GraphQL 基础功能测试', () => {
     });
 
     it('应该分析属性类型', async () => {
-      const discovery = new SchemaDiscovery(db.store);
+      const discovery = new SchemaDiscovery(db.getStore());
       const entityTypes = await discovery.discoverEntityTypes();
 
       const personType = entityTypes.find((t) => t.typeName === 'Person');
@@ -60,7 +60,7 @@ describe('GraphQL 基础功能测试', () => {
     });
 
     it('应该发现关系', async () => {
-      const discovery = new SchemaDiscovery(db.store);
+      const discovery = new SchemaDiscovery(db.getStore());
       const entityTypes = await discovery.discoverEntityTypes();
 
       const personType = entityTypes.find((t) => t.typeName === 'Person');
@@ -72,7 +72,7 @@ describe('GraphQL 基础功能测试', () => {
     });
 
     it('应该支持配置过滤', async () => {
-      const discovery = new SchemaDiscovery(db.store, {
+      const discovery = new SchemaDiscovery(db.getStore(), {
         minEntityCount: 100, // 设置很高的阈值
       });
       const entityTypes = await discovery.discoverEntityTypes();
@@ -83,10 +83,10 @@ describe('GraphQL 基础功能测试', () => {
 
   describe('Schema 构建', () => {
     it('应该生成 GraphQL SDL', async () => {
-      const discovery = new SchemaDiscovery(db.store);
+      const discovery = new SchemaDiscovery(db.getStore());
       const entityTypes = await discovery.discoverEntityTypes();
 
-      const builder = new SchemaBuilder(db.store);
+      const builder = new SchemaBuilder(db.getStore());
       const schema = await builder.buildSchema(entityTypes);
 
       expect(schema.typeDefs).toContain('type Person');
@@ -96,10 +96,10 @@ describe('GraphQL 基础功能测试', () => {
     });
 
     it('应该生成解析器', async () => {
-      const discovery = new SchemaDiscovery(db.store);
+      const discovery = new SchemaDiscovery(db.getStore());
       const entityTypes = await discovery.discoverEntityTypes();
 
-      const builder = new SchemaBuilder(db.store);
+      const builder = new SchemaBuilder(db.getStore());
       const schema = await builder.buildSchema(entityTypes);
 
       expect(schema.resolvers).toBeDefined();
@@ -108,11 +108,11 @@ describe('GraphQL 基础功能测试', () => {
     });
 
     it('应该生成过滤和排序类型', async () => {
-      const discovery = new SchemaDiscovery(db.store);
+      const discovery = new SchemaDiscovery(db.getStore());
       const entityTypes = await discovery.discoverEntityTypes();
 
       const builder = new SchemaBuilder(
-        db.store,
+        db.getStore(),
         {},
         {
           enableFiltering: true,
@@ -126,11 +126,11 @@ describe('GraphQL 基础功能测试', () => {
     });
 
     it('应该生成分页类型', async () => {
-      const discovery = new SchemaDiscovery(db.store);
+      const discovery = new SchemaDiscovery(db.getStore());
       const entityTypes = await discovery.discoverEntityTypes();
 
       const builder = new SchemaBuilder(
-        db.store,
+        db.getStore(),
         {},
         {
           enablePagination: true,
@@ -144,10 +144,10 @@ describe('GraphQL 基础功能测试', () => {
     });
 
     it('应该计算统计信息', async () => {
-      const discovery = new SchemaDiscovery(db.store);
+      const discovery = new SchemaDiscovery(db.getStore());
       const entityTypes = await discovery.discoverEntityTypes();
 
-      const builder = new SchemaBuilder(db.store);
+      const builder = new SchemaBuilder(db.getStore());
       const schema = await builder.buildSchema(entityTypes);
 
       expect(schema.statistics).toBeDefined();
@@ -159,7 +159,7 @@ describe('GraphQL 基础功能测试', () => {
 
   describe('查询处理', () => {
     it('应该初始化处理器', async () => {
-      const processor = new GraphQLProcessor(db.store);
+      const processor = new GraphQLProcessor(db.getStore());
       const schema = await processor.initialize();
 
       expect(schema).toBeDefined();
@@ -259,7 +259,7 @@ describe('GraphQL 基础功能测试', () => {
 
   describe('便捷函数', () => {
     it('discoverSchema 应该返回实体类型', async () => {
-      const entityTypes = await discoverSchema(db.store);
+      const entityTypes = await discoverSchema(db.getStore());
 
       expect(entityTypes.length).toBeGreaterThan(0);
       expect(entityTypes[0]).toHaveProperty('typeName');
@@ -267,8 +267,8 @@ describe('GraphQL 基础功能测试', () => {
     });
 
     it('buildSchema 应该生成 Schema', async () => {
-      const entityTypes = await discoverSchema(db.store);
-      const schema = await buildSchema(db.store, entityTypes);
+      const entityTypes = await discoverSchema(db.getStore());
+      const schema = await buildSchema(db.getStore(), entityTypes);
 
       expect(schema.typeDefs).toBeDefined();
       expect(schema.resolvers).toBeDefined();
@@ -299,7 +299,7 @@ describe('GraphQL 基础功能测试', () => {
 
   describe('类型安全', () => {
     it('应该正确映射标量类型', async () => {
-      const discovery = new SchemaDiscovery(db.store);
+      const discovery = new SchemaDiscovery(db.getStore());
       const entityTypes = await discovery.discoverEntityTypes();
 
       const personType = entityTypes.find((t) => t.typeName === 'Person');
@@ -317,7 +317,7 @@ describe('GraphQL 基础功能测试', () => {
       db.addFact({ subject: 'person:1', predicate: 'HAS_HOBBY', object: 'coding' });
       await db.flush();
 
-      const discovery = new SchemaDiscovery(db.store);
+      const discovery = new SchemaDiscovery(db.getStore());
       const entityTypes = await discovery.discoverEntityTypes();
 
       const personType = entityTypes.find((t) => t.typeName === 'Person');

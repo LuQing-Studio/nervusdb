@@ -65,7 +65,7 @@ describe('变长路径高级能力（唯一性与最短路径）', () => {
     db.addFact({ subject: 'S', predicate: 'R', object: 'T' }); // 直接边，最短为1
     await db.flush();
 
-    const store = (db as any).store;
+    const store = db.getStore();
     const tId = store.getNodeIdByValue('T');
     const shortest = db.find({ subject: 'S' }).variablePath('R', { max: 4 }).shortest(tId);
     expect(shortest).not.toBeNull();

@@ -14,7 +14,7 @@ describe('GraphQL 集成测试', () => {
 
   beforeEach(async () => {
     db = await SynapseDB.open(':memory:');
-    gqlService = graphql(db.store);
+    gqlService = graphql(db.getStore());
 
     // 创建大规模测试数据
     await setupLargeTestData(db);

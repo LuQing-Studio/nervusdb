@@ -18,7 +18,7 @@ describe('Cypher 查询优化器', () => {
   beforeEach(async () => {
     dbPath = join(tmpdir(), `test-optimization-${Date.now()}.synapsedb`);
     db = await SynapseDB.open(dbPath);
-    cypher = createCypherSupport((db as any).store);
+    cypher = createCypherSupport(db.getStore());
 
     // 添加测试数据
     for (let i = 1; i <= 100; i++) {
@@ -67,7 +67,7 @@ describe('Cypher 查询优化器', () => {
 
   describe('查询计划器', () => {
     it('应该生成基础查询计划', async () => {
-      const planner = new CypherQueryPlanner((db as any).store);
+      const planner = new CypherQueryPlanner(db.getStore());
 
       const query = {
         type: 'CypherQuery' as const,
@@ -98,7 +98,7 @@ describe('Cypher 查询优化器', () => {
     });
 
     it('应该缓存查询计划', async () => {
-      const planner = new CypherQueryPlanner((db as any).store);
+      const planner = new CypherQueryPlanner(db.getStore());
 
       const query = {
         type: 'CypherQuery' as const,
@@ -134,7 +134,7 @@ describe('Cypher 查询优化器', () => {
     });
 
     it('应该清理计划缓存', async () => {
-      const planner = new CypherQueryPlanner((db as any).store);
+      const planner = new CypherQueryPlanner(db.getStore());
 
       const query = {
         type: 'CypherQuery' as const,
@@ -167,8 +167,8 @@ describe('Cypher 查询优化器', () => {
 
   describe('查询执行器', () => {
     it('应该执行索引扫描计划', async () => {
-      const planner = new CypherQueryPlanner((db as any).store);
-      const executor = new CypherQueryExecutor((db as any).store);
+      const planner = new CypherQueryPlanner(db.getStore());
+      const executor = new CypherQueryExecutor(db.getStore());
 
       const query = {
         type: 'CypherQuery' as const,
@@ -199,8 +199,8 @@ describe('Cypher 查询优化器', () => {
     });
 
     it('应该处理参数化查询计划', async () => {
-      const planner = new CypherQueryPlanner((db as any).store);
-      const executor = new CypherQueryExecutor((db as any).store);
+      const planner = new CypherQueryPlanner(db.getStore());
+      const executor = new CypherQueryExecutor(db.getStore());
 
       const query = {
         type: 'CypherQuery' as const,

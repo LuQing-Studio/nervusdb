@@ -2,6 +2,7 @@ import { FactInput, FactRecord } from '../storage/persistentStore.js';
 import { PersistentStore } from '../storage/persistentStore.js';
 import { VariablePathBuilder } from './path/variable.js';
 import { EncodedTriple } from '../storage/tripleStore.js';
+import type { IndexOrder } from '../storage/tripleIndexes.js';
 
 export type FactCriteria = Partial<FactInput>;
 
@@ -1008,25 +1009,26 @@ export function buildFindContextFromProperty(
       return EMPTY_CONTEXT;
     }
 
-    // 查找包含这些节点的所有三元组
-    const allFacts: FactRecord[] = [];
-    for (const nodeId of matchingNodeIds) {
-      // 作为主语的三元组
-      const subjectTriples = store.query({ subjectId: nodeId });
-      allFacts.push(...store.resolveRecords(subjectTriples));
+    const accessor = store as unknown as {
+      getTriplesByPrimarySet?: (order: IndexOrder, primaryIds: Set<number>) => EncodedTriple[];
+    };
 
-      // 作为宾语的三元组
-      const objectTriples = store.query({ objectId: nodeId });
-      allFacts.push(...store.resolveRecords(objectTriples));
+    const subjectTriples =
+      anchor === 'object' ? [] : (accessor.getTriplesByPrimarySet?.('SPO', matchingNodeIds) ?? []);
+
+    const objectTriples =
+      anchor === 'subject' ? [] : (accessor.getTriplesByPrimarySet?.('OSP', matchingNodeIds) ?? []);
+
+    const uniqueTriples = new Map<string, EncodedTriple>();
+    for (const triple of [...subjectTriples, ...objectTriples]) {
+      uniqueTriples.set(encodeTripleKey(triple), triple);
     }
 
-    // 去重
-    const uniqueFacts = new Map<string, FactRecord>();
-    allFacts.forEach((fact) => {
-      uniqueFacts.set(encodeTripleKey(fact), fact);
-    });
+    if (uniqueTriples.size === 0) {
+      return EMPTY_CONTEXT;
+    }
 
-    const facts = [...uniqueFacts.values()];
+    const facts = store.resolveRecords([...uniqueTriples.values()]);
     const frontier = buildInitialFrontier(facts, anchor);
 
     return {
@@ -1178,6 +1180,6 @@ function rebuildFrontier(facts: FactRecord[], orientation: FrontierOrientation):
   return set;
 }
 
-function encodeTripleKey(fact: FactRecord): string {
+function encodeTripleKey(fact: FactRecord | EncodedTriple): string {
   return `${fact.subjectId}:${fact.predicateId}:${fact.objectId}`;
 }

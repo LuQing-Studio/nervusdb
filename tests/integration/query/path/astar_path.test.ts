@@ -26,7 +26,7 @@ describe('A*启发式搜索算法', () => {
     // 统一使用测试助手创建临时工作区
     testDir = await makeWorkspace('astar');
     db = await SynapseDB.open(join(testDir, 'test.synapsedb'));
-    store = (db as any).store;
+    store = db.getStore();
 
     // 构建测试图
     await setupTestGraph();

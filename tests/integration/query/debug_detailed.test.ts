@@ -37,14 +37,14 @@ describe('调试详细问题', () => {
     console.log('📝 插入的事实记录:', fact);
 
     // 检查字典
-    const dict = (db as any).store.dictionary;
+    const dict = db.getStore().dictionary;
     console.log('📖 字典内容:');
     console.log('  subject:', fact.subject, '->', fact.subjectId);
     console.log('  predicate:', fact.predicate, '->', fact.predicateId);
     console.log('  object:', fact.object, '->', fact.objectId);
 
     // 检查属性索引
-    const propIndex = (db as any).store.propertyIndexManager.memoryIndex;
+    const propIndex = db.getStore().propertyIndexManager.memoryIndex;
     console.log('🔍 属性索引统计:', propIndex.getStats());
     console.log('🔍 属性名列表:', propIndex.getNodePropertyNames());
 

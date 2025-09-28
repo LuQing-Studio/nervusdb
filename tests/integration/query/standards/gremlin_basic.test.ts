@@ -18,7 +18,7 @@ describe('Gremlin 基础功能', () => {
   beforeEach(async () => {
     dbPath = join(tmpdir(), `test-gremlin-${Date.now()}.synapsedb`);
     db = await SynapseDB.open(dbPath);
-    g = gremlin((db as any).store);
+    g = gremlin(db.getStore());
 
     // 添加测试数据
     // 人物节点

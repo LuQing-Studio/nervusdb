@@ -20,7 +20,7 @@ describe('双向 BFS 路径查询', () => {
   beforeEach(async () => {
     testDir = await makeWorkspace('bibfs');
     db = await SynapseDB.open(join(testDir, 'test.synapsedb'));
-    store = (db as any).store;
+    store = db.getStore();
 
     // 构建测试图：A -> B -> C -> D -> E
     await setupLinearGraph();

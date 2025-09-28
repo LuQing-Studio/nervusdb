@@ -20,7 +20,7 @@ describe('Gremlin 集成测试', () => {
   beforeEach(async () => {
     dbPath = join(tmpdir(), `test-gremlin-integration-${Date.now()}.synapsedb`);
     db = await SynapseDB.open(dbPath);
-    g = gremlin((db as any).store);
+    g = gremlin(db.getStore());
 
     // 构建复杂的社交网络图
     // 人物

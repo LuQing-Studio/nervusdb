@@ -235,6 +235,29 @@ export class PagedIndexReader {
     }
   }
 
+  readMany(primaryValues: Set<number>): OrderedTriple[] {
+    if (primaryValues.size === 0) {
+      return [];
+    }
+    const fd = fssync.openSync(this.filePath, 'r');
+    try {
+      const results: OrderedTriple[] = [];
+      for (const page of this.lookup.pages) {
+        if (!primaryValues.has(page.primaryValue)) continue;
+        const buffer = Buffer.allocUnsafe(page.length);
+        fssync.readSync(fd, buffer, 0, page.length, page.offset);
+        if (page.crc32 !== undefined && page.crc32 !== crc32(buffer)) {
+          continue;
+        }
+        const raw = decompressBuffer(buffer, this.options.compression);
+        results.push(...deserializeTriples(raw));
+      }
+      return results;
+    } finally {
+      fssync.closeSync(fd);
+    }
+  }
+
   readAllSync(): OrderedTriple[] {
     const buffer = fssync.readFileSync(this.filePath);
     const raw = decompressBuffer(buffer, this.options.compression);

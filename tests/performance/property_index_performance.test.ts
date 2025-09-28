@@ -106,7 +106,7 @@ describe('属性索引性能验收测试', () => {
       console.log('\n📊 测试 3: 边属性查询性能');
 
       // 先检查边属性索引状态
-      const propertyIndex = (db as any).store.getPropertyIndex();
+      const propertyIndex = db.getStore().getPropertyIndex();
       const edgePropertyNames = propertyIndex.getEdgePropertyNames();
       console.log(`   边属性种类: [${edgePropertyNames.join(', ')}]`);
 

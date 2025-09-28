@@ -29,7 +29,7 @@ describe('Cypher 文本解析器', () => {
   beforeEach(async () => {
     testDir = await makeWorkspace('pattern-parser');
     db = await SynapseDB.open(join(testDir, 'test.synapsedb'));
-    store = (db as any).store; // 访问内部的 store
+    store = db.getStore(); // 访问内部的 store
 
     engine = new CypherEngine(store);
 

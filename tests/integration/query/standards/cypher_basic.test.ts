@@ -19,7 +19,7 @@ describe('Cypher 基础功能', () => {
     // 使用临时文件
     dbPath = join(tmpdir(), `test-cypher-${Date.now()}.synapsedb`);
     db = await SynapseDB.open(dbPath);
-    cypher = createCypherSupport((db as any).store);
+    cypher = createCypherSupport(db.getStore());
 
     // 添加一些测试数据
     db.addFact({ subject: 'Alice', predicate: 'KNOWS', object: 'Bob' });
