@@ -4,7 +4,7 @@
  * 基于R-Tree数据结构的高效空间索引，支持快速的空间范围查询、最近邻搜索等操作
  */
 
-import {
+import type {
   BoundingBox,
   Geometry,
   Point,

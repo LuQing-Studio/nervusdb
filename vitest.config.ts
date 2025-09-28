@@ -42,7 +42,7 @@ export default defineConfig({
         'src/types/**',
         'src/algorithms/types.ts',
         'src/benchmark/types.ts',
-        'src/spatial/types.ts',
+        
         
         'src/fulltext/types.ts',
       ],

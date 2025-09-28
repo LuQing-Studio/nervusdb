@@ -1,4 +1,3 @@
-
 # 扩展查询API
 
 <cite>
@@ -11,7 +10,7 @@
 - [pattern/match.ts](file://src/query/pattern/match.ts)
 - [path/variable.ts](file://src/query/path/variable.ts)
 - [path/bidirectional.ts](file://src/query/path/bidirectional.ts)
-- [path/astar.ts](file://src/query/path/astar.ts)
+- [path/astar.ts](file://src/query/astar.ts)
 - [graphql/index.ts](file://src/query/graphql/index.ts)
 - [graphql/builder.ts](file://src/query/graphql/builder.ts)
 - [graphql/discovery.ts](file://src/query/graphql/discovery.ts)
@@ -166,7 +165,7 @@ deactivate GraphQLService
 
 GraphQL Schema生成器采用以下类型映射规则：
 - 字符串值 → String
-- 整数值 → Int
+- 整数值 → Int  
 - 浮点数值 → Float  
 - 布尔值 → Boolean
 - 对象值 → JSON
@@ -254,4 +253,142 @@ end
 
 ### BFS单向搜索
 
-`shortestPath`
+`shortestPath`方法实现了基于广度优先搜索(BFS)的单向最短路径查找算法。该算法从起始节点开始逐层扩展，直到找到目标节点或达到最大跳数限制。
+
+**参数要求：**
+- `from`: 起始节点标识符
+- `to`: 目标节点标识符
+- `options`: 可选参数对象，包含：
+  - `predicates`: 允许的关系类型数组
+  - `maxHops`: 最大跳数限制（默认8）
+  - `direction`: 搜索方向（'forward'|'reverse'|'both'）
+
+**时间复杂度：** O(V + E)，其中V为顶点数，E为边数
+**返回格式：** 返回`FactRecord[]`数组表示路径，若无路径则返回null
+
+```mermaid
+flowchart TD
+A[初始化队列和已访问集合] --> B{队列非空且未超最大深度}
+B --> |是| C[取出当前层所有节点]
+C --> D[检查是否到达目标]
+D --> |是| E[返回路径]
+D --> |否| F[获取邻居节点]
+F --> G[过滤已访问节点]
+G --> H[加入新节点到队列]
+H --> I[标记为已访问]
+I --> J[深度+1]
+J --> B
+B --> |否| K[返回null]
+```
+
+**Section sources**
+- [synapseDb.ts](file://src/synapseDb.ts#L513-L577)
+
+### 双向搜索
+
+`BidirectionalPathBuilder`类实现了双向BFS最短路径算法，从起点和终点同时开始搜索，当两个搜索前沿相遇时即找到最短路径。
+
+**优势：** 在稀疏图中比单向BFS更高效，时间复杂度理论上可减少一半
+**适用场景：** 大规模图数据中的最短路径查找
+
+```mermaid
+sequenceDiagram
+participant ForwardSearch as "前向搜索"
+participant BackwardSearch as "后向搜索"
+participant Intersection as "交集检测"
+ForwardSearch->>ForwardSearch : 初始化起点队列
+BackwardSearch->>BackwardSearch : 初始化终点队列
+loop 搜索循环
+ForwardSearch->>ForwardSearch : 扩展当前层节点
+BackwardSearch->>BackwardSearch : 扩展当前层节点
+Intersection->>Intersection : 检查前向与后向访问集合的交集
+alt 发现交集
+Intersection-->>ForwardSearch : 返回交集节点
+break 终止搜索
+end
+end
+```
+
+**Section sources**
+- [bidirectional.ts](file://src/query/path/bidirectional.ts#L61-L146)
+
+### Dijkstra加权路径
+
+`AStarPathBuilder`类提供了基于A*算法的加权最短路径查找，支持多种启发式函数。
+
+**参数要求：**
+- 支持自定义启发式函数（hop, manhattan, euclidean, custom）
+- 可配置边权重和启发式权重因子
+- 支持节点唯一性和边唯一性约束
+
+**时间复杂度：** O(E + V log V)，使用优先队列优化
+**返回格式：** 返回`PathResult`对象，包含边列表、路径长度和起止节点ID
+
+```mermaid
+flowchart TD
+A[初始化开放列表和关闭列表] --> B{开放列表非空}
+B --> |是| C[选取fScore最小节点]
+C --> D{已在关闭列表?}
+D --> |是| B
+D --> |否| E[加入关闭列表]
+E --> F{到达目标且满足最小长度?}
+F --> |是| G[重构路径返回]
+F --> |否| H{达到最大深度?}
+H --> |是| B
+H --> |否| I[扩展邻居节点]
+I --> J[计算tentativeGScore]
+J --> K{发现更优路径?}
+K --> |是| L[更新节点信息]
+L --> M[加入开放列表或更新]
+M --> B
+B --> |否| N[返回null]
+```
+
+**Section sources**
+- [astar.ts](file://src/query/path/astar.ts#L111-L232)
+
+## 聚合管道与模式匹配
+
+### aggregate聚合管道
+
+`aggregate()`方法返回`AggregationPipeline`实例，用于构建数据聚合操作流水线。
+
+**核心功能：**
+- `match()`: 基于三元组条件匹配输入
+- `groupBy()`: 分组字段指定
+- `count()/sum()/avg()/min()/max()`: 聚合操作
+- `orderBy()`: 结果排序
+- `limit()`: 结果数量限制
+- `executeStreaming()`: 流式执行，适合大数据集
+
+```mermaid
+flowchart LR
+A[输入记录集] --> B{matchStream?}
+B --> |是| C[流式批处理]
+B --> |否| D[全量加载]
+C --> E[增量聚合状态]
+D --> F[分组收集]
+E --> G[聚合计算]
+F --> G
+G --> H[排序]
+H --> I[限制]
+I --> J[返回结果]
+```
+
+**Section sources**
+- [aggregation.ts](file://src/query/aggregation.ts#L17-L424)
+
+### match模式匹配
+
+`match()`方法返回`PatternBuilder`实例，用于构建复杂的图模式匹配查询。
+
+**构建步骤：**
+1. `node()`: 定义节点模式（别名、标签、属性）
+2. `edge()`: 定义关系模式（方向、类型、别名）
+3. `variable()`: 设置变长路径范围
+4. `whereNodeProperty()`: 添加属性过滤条件
+5. `return()`: 指定返回字段
+6. `execute()`: 执行查询并返回结果
+
+**Section sources**
+- [match.ts](file://src/query/pattern/match.ts#L21-L234)

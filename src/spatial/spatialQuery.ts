@@ -4,7 +4,7 @@
  * 提供完整的地理空间查询接口，集成R-Tree索引和空间几何计算
  */
 
-import {
+import type {
   Geometry,
   Point,
   BoundingBox,

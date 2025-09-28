@@ -1,4 +1,3 @@
-<docs>
 # API 参考
 
 <cite>
@@ -13,6 +12,7 @@
 - [query/gremlin/index.ts](file://src/query/gremlin/index.ts)
 - [types/openOptions.ts](file://src/types/openOptions.ts) - *新增事务与快照相关选项*
 - [tests/helpers/tempfs.ts](file://tests/helpers/tempfs.ts) - *新增测试辅助工具*
+- [spatial/rtree.ts](file://src/spatial/rtree.ts) - *修复了 BBox 计算中的 Infinity 残留问题*
 </cite>
 
 ## 更新摘要
@@ -22,6 +22,7 @@
 - 更新“接口定义摘要”以包含新的事务和快照相关接口
 - 添加 `SynapseDBOpenOptions` 配置项的完整文档
 - **新增测试辅助模块说明**：添加对 `tempfs.ts` 测试助手的描述，用于隔离测试环境
+- **更新空间索引文档**：根据 `rtree.ts` 的最新修改，修正了关于边界框（BBox）计算的行为描述
 
 ## 目录
 1. [核心数据库类 SynapseDB](#核心数据库类-synapsedb)
@@ -364,4 +365,56 @@ try {
 - [synapseDb.ts](file://src/synapseDb.ts#L460-L470)
 
 ### 读快照一致性
-`
+`withSnapshot` 方法确保在回调函数执行期间，数据库视图保持一致，防止因其他写入操作导致的数据漂移。
+
+```typescript
+// 在快照中执行复杂查询，保证数据一致性
+await db.withSnapshot(async (snapshotDb) => {
+  const aliceFriends = snapshotDb.find({ subject: 'Alice', predicate: 'knows' }).all();
+  const bobFriends = snapshotDb.find({ subject: 'Bob', predicate: 'knows' }).all();
+  // 这两个查询看到的是同一时刻的数据状态
+});
+```
+
+**节来源**
+- [synapseDb.ts](file://src/synapseDb.ts#L472-L474)
+
+## 接口定义摘要
+
+以下是主要接口的 TypeScript 定义摘要：
+
+### SynapseDBOpenOptions
+```typescript
+interface SynapseDBOpenOptions {
+  indexDirectory?: string;
+  pageSize?: number;
+  rebuildIndexes?: boolean;
+  compression?: { codec: 'none' | 'brotli'; level?: number };
+  enableLock?: boolean;
+  registerReader?: boolean;
+  stagingMode?: 'default' | 'lsm-lite';
+  enablePersistentTxDedupe?: boolean;
+  maxRememberTxIds?: number;
+}
+```
+
+### TypedSynapseDB
+```typescript
+interface TypedSynapseDB<TNodeProps extends NodeProperties, TEdgeProps extends EdgeProperties> {
+  addFact(fact: TypedFactInput, options?: TypedFactOptions<TNodeProps, TEdgeProps>): TypedFactRecord<TNodeProps, TEdgeProps>;
+  find<TCriteria extends FactCriteria>(criteria: TCriteria, options?: { anchor?: FrontierOrientation }): TypedQueryBuilder<TNodeProps, TEdgeProps, TCriteria>;
+  findByNodeProperty<T>(propertyFilter: TypedPropertyFilter<T>, options?: { anchor?: FrontierOrientation }): TypedQueryBuilder<TNodeProps, TEdgeProps, FactCriteria>;
+  findByEdgeProperty<T>(propertyFilter: TypedPropertyFilter<T>, options?: { anchor?: FrontierOrientation }): TypedQueryBuilder<TNodeProps, TEdgeProps, FactCriteria>;
+  findByLabel(labels: string | string[], options?: { mode?: 'AND' | 'OR'; anchor?: FrontierOrientation }): TypedQueryBuilder<TNodeProps, TEdgeProps, FactCriteria>;
+  getNodeProperties(nodeId: number): TNodeProps | null;
+  getEdgeProperties(key: { subjectId: number; predicateId: number; objectId: number }): TEdgeProps | null;
+  setNodeProperties(nodeId: number, properties: TNodeProps): void;
+  setEdgeProperties(key: { subjectId: number; predicateId: number; objectId: number }, properties: TEdgeProps): void;
+  flush(): Promise<void>;
+  close(): Promise<void>;
+}
+```
+
+**节来源**
+- [types/openOptions.ts](file://src/types/openOptions.ts#L1-L153)
+- [types/enhanced.ts](file://src/types/enhanced.ts#L141-L215)

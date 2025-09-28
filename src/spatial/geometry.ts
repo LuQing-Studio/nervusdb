@@ -4,7 +4,7 @@
  * 提供基础的几何对象操作和空间计算功能
  */
 
-import {
+import type {
   Geometry,
   Point,
   LineString,
