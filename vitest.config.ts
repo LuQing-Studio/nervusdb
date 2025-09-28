@@ -43,7 +43,7 @@ export default defineConfig({
         'src/algorithms/types.ts',
         'src/benchmark/types.ts',
         'src/spatial/types.ts',
-        'src/query/gremlin/step.ts',
+        
         'src/fulltext/types.ts',
       ],
       thresholds: {
