@@ -269,7 +269,26 @@ export const TypeSafeQueries = {
 };
 
 // 导出所有类型和实现
-export * from './types/enhanced.js';
+export type {
+  TypedSynapseDB,
+  TypedQueryBuilder,
+  TypedFactInput,
+  TypedFactOptions,
+  TypedFactRecord,
+  TypedPropertyFilter,
+  NodeProperties,
+  EdgeProperties,
+  Labels,
+  TypedNodeProperties,
+  InferQueryResult,
+  PersonNode,
+  RelationshipEdge,
+  EntityNode,
+  KnowledgeEdge,
+  CodeNode,
+  DependencyEdge,
+  QueryExamples,
+} from './types/enhanced.js';
 export { TypedQueryBuilderImpl };
 
 /**

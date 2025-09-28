@@ -150,3 +150,101 @@ export interface BeginBatchOptions {
    */
   sessionId?: string;
 }
+
+/**
+ * 判断输入是否符合 SynapseDB 打开选项的基本约束
+ */
+export function isSynapseDBOpenOptions(value: unknown): value is SynapseDBOpenOptions {
+  if (value === null || typeof value !== 'object') {
+    return false;
+  }
+
+  const options = value as Record<string, unknown>;
+
+  const ensureOptionalBoolean = (key: keyof SynapseDBOpenOptions): boolean => {
+    if (!(key in options)) return true;
+    return typeof options[key] === 'boolean';
+  };
+
+  const ensureOptionalNumber = (
+    key: keyof SynapseDBOpenOptions,
+    { min, max, integer }: { min?: number; max?: number; integer?: boolean } = {},
+  ): boolean => {
+    if (!(key in options)) return true;
+    const candidate = options[key];
+    if (typeof candidate !== 'number' || !Number.isFinite(candidate)) return false;
+    if (integer && !Number.isInteger(candidate)) return false;
+    if (min !== undefined && candidate < min) return false;
+    if (max !== undefined && candidate > max) return false;
+    return true;
+  };
+
+  if ('indexDirectory' in options && typeof options.indexDirectory !== 'string') {
+    return false;
+  }
+
+  if (!ensureOptionalNumber('pageSize', { min: 1, max: 10000, integer: true })) {
+    return false;
+  }
+
+  if (!ensureOptionalBoolean('rebuildIndexes')) {
+    return false;
+  }
+
+  if ('compression' in options) {
+    const compression = options.compression;
+    if (compression === null || typeof compression !== 'object') {
+      return false;
+    }
+
+    const { codec, level } = compression as { codec?: unknown; level?: unknown };
+    if (codec !== 'none' && codec !== 'brotli') {
+      return false;
+    }
+
+    if (
+      level !== undefined &&
+      (typeof level !== 'number' || !Number.isFinite(level) || level < 1 || level > 11)
+    ) {
+      return false;
+    }
+  }
+
+  if (!ensureOptionalBoolean('enableLock')) {
+    return false;
+  }
+
+  if (!ensureOptionalBoolean('registerReader')) {
+    return false;
+  }
+
+  if (
+    'stagingMode' in options &&
+    options.stagingMode !== 'default' &&
+    options.stagingMode !== 'lsm-lite'
+  ) {
+    return false;
+  }
+
+  if (!ensureOptionalBoolean('enablePersistentTxDedupe')) {
+    return false;
+  }
+
+  if (!ensureOptionalNumber('maxRememberTxIds', { min: 100, max: 100000, integer: true })) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * 断言输入符合 SynapseDB 打开选项要求
+ */
+export function assertSynapseDBOpenOptions(
+  value: unknown,
+  message?: string,
+): asserts value is SynapseDBOpenOptions {
+  if (!isSynapseDBOpenOptions(value)) {
+    throw new TypeError(message ?? 'SynapseDB 打开选项格式错误');
+  }
+}

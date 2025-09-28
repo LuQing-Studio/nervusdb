@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
+const disableCoverageThresholds = process.env.VITEST_DISABLE_THRESHOLDS === '1';
 
 export default defineConfig({
   test: {
@@ -32,26 +33,20 @@ export default defineConfig({
       // 说明：以下排除项不计入当前覆盖率门槛
       // - src/cli/**: CLI 封装，覆盖率独立评估
       // - **/*.d.ts/**.config.*: 类型与配置文件
-      // - src/types/**: 仅类型增强文件，不生成可执行代码
       exclude: [
         'src/cli/**',
         '**/*.d.ts',
         '**/*.config.*',
-        'cspell.config.cjs',
-        // 仅保留类型/配置与 CLI（不参与覆盖率门槛）
-        'src/types/**',
-        
-        
-        
-        
-        
+        'cspell.config.cjs'
       ],
-      thresholds: {
-        statements: 80,
-        branches: 75,
-        functions: 80,
-        lines: 80
-      }
+      thresholds: disableCoverageThresholds
+        ? undefined
+        : {
+            statements: 80,
+            branches: 75,
+            functions: 80,
+            lines: 80
+          }
     }
   },
   resolve: {

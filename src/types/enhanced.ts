@@ -3,8 +3,8 @@
  * 提供泛型化的 SynapseDB API，支持强类型的属性和查询结果
  */
 
-import { FactInput, FactRecord } from '../storage/persistentStore.js';
-import { FactCriteria, FrontierOrientation } from '../query/queryBuilder.js';
+import type { FactInput, FactRecord } from '../storage/persistentStore.js';
+import type { FactCriteria, FrontierOrientation } from '../query/queryBuilder.js';
 
 /**
  * 节点属性约束类型
@@ -316,4 +316,55 @@ export interface QueryExamples {
     db: TypedSynapseDB<CodeNode, DependencyEdge>,
     filePath: string,
   ): TypedFactRecord<CodeNode, DependencyEdge>[];
+}
+
+/**
+ * 判断输入是否符合 TypedPropertyFilter 的基本结构
+ */
+export function isTypedPropertyFilter(value: unknown): value is TypedPropertyFilter<unknown> {
+  if (value === null || typeof value !== 'object') {
+    return false;
+  }
+
+  const filter = value as Record<string, unknown>;
+  if (typeof filter.propertyName !== 'string' || filter.propertyName.length === 0) {
+    return false;
+  }
+
+  if ('range' in filter) {
+    const range = filter.range;
+    if (range !== undefined && (range === null || typeof range !== 'object')) {
+      return false;
+    }
+
+    if (range !== undefined && range !== null) {
+      const rangeRecord = range as Record<string, unknown>;
+
+      if (!['min', 'max', 'includeMin', 'includeMax'].some((key) => key in rangeRecord)) {
+        return false;
+      }
+
+      if ('includeMin' in rangeRecord && typeof rangeRecord.includeMin !== 'boolean') {
+        return false;
+      }
+
+      if ('includeMax' in rangeRecord && typeof rangeRecord.includeMax !== 'boolean') {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+/**
+ * 断言输入符合 TypedPropertyFilter 结构
+ */
+export function assertTypedPropertyFilter(
+  value: unknown,
+  message?: string,
+): asserts value is TypedPropertyFilter<unknown> {
+  if (!isTypedPropertyFilter(value)) {
+    throw new TypeError(message ?? '属性过滤器结构错误');
+  }
 }

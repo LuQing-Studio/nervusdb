@@ -11,7 +11,7 @@ import {
   buildFindContextFromLabel,
   PropertyFilter,
 } from './query/queryBuilder.js';
-import {
+import type {
   SynapseDBOpenOptions,
   CommitBatchOptions,
   BeginBatchOptions,

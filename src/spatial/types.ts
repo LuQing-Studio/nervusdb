@@ -30,6 +30,24 @@ export type BoundingBox = [number, number, number, number]; // [minX, minY, maxX
 export type BoundingBox3D = [number, number, number, number, number, number]; // [minX, minY, minZ, maxX, maxY, maxZ]
 
 /**
+ * 判断输入是否为合法的二维边界框
+ */
+export function isBoundingBox(value: unknown): value is BoundingBox {
+  if (!Array.isArray(value) || value.length !== 4) return false;
+
+  return value.every((item) => typeof item === 'number' && Number.isFinite(item));
+}
+
+/**
+ * 断言输入必须为二维边界框
+ */
+export function assertBoundingBox(value: unknown, message?: string): asserts value is BoundingBox {
+  if (isBoundingBox(value)) return;
+
+  throw new TypeError(message ?? '空间边界框格式错误：期望 [minX, minY, maxX, maxY] 数组');
+}
+
+/**
  * GeoJSON几何对象接口
  */
 export interface GeoJSONGeometry {
