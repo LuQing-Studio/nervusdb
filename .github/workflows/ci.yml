@@ -54,3 +54,24 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: Assert no tmp synapsedb leftovers
+        run: |
+          set -euo pipefail
+          # 查找工作区根目录是否存在测试产生的临时数据库残留
+          COUNT=$(find . -maxdepth 1 \
+            \( -name "tmp-*.synapsedb" -o \
+               -name "tmp-*.synapsedb.wal" -o \
+               -name "tmp-*.synapsedb.lock" -o \
+               -name "tmp-*.synapsedb.pages" \) | wc -l | tr -d ' ')
+          if [ "$COUNT" != "0" ]; then
+            echo "Found leftover tmp-*.synapsedb artifacts:" >&2
+            find . -maxdepth 1 \
+              \( -name "tmp-*.synapsedb" -o \
+                 -name "tmp-*.synapsedb.wal" -o \
+                 -name "tmp-*.synapsedb.lock" -o \
+                 -name "tmp-*.synapsedb.pages" \) -print >&2
+            exit 1
+          else
+            echo "No leftover tmp-*.synapsedb artifacts"
+          fi
