@@ -1289,23 +1289,27 @@ export class LazyQueryBuilder extends QueryBuilder {
     if (cur.length) yield cur;
   }
 
-  // 变长路径：为保持简洁，直接回退到老实现（物化当前前沿后使用 VariablePathBuilder）
+  // 变长路径：灰度期采用“同步物化前沿 + 现有路径构建器”策略，保持行为与类型一致
   override variablePath(
     relation: string,
     options: { min?: number; max: number; uniqueness?: 'NODE' | 'EDGE' | 'NONE'; direction?: 'forward' | 'reverse' },
   ) {
-    // 将当前计划执行并构造前沿
-    const acc: FactRecord[] = [];
     const self = this;
-    return {
-      // 简化：调用时一次性物化前沿
-      async shortest(targetId: number) {
-        for await (const f of self) acc.push(f);
+    const builder = {
+      all(target?: number) {
+        const acc = self.all();
         const front = buildInitialFrontier(acc, self.lazyOrientation);
         const predicateId = self.lazyStore.getNodeIdByValue(relation) ?? 0;
-        return new VariablePathBuilder(self.lazyStore, front, predicateId, options).shortest(targetId);
+        return new VariablePathBuilder(self.lazyStore, front, predicateId, options).all(target);
+      },
+      shortest(target: number) {
+        const acc = self.all();
+        const front = buildInitialFrontier(acc, self.lazyOrientation);
+        const predicateId = self.lazyStore.getNodeIdByValue(relation) ?? 0;
+        return new VariablePathBuilder(self.lazyStore, front, predicateId, options).shortest(target);
       },
     } as unknown as VariablePathBuilder;
+    return builder;
   }
 
   private async runPinned<T>(fn: () => Promise<T>): Promise<T> {
