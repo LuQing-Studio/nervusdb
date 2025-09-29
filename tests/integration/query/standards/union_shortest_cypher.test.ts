@@ -10,7 +10,9 @@ describe('查询增强：UNION/最短路径/Cypher', () => {
 
   beforeEach(async () => {
     workspace = await mkdtemp(join(tmpdir(), 'synapsedb-qe-'));
-    db = await SynapseDB.open(join(workspace, 'db.synapsedb'));
+    db = await SynapseDB.open(join(workspace, 'db.synapsedb'), {
+      experimental: { cypher: true },
+    });
   });
 
   afterEach(async () => {

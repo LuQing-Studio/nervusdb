@@ -8,6 +8,7 @@ import {
   type PagedIndexManifest,
 } from '../storage/pagedIndex.js';
 import { getActiveReaders } from '../storage/readerRegistry.js';
+import { triggerCrash } from '../utils/fault.js';
 
 export interface GCStats {
   orders: Array<{ order: string; bytesBefore: number; bytesAfter: number; pages: number }>;
@@ -16,15 +17,18 @@ export interface GCStats {
   skipped?: boolean;
   reason?: string;
   readers?: number;
+  dryRun?: boolean;
 }
 
 export async function garbageCollectPages(
   dbPath: string,
-  options?: { respectReaders?: boolean },
+  options?: { respectReaders?: boolean; dryRun?: boolean },
 ): Promise<GCStats> {
   const indexDir = `${dbPath}.pages`;
   const manifest = await readPagedManifest(indexDir);
   if (!manifest) throw new Error('缺少 manifest，无法进行 GC');
+
+  const dryRun = options?.dryRun ?? false;
 
   if (options?.respectReaders) {
     const readers = await getActiveReaders(indexDir);
@@ -36,6 +40,7 @@ export async function garbageCollectPages(
         skipped: true,
         reason: 'active_readers',
         readers: readers.length,
+        dryRun,
       };
     }
   }
@@ -58,7 +63,19 @@ export async function garbageCollectPages(
       });
       continue;
     }
+    const predictedSize = lookup.pages.reduce((sum, page) => sum + page.length, 0);
     bytesBefore += st.size;
+
+    if (dryRun) {
+      bytesAfter += predictedSize;
+      orderStats.push({
+        order: lookup.order,
+        bytesBefore: st.size,
+        bytesAfter: predictedSize,
+        pages: lookup.pages.length,
+      });
+      continue;
+    }
 
     const tmp = `${file}.gc.tmp`;
     try {
@@ -91,7 +108,9 @@ export async function garbageCollectPages(
       if (src) await src.close();
       if (dst) await dst.close();
     }
+    triggerCrash('gc.beforeRename');
     await fs.rename(tmp, file);
+    triggerCrash('gc.afterRename');
     // 更新该顺序的 pages 映射（offset 变化）
     lookup.pages = newPages;
 
@@ -110,7 +129,8 @@ export async function garbageCollectPages(
     epoch: (manifest.epoch ?? 0) + 1,
     orphans: [],
   };
+  triggerCrash('gc.beforeManifestWrite');
   await writePagedManifest(indexDir, newManifest);
 
-  return { orders: orderStats, bytesBefore, bytesAfter };
+  return { orders: orderStats, bytesBefore, bytesAfter, dryRun };
 }

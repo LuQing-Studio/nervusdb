@@ -10,7 +10,9 @@ describe('Cypher 最小子集（变长路径）', () => {
 
   beforeEach(async () => {
     workspace = await mkdtemp(join(tmpdir(), 'synapsedb-cypher-'));
-    db = await SynapseDB.open(join(workspace, 'db.synapsedb'));
+    db = await SynapseDB.open(join(workspace, 'db.synapsedb'), {
+      experimental: { cypher: true },
+    });
   });
 
   afterEach(async () => {

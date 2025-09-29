@@ -352,6 +352,7 @@ g.V('user:alice').repeat(out('FRIEND_OF')).times(2).values('dept');
 - WAL 过大：定期 `db.flush()` / `auto-compact` / `gc`
 - 属性索引：合理规划字符串/数字类型，避免过大 JSON
 - 更多调优技巧见 `docs/使用示例/性能基准测试指南.md`
+- 快速回归检测：`pnpm bench:baseline`（默认 dry-run，无需额外参数）
 
 ## 运维与治理工具
 

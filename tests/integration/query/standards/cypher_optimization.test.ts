@@ -17,7 +17,9 @@ describe('Cypher 查询优化器', () => {
 
   beforeEach(async () => {
     dbPath = join(tmpdir(), `test-optimization-${Date.now()}.synapsedb`);
-    db = await SynapseDB.open(dbPath);
+    db = await SynapseDB.open(dbPath, {
+      experimental: { cypher: true },
+    });
     cypher = createCypherSupport(db.getStore());
 
     // 添加测试数据

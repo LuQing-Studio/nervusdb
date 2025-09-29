@@ -1,6 +1,7 @@
 import { FactInput, FactRecord } from '../storage/persistentStore.js';
 import { PersistentStore } from '../storage/persistentStore.js';
 import { VariablePathBuilder } from './path/variable.js';
+import type { PathResult, Direction, Uniqueness } from './path/variable.js';
 import { EncodedTriple } from '../storage/tripleStore.js';
 import type { IndexOrder } from '../storage/tripleIndexes.js';
 
@@ -970,13 +971,16 @@ export class LazyQueryBuilder extends QueryBuilder {
 
   private lazyOrientation: FrontierOrientation;
   private readonly pinned?: number;
+  private lazyWarnedOps?: Set<string>;
 
   constructor(private readonly lazyStore: PersistentStore, criteria: FactCriteria, anchor: FrontierOrientation) {
     // 传入空上下文占位，避免父类逻辑介入；所有方法均被本类覆写
     super(lazyStore, EMPTY_CONTEXT);
     this.plan.push({ kind: 'FIND', criteria, anchor });
     this.lazyOrientation = anchor;
-    this.pinned = this.lazyStore.getCurrentEpoch();
+    // 默认不固定快照；需要一致性由上层 withSnapshot 控制
+    this.pinned = undefined;
+    this.lazyWarnedOps = new Set<string>();
   }
 
   // 为灰度期保持兼容：同步迭代/length/slice 触发物化
@@ -1026,6 +1030,14 @@ export class LazyQueryBuilder extends QueryBuilder {
   }
 
   override where(predicate: (record: FactRecord) => boolean): QueryBuilder {
+    // 轻量一次性警告
+    if (!this.lazyWarnedOps?.has('where')) {
+      this.lazyWarnedOps?.add('where');
+      // eslint-disable-next-line no-console
+      console.warn(
+        'SynapseDB: where() 在惰性链上可能触发大结果的内存处理。建议使用 whereProperty()/whereLabel() 或异步流。',
+      );
+    }
     const qb = new LazyQueryBuilder(this.lazyStore, { subject: undefined }, this.lazyOrientation);
     qb.plan.length = 0;
     qb.plan.push(...this.plan, { kind: 'WHERE_PRED', pred: predicate });
@@ -1038,6 +1050,9 @@ export class LazyQueryBuilder extends QueryBuilder {
     value: unknown,
     target: 'node' | 'edge' = 'node',
   ): QueryBuilder {
+    if (target === 'edge' && operator !== '=') {
+      throw new Error('边属性暂不支持范围查询操作符');
+    }
     const qb = new LazyQueryBuilder(this.lazyStore, { subject: undefined }, this.lazyOrientation);
     qb.plan.length = 0;
     qb.plan.push(...this.plan, { kind: 'WHERE_PROP', propertyName, operator, value, target });
@@ -1250,13 +1265,13 @@ export class LazyQueryBuilder extends QueryBuilder {
               if (expandedFrontier.has(nodeId)) continue; // 每节点只扩展一次
               expandedFrontier.add(nodeId);
               const criteria = dir === 'forward' ? { subjectId: nodeId, predicateId: predId } : { predicateId: predId, objectId: nodeId };
-              const matches = store.query(criteria);
-              const recs = store.resolveRecords(matches);
-              for (const r of recs) {
-                const key = encodeTripleKey(r);
-                if (seenTriple.has(key)) continue;
-                seenTriple.add(key);
-                yield r;
+              for await (const batch of store.streamFactRecords(criteria, 512, { includeProperties: true })) {
+                for (const r of batch) {
+                  const key = encodeTripleKey(r);
+                  if (seenTriple.has(key)) continue;
+                  seenTriple.add(key);
+                  yield r;
+                }
               }
             }
           }
@@ -1346,6 +1361,87 @@ export class LazyQueryBuilder extends QueryBuilder {
       },
     } as unknown as VariablePathBuilder;
     return builder;
+  }
+
+  /**
+   * 变长路径 · 真流式 BFS（仅 LazyQueryBuilder 提供）
+   * 按层扩展，满足 min..max 与唯一性约束，逐条产出路径结果
+   */
+  async *variablePathStream(
+    relation: string,
+    range: { min?: number; max: number },
+    options?: { direction?: Direction; uniqueness?: Uniqueness; target?: number },
+  ): AsyncIterableIterator<PathResult> {
+    const dir: Direction = options?.direction ?? 'forward';
+    const uniq: Uniqueness = options?.uniqueness ?? 'NODE';
+    const min = Math.max(1, range.min ?? 1);
+    const max = Math.max(min, range.max);
+
+    const predId = this.lazyStore.getNodeIdByValue(relation);
+    if (predId === undefined) return;
+
+    // 计算起始前沿（基于上游链路的朝向），避免物化全部事实
+    const start = new Set<number>();
+    for await (const f of this) {
+      if (this.lazyOrientation === 'subject' || this.lazyOrientation === 'both') start.add(f.subjectId);
+      if (this.lazyOrientation === 'object' || this.lazyOrientation === 'both') start.add(f.objectId);
+    }
+    if (start.size === 0) return;
+
+    type Item = { node: number; edges: { record: FactRecord; direction: Direction }[]; vNodes: Set<number>; vEdges: Set<string> };
+    const q: Item[] = [];
+    for (const s of start) q.push({ node: s, edges: [], vNodes: new Set([s]), vEdges: new Set() });
+
+    while (q.length > 0) {
+      const cur = q.shift()!;
+      const depth = cur.edges.length;
+      if (depth >= min) {
+        if (options?.target === undefined || cur.node === options.target) {
+          yield {
+            edges: cur.edges,
+            length: depth,
+            startId: cur.edges[0]?.record.subjectId ?? cur.node,
+            endId: cur.node,
+          } satisfies PathResult;
+        }
+      }
+      if (depth >= max) continue;
+
+      const crit = dir === 'forward' ? { subjectId: cur.node, predicateId: predId } : { predicateId: predId, objectId: cur.node };
+      const matches = this.lazyStore.query(crit);
+      const recs = this.lazyStore.resolveRecords(matches);
+      for (const rec of recs) {
+        const next = dir === 'forward' ? rec.objectId : rec.subjectId;
+        const ekey = encodeTripleKey(rec);
+        if (uniq === 'NODE' && cur.vNodes.has(next)) continue;
+        if (uniq === 'EDGE' && cur.vEdges.has(ekey)) continue;
+        const nextEdges = [...cur.edges, { record: rec, direction: dir }];
+        const vNodes = new Set(cur.vNodes);
+        const vEdges = new Set(cur.vEdges);
+        vNodes.add(next);
+        vEdges.add(ekey);
+        q.push({ node: next, edges: nextEdges, vNodes, vEdges });
+      }
+    }
+  }
+
+  override followPath(
+    predicate: string,
+    range: { min?: number; max: number },
+    options?: { direction?: 'forward' | 'reverse' },
+  ): QueryBuilder {
+    const base = this.materializeToQueryBuilder(this);
+    return base.followPath(predicate, range, options);
+  }
+
+  override whereNodeProperty(filter: PropertyFilter): QueryBuilder {
+    const base = this.materializeToQueryBuilder(this);
+    return base.whereNodeProperty(filter);
+  }
+
+  override whereEdgeProperty(filter: PropertyFilter): QueryBuilder {
+    const base = this.materializeToQueryBuilder(this);
+    return base.whereEdgeProperty(filter);
   }
 
   private async runPinned<T>(fn: () => Promise<T>): Promise<T> {

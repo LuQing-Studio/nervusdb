@@ -307,8 +307,12 @@ export class PersistentStore {
   async *streamFactRecords(
     criteria: Partial<EncodedTriple> = {},
     batchSize = 1000,
+    options: { includeProperties?: boolean } = {},
   ): AsyncGenerator<FactRecord[], void, unknown> {
-    yield* this.queryEngine.streamFactRecords(criteria, { batchSize });
+    yield* this.queryEngine.streamFactRecords(criteria, {
+      batchSize,
+      includeProperties: options.includeProperties,
+    });
   }
 
   getDictionarySize(): number {

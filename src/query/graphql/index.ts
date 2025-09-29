@@ -9,6 +9,7 @@ import type { PersistentStore } from '../../storage/persistentStore.js';
 import { SchemaDiscovery } from './discovery.js';
 import { SchemaBuilder } from './builder.js';
 import { GraphQLProcessor, GraphQLValidator } from './processor.js';
+import { warnExperimental, wrapExperimental } from '../../utils/experimental.js';
 
 // 导出核心类
 export { SchemaDiscovery, SchemaBuilder, GraphQLProcessor, GraphQLValidator };
@@ -65,6 +66,7 @@ export class GraphQLService {
   constructor(store: PersistentStore) {
     this.store = store;
     this.processor = new GraphQLProcessor(store);
+    warnExperimental('GraphQL 查询语言前端');
   }
 
   /**
@@ -188,9 +190,9 @@ export class GraphQLService {
  * `);
  * ```
  */
-export function graphql(store: PersistentStore): GraphQLService {
+export const graphql = wrapExperimental('GraphQL 查询语言前端', (store: PersistentStore) => {
   return new GraphQLService(store);
-}
+});
 
 /**
  * 高级用法：创建配置化的 GraphQL 服务

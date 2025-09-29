@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { SynapseDB } from '@/synapseDb';
+import { compactDatabase } from '@/maintenance/compaction';
+import { garbageCollectPages } from '@/maintenance/gc';
 import { setCrashPoint } from '@/utils/fault';
 
 describe('崩溃注入（flush 路径）', () => {
@@ -93,5 +95,65 @@ describe('崩溃注入（flush 路径）', () => {
     const facts = db2.find({ subject: 'X', predicate: 'R' }).all();
     // 去重后不应出现重复
     expect(facts.length).toBe(1);
+  });
+});
+
+describe('崩溃注入（维护工具）', () => {
+  let workspace: string;
+  let dbPath: string;
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'synapsedb-maint-crash-'));
+    dbPath = join(workspace, 'maint.synapsedb');
+  });
+
+  afterEach(async () => {
+    setCrashPoint(null);
+    await rm(workspace, { recursive: true, force: true });
+  });
+
+  async function prepareDatabase(): Promise<void> {
+    const db = await SynapseDB.open(dbPath);
+    for (let i = 0; i < 10; i++) {
+      db.addFact({
+        subject: `S${i}`,
+        predicate: 'R',
+        object: `O${i}`,
+      });
+    }
+    await db.flush();
+    await db.close();
+  }
+
+  it('compaction.beforeRename 崩溃后仍可恢复', async () => {
+    await prepareDatabase();
+    setCrashPoint('compaction.beforeRename');
+    await expect(
+      compactDatabase(dbPath, {
+        orders: ['SPO'],
+        minMergePages: 1,
+        dryRun: false,
+        mode: 'rewrite',
+      }),
+    ).rejects.toThrow(/InjectedCrash:compaction.beforeRename/);
+
+    setCrashPoint(null);
+    const reopened = await SynapseDB.open(dbPath);
+    const facts = reopened.find({ predicate: 'R' }).all();
+    expect(facts.length).toBeGreaterThan(0);
+    await reopened.close();
+  });
+
+  it('gc.beforeRename 崩溃后数据仍一致', async () => {
+    await prepareDatabase();
+    setCrashPoint('gc.beforeRename');
+    await expect(garbageCollectPages(dbPath, { dryRun: false })).rejects.toThrow(
+      /InjectedCrash:gc.beforeRename/,
+    );
+
+    setCrashPoint(null);
+    const stats = await garbageCollectPages(dbPath, { dryRun: true });
+    expect(stats.dryRun).toBe(true);
+    expect(stats.orders.length).toBeGreaterThan(0);
   });
 });

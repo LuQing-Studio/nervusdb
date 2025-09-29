@@ -9,6 +9,7 @@ import {
   writePagedManifest,
   type PagedIndexManifest,
 } from '../storage/pagedIndex.js';
+import { triggerCrash } from '../utils/fault.js';
 
 export type IndexOrder = 'SPO' | 'SOP' | 'POS' | 'PSO' | 'OSP' | 'OPS';
 
@@ -209,7 +210,9 @@ export async function compactDatabase(
       try {
         await fs.unlink(dest);
       } catch {}
+      triggerCrash('compaction.beforeRename');
       await fs.rename(tmpFile, dest);
+      triggerCrash('compaction.afterRename');
       newLookups.push({ order, pages });
       pagesAfter += pages.length;
       primariesMerged += byPrimary.size;

@@ -1,6 +1,7 @@
 import { SynapseDBPlugin } from './base.js';
 import { CoreSynapseDB } from '../coreSynapseDb.js';
 import { PersistentStore } from '../storage/persistentStore.js';
+import { warnExperimental } from '../utils/experimental.js';
 import {
   createCypherSupport,
   type CypherSupport,
@@ -29,6 +30,7 @@ export class CypherPlugin implements SynapseDBPlugin {
   initialize(db: CoreSynapseDB, store: PersistentStore): void {
     this.db = db;
     this.store = store;
+    warnExperimental('Cypher 查询语言前端');
   }
 
   /**
@@ -49,6 +51,7 @@ export class CypherPlugin implements SynapseDBPlugin {
     parameters: Record<string, unknown> = {},
     options: CypherExecutionOptions = {},
   ): Promise<CypherResult> {
+    warnExperimental('Cypher 查询语言前端');
     const cypher = this.getCypherSupport();
     return cypher.cypher(statement, parameters, options);
   }
@@ -61,6 +64,7 @@ export class CypherPlugin implements SynapseDBPlugin {
     parameters: Record<string, unknown> = {},
     options: CypherExecutionOptions = {},
   ): Promise<CypherResult> {
+    warnExperimental('Cypher 查询语言前端');
     const cypher = this.getCypherSupport();
     return cypher.cypherRead(statement, parameters, options);
   }
@@ -69,6 +73,7 @@ export class CypherPlugin implements SynapseDBPlugin {
    * 验证Cypher语法
    */
   validateCypher(statement: string): { valid: boolean; errors: string[] } {
+    warnExperimental('Cypher 查询语言前端');
     const cypher = this.getCypherSupport();
     return cypher.validateCypher(statement);
   }
@@ -77,6 +82,7 @@ export class CypherPlugin implements SynapseDBPlugin {
    * 清理Cypher优化器缓存
    */
   clearCypherOptimizationCache(): void {
+    warnExperimental('Cypher 查询语言前端');
     const cypher = this.getCypherSupport();
     cypher.clearOptimizationCache();
   }
@@ -85,6 +91,7 @@ export class CypherPlugin implements SynapseDBPlugin {
    * 获取Cypher优化器统计信息
    */
   getCypherOptimizerStats(): unknown {
+    warnExperimental('Cypher 查询语言前端');
     const cypher = this.getCypherSupport();
     return cypher.getOptimizerStats();
   }
@@ -93,6 +100,7 @@ export class CypherPlugin implements SynapseDBPlugin {
    * 预热Cypher优化器
    */
   async warmUpCypherOptimizer(): Promise<void> {
+    warnExperimental('Cypher 查询语言前端');
     const cypher = this.getCypherSupport();
     await cypher.warmUpOptimizer();
   }

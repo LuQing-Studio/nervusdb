@@ -109,6 +109,21 @@ export interface SynapseDBOpenOptions {
    * @maximum 100000
    */
   maxRememberTxIds?: number;
+
+  /**
+   * 实验性功能开关
+   *
+   * 这些能力尚未稳定，默认关闭。建议仅在评估阶段显式开启。
+   * 可通过环境变量 `SYNAPSEDB_ENABLE_EXPERIMENTAL_QUERIES=1` 全局开启查询语言前端。
+   */
+  experimental?: {
+    /** 是否启用 Cypher 查询语言插件 */
+    cypher?: boolean;
+    /** 是否启用 Gremlin 查询语言辅助工厂 */
+    gremlin?: boolean;
+    /** 是否启用 GraphQL 查询语言辅助工厂 */
+    graphql?: boolean;
+  };
 }
 
 /**
@@ -232,6 +247,21 @@ export function isSynapseDBOpenOptions(value: unknown): value is SynapseDBOpenOp
 
   if (!ensureOptionalNumber('maxRememberTxIds', { min: 100, max: 100000, integer: true })) {
     return false;
+  }
+
+  if ('experimental' in options) {
+    const experimental = options.experimental;
+    if (experimental !== undefined) {
+      if (experimental === null || typeof experimental !== 'object') {
+        return false;
+      }
+      const expRecord = experimental as Record<string, unknown>;
+      for (const key of ['cypher', 'gremlin', 'graphql'] as const) {
+        if (key in expRecord && typeof expRecord[key] !== 'boolean') {
+          return false;
+        }
+      }
+    }
   }
 
   return true;

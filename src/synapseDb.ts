@@ -167,9 +167,11 @@ export class SynapseDB {
   }
 
   find(criteria: FactCriteria, options?: { anchor?: FrontierOrientation }): QueryBuilder {
-    // 灰度开关：SYNAPSEDB_LAZY_QUERY=1 时，find() 返回 LazyQueryBuilder
-    const useLazy = typeof process !== 'undefined' && process.env.SYNAPSEDB_LAZY_QUERY === '1';
-    if (!useLazy) return this.core.find(criteria, options);
+    // 快照上下文内：保持历史的“即刻物化”语义，避免跨区间观测到新写入
+    if (this.snapshotDepth > 0) {
+      return this.core.find(criteria, options);
+    }
+    // 默认采用惰性执行（未发布，允许前向调整）
     const anchor = options?.anchor ?? this.inferAnchor(criteria);
     const store = this.core.getStore();
     return new LazyQueryBuilder(store, criteria, anchor);
@@ -179,10 +181,8 @@ export class SynapseDB {
    * 惰性执行版查询（灰度）：仅在执行时物化
    */
   findLazy(criteria: FactCriteria, options?: { anchor?: FrontierOrientation }): QueryBuilder {
-    const anchor = options?.anchor ?? this.inferAnchor(criteria);
-    const store = this.core.getStore();
-    // 返回 LazyQueryBuilder（继承自 QueryBuilder，签名兼容）
-    return new LazyQueryBuilder(store, criteria, anchor);
+    // 与 find 等价，保留别名以兼容文档与外部调用
+    return this.find(criteria, options);
   }
 
   /**

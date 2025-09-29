@@ -9,6 +9,7 @@ import type { PersistentStore } from '../../storage/persistentStore.js';
 import { GraphTraversalSource, createTraversalSource, traversal } from './source.js';
 import { GraphTraversal } from './traversal.js';
 import { GremlinExecutor } from './executor.js';
+import { warnExperimental, wrapExperimental } from '../../utils/experimental.js';
 
 // 导出核心类
 export { GraphTraversalSource, GraphTraversal, GremlinExecutor };
@@ -101,9 +102,10 @@ export type { TraversalResult } from './traversal.js';
  *   .toList();
  * ```
  */
-export function gremlin(store: PersistentStore): GraphTraversalSource {
+export const gremlin = wrapExperimental('Gremlin 遍历语言前端', (store: PersistentStore) => {
+  warnExperimental('Gremlin 遍历语言前端');
   return traversal(store);
-}
+});
 
 /**
  * 高级用法：创建配置化的 Gremlin 遍历源

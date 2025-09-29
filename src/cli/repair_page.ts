@@ -3,9 +3,16 @@ import { readPagedManifest } from '../storage/pagedIndex.js';
 import { repairCorruptedPagesFast } from '../maintenance/repair.js';
 
 async function main() {
-  const [dbPath, order, primaryStr] = process.argv.slice(2);
+  const argv = process.argv.slice(2);
+  const positional = argv.filter((arg) => !arg.startsWith('--'));
+  const flags = new Set(argv.filter((arg) => arg.startsWith('--')));
+
+  const [dbPath, order, primaryStr] = positional;
   if (!dbPath || !order || !primaryStr) {
-    console.log('用法: pnpm db:repair-page <db> <order:SPO|SOP|POS|PSO|OSP|OPS> <primary:number>');
+    console.log(
+      '用法: pnpm db:repair-page <db> <order:SPO|SOP|POS|PSO|OSP|OPS> <primary:number> [--force]',
+    );
+    console.log('默认 dry-run：仅输出提示信息。使用 --force 才会真实修复。');
     process.exit(1);
   }
   const primary = Number(primaryStr);
@@ -21,13 +28,23 @@ async function main() {
     process.exit(2);
   }
   manifest.orphans = manifest.orphans ?? [];
-  // 直接执行 repairFast（其会重写指定 primary）
+
+  if (!flags.has('--force')) {
+    console.log('⚠️  当前为 dry-run 模式。未执行任何写入。');
+    console.log(`   目标数据库: ${dbPath}`);
+    console.log(`   目标顺序:   ${order}`);
+    console.log(`   目标 primary: ${primary}`);
+    console.log('若确认需要修复，请加入 --force 参数。');
+    return;
+  }
+
   const res = await repairCorruptedPagesFast(dbPath);
   if (res.repaired.length === 0) {
     console.log('未发现可修复的页；若要强制修复，可先运行 --strict 检查定位');
-  } else {
-    console.log(JSON.stringify(res, null, 2));
+    return;
   }
+
+  console.log(JSON.stringify(res, null, 2));
 }
 
 // eslint-disable-next-line @typescript-eslint/no-floating-promises

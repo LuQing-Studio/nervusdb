@@ -1,5 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { QueryBuilder, buildFindContext } from '@/query/queryBuilder.ts';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  QueryBuilder,
+  StreamingQueryBuilder,
+  buildFindContext,
+  buildStreamingFindContext,
+} from '@/query/queryBuilder.ts';
 
 type FR = import('@/storage/persistentStore.ts').FactRecord;
 type Triple = { subjectId: number; predicateId: number; objectId: number };
@@ -118,5 +123,47 @@ describe('QueryBuilder · 关键分支补测', () => {
     expect(fw.length).toBeGreaterThanOrEqual(0);
     const fr = qb.followReverseWithNodeProperty('p10', { propertyName: 'age', range: { min: 20 } });
     expect(fr.length).toBeGreaterThanOrEqual(0);
+  });
+
+  it('buildStreamingFindContext 利用 streamFactRecords 并维护前沿', async () => {
+    const mk = (s: number, o: number) => ({
+      subject: `s${s}`,
+      predicate: 'p10',
+      object: `o${o}`,
+      subjectId: s,
+      predicateId: 10,
+      objectId: o,
+    });
+    const batch1 = [mk(1, 2)];
+    const batch2 = [mk(3, 4), mk(5, 6)];
+    const allFacts = [...batch1, ...batch2];
+
+    const streamFactRecords = vi.fn(async function* (
+      _criteria: unknown,
+      batchSize: number,
+      options?: { includeProperties?: boolean },
+    ) {
+      expect(batchSize).toBeGreaterThan(0);
+      expect(options?.includeProperties).toBe(true);
+      yield batch1;
+      yield batch2;
+    });
+
+    const store: any = {
+      streamFactRecords,
+      getNodeIdByValue(value: string) {
+        if (value === 'p10') return 10;
+        return undefined;
+      },
+      pinnedEpochStack: [],
+    };
+
+    const ctx = await buildStreamingFindContext(store, { predicate: 'p10' }, 'subject');
+    const streaming = new StreamingQueryBuilder(store, ctx, 42);
+    const qb = await streaming.toQueryBuilder();
+
+    expect(streamFactRecords).toHaveBeenCalledTimes(1);
+    expect(ctx.frontier).toEqual(new Set(allFacts.map((f) => f.subjectId)));
+    expect(qb.slice()).toEqual(allFacts);
   });
 });

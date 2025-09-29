@@ -10,6 +10,7 @@ import {
   type PagedIndexManifest,
 } from '../storage/pagedIndex.js';
 import { SynapseDB } from '../synapseDb.js';
+import { triggerCrash } from '../utils/fault.js';
 
 export async function repairCorruptedOrders(dbPath: string): Promise<{ repairedOrders: string[] }> {
   const indexDir = `${dbPath}.pages`;
@@ -61,12 +62,16 @@ export async function repairCorruptedOrders(dbPath: string): Promise<{ repairedO
       await fs.unlink(dest);
     } catch {}
     try {
+      triggerCrash('repair.beforeRename');
       await fs.rename(tmpFile, dest);
+      triggerCrash('repair.afterRename');
     } catch (e) {
       // 若无数据写入 tmpFile 可能不存在，创建空文件后再替换
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
         await fs.writeFile(tmpFile, Buffer.alloc(0));
+        triggerCrash('repair.beforeRename');
         await fs.rename(tmpFile, dest);
+        triggerCrash('repair.afterRename');
       } else {
         throw e;
       }
