@@ -11,16 +11,17 @@ import { TypedSynapseDB } from 'synapsedb';
 
 ## `SynapseDB.open(path, options)`
 
-| 选项                       | 类型             | 默认                      | 说明                       |
-| -------------------------- | ---------------- | ------------------------- | -------------------------- | ------------------ |
-| `indexDirectory`           | `string`         | `path + '.pages'`         | 分页索引目录               |
-| `pageSize`                 | `number`         | 1024                      | 索引页大小（三元组数量）   |
-| `enableLock`               | `boolean`        | `false`                   | 进程级写锁，生产建议开启   |
-| `registerReader`           | `boolean`        | `true`                    | 是否登记读者，保障治理安全 |
-| `enablePersistentTxDedupe` | `boolean`        | `false`                   | 启用事务 ID 幂等注册表     |
-| `maxRememberTxIds`         | `number`         | 1000                      | 注册表容量                 |
-| `stagingMode`              | `'default'       | 'lsm-lite'`               | `'default'`                | 启用 LSM-Lite 暂存 |
-| `compression`              | `{ codec: 'none' | 'brotli'; level?: 1-11 }` | `{ codec: 'none' }`        | 索引页压缩策略     |
+| 选项                       | 类型                                          | 默认                | 说明                       |
+| -------------------------- | --------------------------------------------- | ------------------- | -------------------------- |
+| `indexDirectory`           | `string`                                      | `path + '.pages'`   | 分页索引目录               |
+| `pageSize`                 | `number`                                      | 1024                | 索引页大小（三元组数量）   |
+| `enableLock`               | `boolean`                                     | `false`             | 进程级写锁，生产建议开启   |
+| `registerReader`           | `boolean`                                     | `true`              | 是否登记读者，保障治理安全 |
+| `enablePersistentTxDedupe` | `boolean`                                     | `false`             | 启用事务 ID 幂等注册表     |
+| `maxRememberTxIds`         | `number`                                      | 1000                | 注册表容量                 |
+| `stagingMode`              | `'default' \| 'lsm-lite'`                     | `'default'`         | 启用 LSM-Lite 暂存         |
+| `compression`              | `{ codec: 'none' \| 'brotli'; level?: 1-11 }` | `{ codec: 'none' }` | 索引页压缩策略             |
+| `experimental`             | `{ cypher?: boolean }`                        | `{}`                | 实验性功能开关             |
 
 ## 写入与删除
 
@@ -44,28 +45,28 @@ db.abortBatch();
 
 ## 读取 API
 
-| 方法                                                      | 返回                    | 说明         |
-| --------------------------------------------------------- | ----------------------- | ------------ | -------------- |
-| `find(criteria, options?)`                                | `QueryBuilder`          | 链式查询入口 |
-| `streamFacts(criteria, batchSize?)`                       | `AsyncIterable<Fact[]>` | 分批遍历事实 |
-| `listFacts()`                                             | `AsyncIterable<Fact>`   | 遍历全部事实 |
-| `getNodeId(value)`                                        | `Promise<number         | undefined>`  | 获取节点 ID    |
-| `getNodeValue(id)`                                        | `Promise<string         | undefined>`  | 反向查询字符串 |
-| `getNodeProperties(id)`                                   | `Promise<object         | undefined>`  | 读取节点属性   |
-| `getEdgeProperties({ subjectId, predicateId, objectId })` | `Promise<object         | undefined>`  | 读取边属性     |
+| 方法                                                      | 返回                         | 说明           |
+| --------------------------------------------------------- | ---------------------------- | -------------- |
+| `find(criteria, options?)`                                | `QueryBuilder`               | 链式查询入口   |
+| `streamFacts(criteria, batchSize?)`                       | `AsyncIterable<Fact[]>`      | 分批遍历事实   |
+| `listFacts()`                                             | `AsyncIterable<Fact>`        | 遍历全部事实   |
+| `getNodeId(value)`                                        | `Promise<number\|undefined>` | 获取节点 ID    |
+| `getNodeValue(id)`                                        | `Promise<string\|undefined>` | 反向查询字符串 |
+| `getNodeProperties(id)`                                   | `Promise<object\|undefined>` | 读取节点属性   |
+| `getEdgeProperties({ subjectId, predicateId, objectId })` | `Promise<object\|undefined>` | 读取边属性     |
 
 ## QueryBuilder 常用方法
 
-| 方法                             | 说明            |
-| -------------------------------- | --------------- | -------- | ------- |
-| `follow(predicate)`              | 顺向跳转        |
-| `followReverse(predicate)`       | 反向跳转        |
-| `where(fn)`                      | 过滤节点/边属性 |
-| `limit(n)` / `skip(n)`           | 限制条数        |
-| `distinct()`                     | 结果去重        |
-| `anchor`（在 `find` options 中） | `'subject'      | 'object' | 'both'` |
-| `stream({ batchSize })`          | Streaming 输出  |
-| `all()` / `first()`              | 获取结果        |
+| 方法                             | 说明                              |
+| -------------------------------- | --------------------------------- |
+| `follow(predicate)`              | 顺向跳转                          |
+| `followReverse(predicate)`       | 反向跳转                          |
+| `where(fn)`                      | 过滤节点/边属性                   |
+| `limit(n)` / `skip(n)`           | 限制条数                          |
+| `distinct()`                     | 结果去重                          |
+| `anchor`（在 `find` options 中） | `'subject' \| 'object' \| 'both'` |
+| `stream({ batchSize })`          | Streaming 输出                    |
+| `all()` / `first()`              | 获取结果                          |
 
 ## 聚合 API
 

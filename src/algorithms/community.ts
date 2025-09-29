@@ -42,7 +42,6 @@ export class LouvainCommunityDetection implements CommunityDetectionAlgorithm {
     let level = 0;
 
     while (true) {
-      console.log('[DEBUG] Louvain: Entering main loop, level', level);
       // 第一阶段：局部优化
       const { newCommunities, improved } = this.louvainPhaseOne(
         currentGraph,
@@ -161,7 +160,6 @@ export class LouvainCommunityDetection implements CommunityDetectionAlgorithm {
     tolerance: number,
     randomness: number,
   ): { newCommunities: Map<string, number>; improved: boolean } {
-    console.log('[DEBUG] Louvain: Entering phase one...');
     const nodes = graph.getNodes();
     const communities = new Map(initialCommunities);
     let improved = false;
@@ -219,7 +217,6 @@ export class LouvainCommunityDetection implements CommunityDetectionAlgorithm {
       }
     }
 
-    console.log('[DEBUG] Louvain: Exiting phase one, improved:', improved);
     return { newCommunities: communities, improved };
   }
 

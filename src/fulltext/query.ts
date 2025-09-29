@@ -236,15 +236,18 @@ export class BooleanQueryProcessor {
 export class PhraseQueryProcessor {
   constructor(private index: InvertedIndex) {}
 
+  /**
+   * 处理短语查询，支持 slop（词间允许的最大距离）
+   * @param terms 词项列表
+   * @param slop 允许词间的最大跨度（默认 0 表示严格连续）
+   */
   processPhrase(terms: string[], slop: number = 0): Set<string> {
     if (terms.length === 0) return new Set();
-    // 当前实现未使用 slop，保留参数兼容接口
-    void slop;
     // 取出所有 posting 列表
     const lists = terms.map((t) => this.index.getPostingList(t)).filter(Boolean) as PostingList[];
     if (lists.length !== terms.length) return new Set();
 
-    // 以第一个词为基准，检查其它词的位置是否连续
+    // 以第一个词为基准，检查其它词的位置是否在允许范围内
     const first = lists[0];
     const result = new Set<string>();
 
@@ -259,13 +262,18 @@ export class PhraseQueryProcessor {
           ok = false;
           break;
         }
-        // 检查是否存在 pos+k == pos'
+        // 检查是否存在位置在 [p+i, p+i+slop] 范围内
         let matched = false;
         for (const p of basePositions) {
-          if (other.positions.includes(p + i)) {
-            matched = true;
-            break;
+          // 精确匹配：pos+i（连续）
+          // 松弛匹配：pos+i 到 pos+i+slop（允许跨度）
+          for (let offset = 0; offset <= slop; offset++) {
+            if (other.positions.includes(p + i + offset)) {
+              matched = true;
+              break;
+            }
           }
+          if (matched) break;
         }
         if (!matched) ok = false;
       }

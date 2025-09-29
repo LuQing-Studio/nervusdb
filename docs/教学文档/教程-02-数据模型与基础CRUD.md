@@ -105,6 +105,48 @@ const repos = await typed
   .all();
 ```
 
+## 插件系统
+
+SynapseDB 的高级查询能力由插件提供，以下插件在 `open()` 时**自动加载**：
+
+### 默认插件
+
+1. **PathfindingPlugin**：提供最短路径算法
+
+   ```ts
+   const path = db.shortestPath('user:alice', 'user:bob', {
+     predicates: ['FRIEND_OF'],
+     maxHops: 5,
+   });
+   ```
+
+2. **AggregationPlugin**：提供聚合查询能力
+   ```ts
+   const stats = await db
+     .aggregate()
+     .match({ predicate: 'WORKS_AT' })
+     .groupBy(['object'])
+     .count('memberCount')
+     .execute();
+   ```
+
+### 实验性插件
+
+**CypherPlugin** 需显式启用：
+
+```ts
+const db = await SynapseDB.open('demo.synapsedb', {
+  experimental: { cypher: true },
+});
+
+const result = await db.cypher(`
+  MATCH (p:Person)-[:FRIEND_OF]->(f)
+  RETURN f LIMIT 10
+`);
+```
+
+详见 [插件系统使用指南](../使用示例/插件系统使用指南.md)。
+
 ## 验证
 
 - `synapsedb stats demo.synapsedb --summary` 中文件数、墓碑、热度符合预期

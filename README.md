@@ -49,6 +49,7 @@
 │                查询与执行引擎                 │
 │  - 链式联想管线          - 聚合/流式迭代器       │
 │  - 多语言解析器          - 图算法/属性过滤       │
+│  - 插件系统 (PathfindingPlugin/AggregationPlugin) │
 └───────────────▲──────────────────────────────┘
                 │ Storage API
 ┌───────────────┴──────────────────────────────┐
@@ -69,19 +70,20 @@
 
 ## 核心特性矩阵
 
-| 能力       | 子模块                                            | 说明                                                                 |
-| ---------- | ------------------------------------------------- | -------------------------------------------------------------------- |
-| 三元组存储 | `src/storage/tripleStore.ts`                      | 单文件主库 + 六序分页索引，按主键排序分页                            |
-| 链式查询   | `src/query/queryBuilder.ts`                       | 正反向 follow、anchor、属性过滤、Streaming、聚合                     |
-| 多语言接口 | `src/query/cypher.ts` / `graphql/*` / `gremlin/*` | Cypher、GraphQL、Gremlin 与 QueryBuilder 共用执行管线                |
-| 事务与 WAL | `src/storage/wal.ts` / `txidRegistry.ts`          | WAL v2、批次提交、崩溃恢复、事务 ID 幂等                             |
-| 热度与治理 | `src/storage/hotness.ts` / `src/maintenance/*`    | 热度统计、自动压实、GC、页修复、读者尊重策略                         |
-| 属性索引   | `src/storage/propertyIndex.ts`                    | 节点/边属性倒排索引，范围/前缀/精确匹配                              |
-| 全文检索   | `src/fulltext/*`                                  | 分词、倒排索引、打分器、批处理导入、查询 DSL                         |
-| 空间索引   | `src/spatial/*`                                   | R-Tree、几何类型、范围/相交/最近邻查询                               |
-| 图算法     | `src/algorithms/*`                                | Dijkstra、A\*、双向 BFS、中心性、社区发现、相似度                    |
-| 基准测试   | `benchmarks/*` ⚠️ `src/benchmark/*` 已弃用        | 外部脚本化基准套件，输出详细指标；CLI 保持兼容但推荐直接运行脚本     |
-| CLI 工具   | `src/cli/*`                                       | stats、check、repair、compact、auto-compact、gc、hot、txids、dump 等 |
+| 能力       | 子模块                                            | 说明                                                                        |
+| ---------- | ------------------------------------------------- | --------------------------------------------------------------------------- |
+| 三元组存储 | `src/storage/tripleStore.ts`                      | 单文件主库 + 六序分页索引，按主键排序分页                                   |
+| 链式查询   | `src/query/queryBuilder.ts`                       | 正反向 follow、anchor、属性过滤、Streaming、聚合                            |
+| 多语言接口 | `src/query/cypher.ts` / `graphql/*` / `gremlin/*` | Cypher、GraphQL、Gremlin 与 QueryBuilder 共用执行管线                       |
+| 事务与 WAL | `src/storage/wal.ts` / `txidRegistry.ts`          | WAL v2、批次提交、崩溃恢复、事务 ID 幂等                                    |
+| 热度与治理 | `src/storage/hotness.ts` / `src/maintenance/*`    | 热度统计、自动压实、GC、页修复、读者尊重策略                                |
+| 属性索引   | `src/storage/propertyIndex.ts`                    | 节点/边属性倒排索引，范围/前缀/精确匹配                                     |
+| 全文检索   | `src/fulltext/*`                                  | 分词、倒排索引、打分器、批处理导入、查询 DSL                                |
+| 空间索引   | `src/spatial/*`                                   | R-Tree、几何类型、范围/相交/最近邻查询                                      |
+| 图算法     | `src/algorithms/*`                                | Dijkstra、A\*、双向 BFS、中心性、社区发现、相似度                           |
+| 插件系统   | `src/plugins/*`                                   | PathfindingPlugin + AggregationPlugin 默认加载；CypherPlugin 可选实验性启用 |
+| 基准测试   | `benchmarks/*` ⚠️ `src/benchmark/*` 已弃用        | 外部脚本化基准套件，输出详细指标；CLI 保持兼容但推荐直接运行脚本            |
+| CLI 工具   | `src/cli/*`                                       | stats、check、repair、compact、auto-compact、gc、hot、txids、dump 等        |
 
 ## 安装与环境准备
 
