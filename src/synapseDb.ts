@@ -167,7 +167,12 @@ export class SynapseDB {
   }
 
   find(criteria: FactCriteria, options?: { anchor?: FrontierOrientation }): QueryBuilder {
-    return this.core.find(criteria, options);
+    // 灰度开关：SYNAPSEDB_LAZY_QUERY=1 时，find() 返回 LazyQueryBuilder
+    const useLazy = typeof process !== 'undefined' && process.env.SYNAPSEDB_LAZY_QUERY === '1';
+    if (!useLazy) return this.core.find(criteria, options);
+    const anchor = options?.anchor ?? this.inferAnchor(criteria);
+    const store = this.core.getStore();
+    return new LazyQueryBuilder(store, criteria, anchor);
   }
 
   /**

@@ -958,6 +958,21 @@ export class LazyQueryBuilder extends QueryBuilder {
     this.pinned = this.lazyStore.getCurrentEpoch();
   }
 
+  // 为灰度期保持兼容：同步迭代/length/slice 触发物化
+  override *[Symbol.iterator](): IterableIterator<FactRecord> {
+    const arr = this.all();
+    for (const f of arr) yield f;
+  }
+
+  override get length(): number {
+    return this.all().length;
+  }
+
+  override slice(start?: number, end?: number): FactRecord[] {
+    const arr = this.all();
+    return arr.slice(start, end);
+  }
+
   override anchor(orientation: FrontierOrientation): QueryBuilder {
     const qb = new LazyQueryBuilder(this.lazyStore, { subject: undefined }, this.lazyOrientation);
     qb.plan.length = 0;
