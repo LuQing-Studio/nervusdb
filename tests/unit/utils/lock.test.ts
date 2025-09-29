@@ -122,7 +122,8 @@ describe('文件锁工具测试', () => {
       } catch (error) {
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toMatch(/数据库正被占用/);
-        expect((error as Error).message).toMatch(/可能有写入者存在/);
+        expect((error as Error).message).toMatch(/已重试 3 次/);
+        expect((error as Error).message).toMatch(/提示：请检查是否有其他进程/);
       }
 
       await lock1.release();
