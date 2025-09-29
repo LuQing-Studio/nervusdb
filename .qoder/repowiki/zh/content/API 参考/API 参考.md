@@ -2,27 +2,22 @@
 
 <cite>
 **本文档中引用的文件**   
-- [synapseDb.ts](file://src/synapseDb.ts)
-- [index.ts](file://src/index.ts)
-- [queryBuilder.ts](file://src/query/queryBuilder.ts)
-- [typedSynapseDb.ts](file://src/typedSynapseDb.ts)
-- [types/enhanced.ts](file://src/types/enhanced.ts)
-- [query/cypher.ts](file://src/query/cypher.ts)
-- [query/graphql/index.ts](file://src/query/graphql/index.ts)
-- [query/gremlin/index.ts](file://src/query/gremlin/index.ts)
-- [types/openOptions.ts](file://src/types/openOptions.ts) - *新增事务与快照相关选项*
-- [tests/helpers/tempfs.ts](file://tests/helpers/tempfs.ts) - *新增测试辅助工具*
-- [spatial/rtree.ts](file://src/spatial/rtree.ts) - *修复了 BBox 计算中的 Infinity 残留问题*
+- [synapseDb.ts](file://src/synapseDb.ts) - *核心数据库类与主API入口*
+- [index.ts](file://src/index.ts) - *模块导出与架构整合*
+- [queryBuilder.ts](file://src/query/queryBuilder.ts) - *查询构建器与惰性执行引擎*
+- [typedSynapseDb.ts](file://src/typedSynapseDb.ts) - *类型安全数据库接口*
+- [types/enhanced.ts](file://src/types/enhanced.ts) - *增强类型定义*
+- [query/cypher.ts](file://src/query/cypher.ts) - *Cypher查询语言支持*
+- [types/openOptions.ts](file://src/types/openOptions.ts) - *数据库打开选项配置*
+- [docs/教学文档/附录-API-查询与惰性执行.md](file://docs/教学文档/附录-API-查询与惰性执行.md) - *新增的惰性执行与explain API文档*
 </cite>
 
 ## 更新摘要
 **变更内容**   
-- 新增“事务与快照API”章节，详细说明 `beginBatch`、`commitBatch`、`abortBatch` 和 `withSnapshot` 方法
-- 在“核心数据库类 SynapseDB”中补充了事务批次和幂等性配置说明
-- 更新“接口定义摘要”以包含新的事务和快照相关接口
-- 添加 `SynapseDBOpenOptions` 配置项的完整文档
-- **新增测试辅助模块说明**：添加对 `tempfs.ts` 测试助手的描述，用于隔离测试环境
-- **更新空间索引文档**：根据 `rtree.ts` 的最新修改，修正了关于边界框（BBox）计算的行为描述
+- **新增API附录说明**：根据 `1a0a0c5` 提交，新增关于惰性执行和 `explain()` API 的详细说明
+- **移除GraphQL支持**：根据 `1e4ed1f` 提交，已移除GraphQL查询引擎，相关API已废弃
+- **增强explain估算能力**：根据 `ad9cf54` 提交，`explain()` 方法现在输出 `estimatedOutput` 字段，用于估算输出基数
+- **稳定explain类型**：根据 `7a23e93` 提交，修正了 `explain()` 的类型定义，确保类型安全
 
 ## 目录
 1. [核心数据库类 SynapseDB](#核心数据库类-synapsedb)
@@ -50,7 +45,7 @@ await db.close();
 ```
 
 **节来源**
-- [synapseDb.ts](file://src/synapseDb.ts#L57-L915)
+- [synapseDb.ts](file://src/synapseDb.ts#L84-L108)
 
 ### 添加和删除事实
 `addFact` 方法用于向数据库中添加一个新的事实（SPO三元组），并可选择性地为节点和边设置属性。
@@ -72,13 +67,23 @@ db.deleteFact({ subject: 'Alice', predicate: 'knows', object: 'Bob' });
 ```
 
 **节来源**
-- [synapseDb.ts](file://src/synapseDb.ts#L57-L915)
+- [synapseDb.ts](file://src/synapseDb.ts#L117-L147)
+- [synapseDb.ts](file://src/synapseDb.ts#L363-L365)
 
 ### 基本查询操作
-`find` 方法根据条件查找匹配的事实记录，并返回一个 `QueryBuilder` 实例以支持链式调用。
+`find` 方法根据条件查找匹配的事实记录，并返回一个 `QueryBuilder` 实例以支持链式调用。**注意**：根据最新代码，`find` 方法默认返回 `LazyQueryBuilder` 实例，实现惰性执行。
 
 ```typescript
 const results = db.find({ predicate: 'knows' }).all();
+```
+
+`findStreaming` 方法提供真正的流式查询能力，适用于处理大数据集，避免内存溢出。
+
+```typescript
+const stream = await db.findStreaming({ predicate: 'knows' });
+for await (const fact of stream) {
+  console.log(fact);
+}
 ```
 
 `findByNodeProperty` 和 `findByEdgeProperty` 分别基于节点或边的属性进行查询。
@@ -98,7 +103,8 @@ const persons = db.findByLabel('Person').all();
 ```
 
 **节来源**
-- [synapseDb.ts](file://src/synapseDb.ts#L57-L915)
+- [synapseDb.ts](file://src/synapseDb.ts#L206-L216)
+- [synapseDb.ts](file://src/synapseDb.ts#L228-L243)
 
 ### 数据库打开选项
 `SynapseDBOpenOptions` 接口提供了丰富的数据库配置选项：
@@ -161,13 +167,25 @@ interface SynapseDBOpenOptions {
    * @default 1000
    */
   maxRememberTxIds?: number;
+
+  /**
+   * 实验性功能开关
+   */
+  experimental?: {
+    /** 是否启用 Cypher 查询语言插件 */
+    cypher?: boolean;
+    /** 是否启用 Gremlin 查询语言辅助工厂 */
+    gremlin?: boolean;
+    /** 是否启用 GraphQL 查询语言辅助工厂 */
+    graphql?: boolean;
+  };
 }
 ```
 
 这些选项允许精细控制数据库的行为、性能和并发特性。
 
 **节来源**
-- [types/openOptions.ts](file://src/types/openOptions.ts#L1-L153)
+- [types/openOptions.ts](file://src/types/openOptions.ts#L5-L126)
 
 ## 查询构建器 QueryBuilder
 
@@ -223,8 +241,37 @@ const employees = db.find({})
   .whereLabel(['Person', 'Employee'], { mode: 'AND', on: 'subject' });
 ```
 
+### 流式查询与惰性执行
+`LazyQueryBuilder` 和 `StreamingQueryBuilder` 支持惰性执行和流式处理，避免大结果集的内存压力。
+
+```typescript
+// 惰性查询，仅在调用 all() 时执行
+const lazyQuery = db.find({ predicate: 'knows' }).limit(100);
+
+// 流式查询，逐条处理结果
+const stream = await db.findStreaming({ predicate: 'knows' });
+for await (const fact of stream) {
+  // 处理单条记录
+}
+```
+
+### 查询诊断
+`explain()` 方法提供查询执行计划的诊断信息。**更新**：现在包含 `estimatedOutput` 字段，用于估算输出基数。
+
+```typescript
+const plan = db.find({ predicate: 'knows' })
+  .follow('worksAt')
+  .limit(10)
+  .explain();
+
+console.log(plan.estimate?.estimatedOutput); // 估算的输出数量
+```
+
 **节来源**
-- [queryBuilder.ts](file://src/query/queryBuilder.ts#L38-L812)
+- [queryBuilder.ts](file://src/query/queryBuilder.ts#L42-L877)
+- [queryBuilder.ts](file://src/query/queryBuilder.ts#L979-L1941)
+- [queryBuilder.ts](file://src/query/queryBuilder.ts#L882-L971)
+- [queryBuilder.ts](file://src/query/queryBuilder.ts#L170-L178)
 
 ## 类型安全数据库 TypedSynapseDB
 
@@ -286,41 +333,14 @@ if (!validation.valid) {
 ```
 
 ### GraphQL 查询
-`graphql` 函数为数据库提供自动生成的 GraphQL Schema 和查询能力。
-
-```typescript
-import { graphql } from './query/graphql';
-
-const gqlService = graphql(db.store);
-const schema = await gqlService.getSchema();
-const result = await gqlService.executeQuery(`{
-  persons(name: "Alice") {
-    name
-    friends {
-      name
-    }
-  }
-}`);
-```
+**已移除**：根据 `1e4ed1f` 提交，GraphQL查询引擎已被移除，相关API已废弃。
 
 ### Gremlin 查询
-`gremlin` 函数提供兼容 Apache TinkerPop 的 Gremlin 遍历 API。
-
-```typescript
-import { gremlin } from './query/gremlin';
-
-const g = gremlin(db.store);
-const results = await g.V()
-  .has('name', 'Alice')
-  .out('knows')
-  .values('name')
-  .toList();
-```
+**已移除**：根据 `1e4ed1f` 提交，Gremlin查询引擎已被移除，相关API已废弃。
 
 **节来源**
-- [query/cypher.ts](file://src/query/cypher.ts#L0-L286)
-- [query/graphql/index.ts](file://src/query/graphql/index.ts#L0-L331)
-- [query/gremlin/index.ts](file://src/query/gremlin/index.ts#L0-L283)
+- [query/cypher.ts](file://src/query/cypher.ts#L577-L583)
+- [plugins/cypher.ts](file://src/plugins/cypher.ts#L21-L175)
 
 ## 事务与快照API
 
@@ -395,6 +415,11 @@ interface SynapseDBOpenOptions {
   stagingMode?: 'default' | 'lsm-lite';
   enablePersistentTxDedupe?: boolean;
   maxRememberTxIds?: number;
+  experimental?: {
+    cypher?: boolean;
+    gremlin?: boolean;
+    graphql?: boolean;
+  };
 }
 ```
 
@@ -416,5 +441,5 @@ interface TypedSynapseDB<TNodeProps extends NodeProperties, TEdgeProps extends E
 ```
 
 **节来源**
-- [types/openOptions.ts](file://src/types/openOptions.ts#L1-L153)
+- [types/openOptions.ts](file://src/types/openOptions.ts#L5-L126)
 - [types/enhanced.ts](file://src/types/enhanced.ts#L141-L215)

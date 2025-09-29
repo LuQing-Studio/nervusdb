@@ -1,12 +1,32 @@
-
 # 数据库实例API
 
 <cite>
 **本文档中引用的文件**
-- [synapseDb.ts](file://src/synapseDb.ts)
-- [openOptions.ts](file://src/types/openOptions.ts)
-- [persistentStore.ts](file://src/storage/persistentStore.ts)
+- [synapseDb.ts](file://src/synapseDb.ts) - *已更新：合并三层架构为单一类*
+- [openOptions.ts](file://src/types/openOptions.ts) - *已更新：包含实验性功能开关*
+- [persistentStore.ts](file://src/storage/persistentStore.ts) - *已更新：存储内核实现*
 </cite>
+
+## 更新摘要
+**已更改内容**
+- 根据架构重构更新了核心组件描述，将三层架构（CoreSynapseDB → ExtendedSynapseDB → SynapseDB）合并为单一 SynapseDB 类
+- 更新了类图以反映新的单一类结构
+- 在配置选项中添加了 experimental 字段的详细说明
+- 更新了 close() 方法的资源清理机制描述，包含插件清理
+- 补充了 withSnapshot 快照机制的实现细节
+- 添加了 getStagingMetrics 实验性API的监控用途说明
+
+**新增部分**
+- 插件系统说明
+- 事务批次的持久性选项
+- Cypher 查询语言支持
+
+**已弃用/移除部分**
+- 旧的三层架构相关描述
+
+**来源跟踪系统更新**
+- 更新了所有受影响文件的来源注释，标记为“已更新”
+- 添加了新引用文件的来源信息
 
 ## 目录
 1. [简介](#简介)
@@ -26,7 +46,7 @@ SynapseDB 是一个嵌入式三元组知识库，提供类 SQLite 的单文件�
 
 ## 核心组件
 
-SynapseDB 类是数据库的核心入口点，封装了持久化存储层并提供了丰富的 API 接口。所有数据库操作都通过该类的静态或实例方法进行。
+SynapseDB 类是数据库的核心入口点，封装了持久化存储层并提供了丰富的 API 接口。所有数据库操作都通过该类的静态或实例方法进行。根据最新的架构重构，原先的三层架构（CoreSynapseDB → ExtendedSynapseDB → SynapseDB）已合并为单一的 SynapseDB 类，简化了类型系统和导入路径。
 
 ```mermaid
 classDiagram
@@ -37,10 +57,20 @@ class SynapseDB {
 +getNodeId(value : string) : number | undefined
 +getNodeValue(id : number) : string | undefined
 +flush() : Promise<void>
-+withSnapshot<T>(fn : (db : SynapseDB) => Promise<T> | T) : Promise<T>
++withSnapshot<T>(fn : (db : SynapseDB) => Promise<T>) : Promise<T>
 +getStagingMetrics() : { lsmMemtable : number }
++close() : Promise<void>
++beginBatch(options? : BeginBatchOptions) : void
++commitBatch(options? : CommitBatchOptions) : void
++abortBatch() : void
++plugin<T>(name : string) : T | undefined
++hasPlugin(name : string) : boolean
++listPlugins() : Array<{ name : string; version : string }>
++cypher(query : string, params? : Record<string, unknown>) : Promise<CypherResult>
 -store : PersistentStore
 -snapshotDepth : number
+-pluginManager : PluginManager
+-hasCypherPlugin : boolean
 }
 class PersistentStore {
 +static open(path : string, options : PersistentStoreOptions) : Promise<PersistentStore>
@@ -77,6 +107,7 @@ SynapseDB --> PersistentStore : "封装"
 | `stagingMode` | 'default' \| 'lsm-lite' | 'default' | 写入策略模式（'lsm-lite' 为实验性） |
 | `enablePersistentTxDedupe` | boolean | false | 启用跨重启的事务ID幂等去重 |
 | `maxRememberTxIds` | number | 1000 | 内存中保持的事务ID最大数量 |
+| `experimental` | {cypher?: boolean, gremlin?: boolean, graphql?: boolean} | {} | 实验性功能开关 |
 
 #### 配置示例
 ```typescript
@@ -86,14 +117,16 @@ const db = await SynapseDB.open('./prod-db.synapsedb', {
   enableLock: true,
   registerReader: true,
   compression: { codec: 'brotli', level: 6 },
-  enablePersistentTxDedupe: true
+  enablePersistentTxDedupe: true,
+  experimental: { cypher: true }
 });
 
 // 开发环境轻量配置
 const devDb = await SynapseDB.open('./dev-db.synapsedb', {
   pageSize: 500,
   enableLock: false,
-  compression: { codec: 'none' }
+  compression: { codec: 'none' },
+  experimental: { cypher: false }
 });
 ```
 
@@ -123,11 +156,12 @@ Note over DB,Store : 确保所有写入操作已安全落盘
 - [persistentStore.ts](file://src/storage/persistentStore.ts#L99-L238)
 
 ### close() 方法
-优雅地关闭数据库连接，释放所有资源。
+优雅地关闭数据库连接，释放所有资源。新版本中，close() 方法会先清理插件，再关闭存储层。
 
 ```mermaid
 flowchart TD
-Start([开始关闭]) --> Flush["执行 flush()"]
+Start([开始关闭]) --> CleanupPlugins["执行插件清理"]
+CleanupPlugins --> Flush["执行 flush()"]
 Flush --> Unregister["注销读者注册"]
 Unregister --> Release["释放文件锁"]
 Release --> Cleanup["清理临时资源"]
@@ -193,4 +227,11 @@ deleteFact(fact: FactInput): void
 ```
 
 **行为说明**
--
+- 删除操作会被记录到 WAL 日志中
+- 在非批次模式下，删除操作会立即生效
+- 在批次模式下，删除操作会在提交时生效
+- 删除操作会创建一个墓碑标记（tombstone），在下一次刷新时合并到持久化存储
+
+**Section sources**
+- [synapseDb.ts](file://src/synapseDb.ts#L363-L365)
+- [persistentStore.ts](file://src/storage/persistentStore.ts#L400-L408)

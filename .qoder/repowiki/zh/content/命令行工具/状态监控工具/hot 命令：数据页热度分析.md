@@ -6,6 +6,7 @@
 - [hotness.ts](file://src/storage/hotness.ts)
 - [persistentStore.ts](file://src/storage/persistentStore.ts)
 - [autoCompact.ts](file://src/maintenance/autoCompact.ts)
+- [flushManager.ts](file://src/storage/managers/flushManager.ts)
 </cite>
 
 ## 目录
@@ -53,6 +54,9 @@ FormatOutput --> End([结束])
 ### 写入触发更新
 热度计数的更新并非实时同步到磁盘，而是在数据库执行`flush`操作或关闭时，由`writeHotness`函数将内存中的`HotnessData`对象持久化到`hotness.json`文件。此过程采用原子写入（先写临时文件再重命名）和目录同步，确保数据的完整性和一致性。
 
+### 热度衰减机制
+为了确保热度数据的时效性，系统引入了基于半衰期的衰减机制。在`flushManager`中，`updateHotness`方法会定期（默认5分钟）检查自上次更新以来的时间间隔。若间隔超过设定的半衰期（10分钟），则对所有热度计数应用衰减因子（`0.5^(elapsed/halfLifeMs)`），使旧的访问记录逐渐失效。此机制防止了长期不访问的数据被错误地视为热点，确保了热度数据能准确反映当前的访问模式。
+
 ```mermaid
 classDiagram
 class HotnessData {
@@ -68,18 +72,26 @@ class HotnessModule {
 +readHotness(directory : string) : Promise<HotnessData>
 +writeHotness(directory : string, data : HotnessData) : Promise<void>
 }
+class FlushManager {
++updateHotness(context : FlushContext) : Promise<void>
++shouldUpdateHotness() : boolean
+}
 PersistentStore --> HotnessData : "持有"
 PersistentStore --> HotnessModule : "调用"
 HotnessModule ..> HotnessData : "返回/接收"
+FlushManager --> HotnessModule : "调用 writeHotness"
+FlushManager --> HotnessData : "读取并衰减 counts"
 ```
 
 **Diagram sources**
 - [hotness.ts](file://src/storage/hotness.ts#L5-L9)
 - [persistentStore.ts](file://src/storage/persistentStore.ts#L1453-L1460)
+- [flushManager.ts](file://src/storage/managers/flushManager.ts#L156-L207)
 
 **Section sources**
 - [hotness.ts](file://src/storage/hotness.ts#L13-L25)
 - [persistentStore.ts](file://src/storage/persistentStore.ts#L1453-L1460)
+- [flushManager.ts](file://src/storage/managers/flushManager.ts#L156-L207)
 
 ## 自动合并与缓存管理
 ### 指导自动合并（auto-compact）

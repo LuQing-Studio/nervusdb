@@ -1,13 +1,22 @@
 # 加权路径与A*算法
 
 <cite>
-**本文档引用的文件**
-- [astar.ts](file://src/query/path/astar.ts)
-- [pathfinding.ts](file://src/algorithms/pathfinding.ts)
-- [minHeap.ts](file://src/utils/minHeap.ts)
-- [variable.ts](file://src/query/path/variable.ts)
-- [astar_path.test.ts](file://tests/integration/query/path/astar_path.test.ts)
+**本文档引用的文件**   
+- [astar.ts](file://src/query/path/astar.ts) - *A*算法核心实现*
+- [pathfinding.ts](file://src/plugins/pathfinding.ts) - *路径查找插件实现*
+- [minHeap.ts](file://src/utils/minHeap.ts) - *最小堆优先队列*
+- [variable.ts](file://src/query/path/variable.ts) - *变量路径构建器*
+- [astar_path.test.ts](file://tests/integration/query/path/astar_path.test.ts) - *A*算法测试用例*
+- [synapseDb.ts](file://src/synapseDb.ts) - *数据库核心类，包含加权路径接口*
 </cite>
+
+## 更新摘要
+**变更内容**   
+- 新增了对`SynapseDB`类中`shortestPathWeighted`方法的文档说明
+- 更新了架构概述以反映三层架构合并后的调用关系
+- 增强了核心组件部分对加权路径算法的描述
+- 更新了依赖关系分析以包含新的调用链路
+- 所有文件引用均已更新为最新路径并标注变更状态
 
 ## 目录
 1. [简介](#简介)
@@ -46,20 +55,21 @@ F --> |验证| C
 
 **Diagram sources**
 - [astar.ts](file://src/query/path/astar.ts)
-- [pathfinding.ts](file://src/algorithms/pathfinding.ts)
+- [pathfinding.ts](file://src/plugins/pathfinding.ts)
 
 **Section sources**
 - [project_structure](file://README.md#L1-L50)
 
 ## 核心组件
-A*算法的核心组件包括启发式函数、开放集管理和路径重构机制。系统实现了多种启发式函数类型，支持灵活配置以适应不同的应用场景。优先队列的使用确保了搜索效率，而完整的路径追踪机制保证了结果的可用性。
+A*算法的核心组件包括启发式函数、开放集管理和路径重构机制。系统实现了多种启发式函数类型，支持灵活配置以适应不同的应用场景。优先队列的使用确保了搜索效率，而完整的路径追踪机制保证了结果的可用性。此外，`PathfindingPlugin`插件提供了`shortestPathWeighted`方法，实现了基于Dijkstra算法的加权最短路径查找，使用`MinHeap`作为优先队列优化性能。
 
 **Section sources**
 - [astar.ts](file://src/query/path/astar.ts#L1-L50)
-- [pathfinding.ts](file://src/algorithms/pathfinding.ts#L1-L50)
+- [pathfinding.ts](file://src/plugins/pathfinding.ts#L262-L320) - *新增加权路径实现*
+- [minHeap.ts](file://src/utils/minHeap.ts#L1-L114) - *优先队列实现*
 
 ## 架构概述
-系统采用分层架构设计，上层查询接口与底层算法实现分离。A*算法作为高级路径查找策略，建立在基础图遍历能力之上。通过抽象化的存储接口，算法能够无缝集成到整个数据库系统中。
+系统采用分层架构设计，上层查询接口与底层算法实现分离。A*算法作为高级路径查找策略，建立在基础图遍历能力之上。通过抽象化的存储接口，算法能够无缝集成到整个数据库系统中。`SynapseDB`类通过插件系统调用`PathfindingPlugin`，实现了`shortestPathWeighted`等加权路径查找功能，形成了从应用层到算法层的完整调用链路。
 
 ```mermaid
 graph TD
@@ -68,11 +78,16 @@ B --> C[启发式计算]
 B --> D[优先队列管理]
 B --> E[图遍历引擎]
 E --> F[持久化存储]
+G[SynapseDB] --> H[PathfindingPlugin]
+H --> I[shortestPathWeighted]
+I --> J[MinHeap]
+J --> K[优先队列操作]
 ```
 
 **Diagram sources**
 - [astar.ts](file://src/query/path/astar.ts#L25-L30)
-- [variable.ts](file://src/query/path/variable.ts#L10-L15)
+- [synapseDb.ts](file://src/synapseDb.ts#L560-L568) - *新增加权路径接口*
+- [pathfinding.ts](file://src/plugins/pathfinding.ts#L262-L320) - *加权路径实现*
 
 ## 详细组件分析
 
@@ -97,7 +112,7 @@ class AStarPathBuilder {
 class AStarNode {
 +nodeId : number
 +gScore : number
-+fScore : number
++ fScore : number
 +parent? : AStarNode
 +edge? : PathEdge
 +visitedNodes : Set~number~
@@ -196,7 +211,7 @@ AStarPathBuilder --> HeuristicOptions : "包含"
 - [astar.ts](file://src/query/path/astar.ts#L35-L40)
 
 ## 依赖关系分析
-系统各组件之间存在明确的依赖关系，形成了清晰的调用链路。
+系统各组件之间存在明确的依赖关系，形成了清晰的调用链路。`SynapseDB`类通过插件系统依赖`PathfindingPlugin`，后者实现了加权路径查找功能，使用`MinHeap`作为优先队列。
 
 ```mermaid
 graph LR
@@ -207,27 +222,33 @@ B --> E[PersistentStore]
 B --> F[PathResult]
 E --> G[FactRecord]
 B --> H[MinHeap]
+I[SynapseDB] --> J[PathfindingPlugin]
+J --> K[shortestPathWeighted]
+K --> L[MinHeap]
 ```
 
 **Diagram sources**
 - [astar.ts](file://src/query/path/astar.ts#L273-L289)
-- [pathfinding.ts](file://src/algorithms/pathfinding.ts#L153-L160)
+- [pathfinding.ts](file://src/plugins/pathfinding.ts#L262-L320) - *加权路径实现*
+- [synapseDb.ts](file://src/synapseDb.ts#L560-L568) - *加权路径接口*
 
 **Section sources**
 - [astar.ts](file://src/query/path/astar.ts#L1-L344)
-- [pathfinding.ts](file://src/algorithms/pathfinding.ts#L1-L697)
+- [pathfinding.ts](file://src/plugins/pathfinding.ts#L1-L322) - *路径查找插件实现*
 
 ## 性能考量
-A*算法的性能表现优于传统的BFS搜索，在复杂图结构中尤其明显。通过合理的启发式函数选择和权重调整，可以显著提升搜索效率。
+A*算法的性能表现优于传统的BFS搜索，在复杂图结构中尤其明显。通过合理的启发式函数选择和权重调整，可以显著提升搜索效率。`shortestPathWeighted`方法使用`MinHeap`作为优先队列，确保了Dijkstra算法的高效执行，时间复杂度为O((V+E)logV)。
 
 **Section sources**
 - [astar_path.test.ts](file://tests/integration/query/path/astar_path.test.ts#L300-L350)
+- [pathfinding.ts](file://src/plugins/pathfinding.ts#L262-L320) - *加权路径性能实现*
 
 ## 故障排除指南
-当遇到路径查找问题时，应首先检查启发式函数的配置是否合理，特别是权重参数的设置。确保图数据完整且没有断开的连接。对于大型图的性能问题，考虑优化启发式函数或调整搜索深度限制。
+当遇到路径查找问题时，应首先检查启发式函数的配置是否合理，特别是权重参数的设置。确保图数据完整且没有断开的连接。对于大型图的性能问题，考虑优化启发式函数或调整搜索深度限制。在使用加权路径查找时，确认边属性中存在指定的权重字段，默认为'weight'。
 
 **Section sources**
 - [astar_path.test.ts](file://tests/integration/query/path/astar_path.test.ts#L100-L150)
+- [pathfinding.ts](file://src/plugins/pathfinding.ts#L262-L320) - *加权路径错误处理*
 
 ## 结论
-A*算法在SynapseDB中的实现提供了高效的加权路径查找能力。通过灵活的启发式函数配置，系统能够在不同场景下保持良好的搜索性能。算法的正确性和效率已经过充分测试验证，适用于各种复杂的图查询需求。
+A*算法在SynapseDB中的实现提供了高效的加权路径查找能力。通过灵活的启发式函数配置，系统能够在不同场景下保持良好的搜索性能。算法的正确性和效率已经过充分测试验证，适用于各种复杂的图查询需求。`shortestPathWeighted`接口的引入进一步增强了系统处理加权图的能力，为实际应用场景提供了更丰富的路径查找选项。
