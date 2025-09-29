@@ -1225,6 +1225,34 @@ export class LazyQueryBuilder extends QueryBuilder {
         }
       }
       (summary as any).estimate = { order, upperBound, pagesForPrimary, hotnessPrimary };
+
+      // 继续基于计划传播一个非常保守的 estimatedOutput（仅考虑 skip/limit/union）
+      let estimatedOutput = upperBound ?? undefined;
+      let skipped = 0;
+      for (const n of this.plan) {
+        if (n.kind === 'SKIP') {
+          skipped += Math.max(0, n.n);
+        } else if (n.kind === 'LIMIT') {
+          if (estimatedOutput !== undefined) {
+            estimatedOutput = Math.max(0, Math.min(estimatedOutput - skipped, Math.max(0, n.n)));
+            skipped = 0;
+          } else {
+            estimatedOutput = n.n; // 没有上界时，limit 作为上界
+          }
+        } else if (n.kind === 'UNION' || n.kind === 'UNION_ALL') {
+          try {
+            const otherSummary = (n.other as any).explain?.();
+            const otherOut = otherSummary?.estimate?.estimatedOutput ?? otherSummary?.estimate?.upperBound;
+            if (typeof otherOut === 'number') {
+              if (estimatedOutput === undefined) estimatedOutput = otherOut;
+              else estimatedOutput = n.kind === 'UNION_ALL' ? estimatedOutput + otherOut : Math.max(estimatedOutput, otherOut);
+            }
+          } catch {
+            // ignore explain failure of other side
+          }
+        }
+      }
+      (summary as any).estimate.estimatedOutput = estimatedOutput;
     }
 
     return summary;
