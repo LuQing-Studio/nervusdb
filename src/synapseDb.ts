@@ -14,6 +14,7 @@ import {
   buildFindContextFromProperty,
   buildFindContextFromLabel,
   PropertyFilter,
+  LazyQueryBuilder,
 } from './query/queryBuilder.js';
 import type {
   SynapseDBOpenOptions,
@@ -167,6 +168,16 @@ export class SynapseDB {
 
   find(criteria: FactCriteria, options?: { anchor?: FrontierOrientation }): QueryBuilder {
     return this.core.find(criteria, options);
+  }
+
+  /**
+   * 惰性执行版查询（灰度）：仅在执行时物化
+   */
+  findLazy(criteria: FactCriteria, options?: { anchor?: FrontierOrientation }): QueryBuilder {
+    const anchor = options?.anchor ?? this.inferAnchor(criteria);
+    const store = this.core.getStore();
+    // 返回 LazyQueryBuilder（继承自 QueryBuilder，签名兼容）
+    return new LazyQueryBuilder(store, criteria, anchor);
   }
 
   /**
