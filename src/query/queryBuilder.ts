@@ -927,6 +927,403 @@ export class StreamingQueryBuilder {
   }
 }
 
+/**
+ * 惰性执行版 QueryBuilder（灰度）：
+ * - 不在链接口阶段物化结果，保存操作计划；
+ * - 执行时基于底层 streamFactRecords/逐节点拓展按需产出；
+ * - 通过 SynapseDB.findLazy() 暴露，默认 find() 行为不变。
+ */
+export class LazyQueryBuilder extends QueryBuilder {
+  private readonly plan: Array<
+    | { kind: 'FIND'; criteria: FactCriteria; anchor: FrontierOrientation }
+    | { kind: 'ANCHOR'; orientation: FrontierOrientation }
+    | { kind: 'FOLLOW'; predicate: string; dir: 'forward' | 'reverse'; orientAtBuild: FrontierOrientation }
+    | { kind: 'WHERE_PRED'; pred: (f: FactRecord) => boolean }
+    | { kind: 'WHERE_PROP'; propertyName: string; operator: '=' | '>' | '<' | '>=' | '<='; value: unknown; target: 'node' | 'edge' }
+    | { kind: 'WHERE_LABEL'; labels: string[]; mode: 'AND' | 'OR'; on: 'subject' | 'object' | 'both' }
+    | { kind: 'LIMIT'; n: number }
+    | { kind: 'SKIP'; n: number }
+    | { kind: 'UNION'; other: QueryBuilder }
+    | { kind: 'UNION_ALL'; other: QueryBuilder }
+  > = [];
+
+  private lazyOrientation: FrontierOrientation;
+  private readonly pinned?: number;
+
+  constructor(private readonly lazyStore: PersistentStore, criteria: FactCriteria, anchor: FrontierOrientation) {
+    // 传入空上下文占位，避免父类逻辑介入；所有方法均被本类覆写
+    super(lazyStore, EMPTY_CONTEXT);
+    this.plan.push({ kind: 'FIND', criteria, anchor });
+    this.lazyOrientation = anchor;
+    this.pinned = this.lazyStore.getCurrentEpoch();
+  }
+
+  // 为灰度期保持兼容：同步迭代/length/slice 触发物化
+  override *[Symbol.iterator](): IterableIterator<FactRecord> {
+    const arr = this.all();
+    for (const f of arr) yield f;
+  }
+
+  override get length(): number {
+    return this.all().length;
+  }
+
+  override slice(start?: number, end?: number): FactRecord[] {
+    const arr = this.all();
+    return arr.slice(start, end);
+  }
+
+  override anchor(orientation: FrontierOrientation): QueryBuilder {
+    const qb = new LazyQueryBuilder(this.lazyStore, { subject: undefined }, this.lazyOrientation);
+    qb.plan.length = 0;
+    qb.plan.push(...this.plan, { kind: 'ANCHOR', orientation });
+    qb.lazyOrientation = orientation;
+    return qb;
+  }
+
+  override follow(predicate: string): QueryBuilder {
+    const qb = new LazyQueryBuilder(this.lazyStore, { subject: undefined }, this.lazyOrientation);
+    qb.plan.length = 0;
+    qb.plan.push(
+      ...this.plan,
+      { kind: 'FOLLOW', predicate, dir: 'forward', orientAtBuild: this.lazyOrientation },
+    );
+    // 跟随后，前沿朝向切换（与老实现一致）
+    qb.lazyOrientation = this.lazyOrientation === 'subject' ? 'object' : this.lazyOrientation === 'object' ? 'subject' : 'both';
+    return qb;
+  }
+
+  override followReverse(predicate: string): QueryBuilder {
+    const qb = new LazyQueryBuilder(this.lazyStore, { subject: undefined }, this.lazyOrientation);
+    qb.plan.length = 0;
+    qb.plan.push(
+      ...this.plan,
+      { kind: 'FOLLOW', predicate, dir: 'reverse', orientAtBuild: this.lazyOrientation },
+    );
+    qb.lazyOrientation = this.lazyOrientation === 'subject' ? 'object' : this.lazyOrientation === 'object' ? 'subject' : 'both';
+    return qb;
+  }
+
+  override where(predicate: (record: FactRecord) => boolean): QueryBuilder {
+    const qb = new LazyQueryBuilder(this.lazyStore, { subject: undefined }, this.lazyOrientation);
+    qb.plan.length = 0;
+    qb.plan.push(...this.plan, { kind: 'WHERE_PRED', pred: predicate });
+    return qb;
+  }
+
+  override whereProperty(
+    propertyName: string,
+    operator: '=' | '>' | '<' | '>=' | '<=',
+    value: unknown,
+    target: 'node' | 'edge' = 'node',
+  ): QueryBuilder {
+    const qb = new LazyQueryBuilder(this.lazyStore, { subject: undefined }, this.lazyOrientation);
+    qb.plan.length = 0;
+    qb.plan.push(...this.plan, { kind: 'WHERE_PROP', propertyName, operator, value, target });
+    return qb;
+  }
+
+  override whereLabel(
+    labels: string | string[],
+    options?: { mode?: 'AND' | 'OR'; on?: 'subject' | 'object' | 'both' },
+  ): QueryBuilder {
+    const qb = new LazyQueryBuilder(this.lazyStore, { subject: undefined }, this.lazyOrientation);
+    qb.plan.length = 0;
+    qb.plan.push(
+      ...this.plan,
+      { kind: 'WHERE_LABEL', labels: Array.isArray(labels) ? labels : [labels], mode: options?.mode ?? 'AND', on: options?.on ?? 'both' },
+    );
+    return qb;
+  }
+
+  override limit(n: number): QueryBuilder {
+    const qb = new LazyQueryBuilder(this.lazyStore, { subject: undefined }, this.lazyOrientation);
+    qb.plan.length = 0;
+    qb.plan.push(...this.plan, { kind: 'LIMIT', n });
+    return qb;
+  }
+
+  override skip(n: number): QueryBuilder {
+    const qb = new LazyQueryBuilder(this.lazyStore, { subject: undefined }, this.lazyOrientation);
+    qb.plan.length = 0;
+    qb.plan.push(...this.plan, { kind: 'SKIP', n });
+    return qb;
+  }
+
+  override union(other: QueryBuilder): QueryBuilder {
+    const qb = new LazyQueryBuilder(this.lazyStore, { subject: undefined }, this.lazyOrientation);
+    qb.plan.length = 0;
+    qb.plan.push(...this.plan, { kind: 'UNION', other });
+    qb.lazyOrientation = this.lazyOrientation;
+    return qb;
+  }
+
+  override unionAll(other: QueryBuilder): QueryBuilder {
+    const qb = new LazyQueryBuilder(this.lazyStore, { subject: undefined }, this.lazyOrientation);
+    qb.plan.length = 0;
+    qb.plan.push(...this.plan, { kind: 'UNION_ALL', other });
+    qb.lazyOrientation = this.lazyOrientation;
+    return qb;
+  }
+
+  // 物化
+  override all(): FactRecord[] {
+    // 使用现有 QueryBuilder 同步路径物化，保证返回类型与时序兼容
+    let qb: QueryBuilder;
+    const find = this.plan.find((p) => p.kind === 'FIND') as Extract<typeof this.plan[number], { kind: 'FIND' }>;
+    const ctx = buildFindContext(this.lazyStore, find.criteria, find.anchor);
+    qb = QueryBuilder.fromFindResult(this.lazyStore, ctx, this.pinned);
+    for (const node of this.plan) {
+      if (node.kind === 'FIND') continue;
+      if (node.kind === 'ANCHOR') qb = qb.anchor(node.orientation);
+      else if (node.kind === 'WHERE_PRED') qb = qb.where(node.pred);
+      else if (node.kind === 'WHERE_PROP') qb = qb.whereProperty(node.propertyName, node.operator, node.value, node.target);
+      else if (node.kind === 'WHERE_LABEL') qb = qb.whereLabel(node.labels, { mode: node.mode, on: node.on });
+      else if (node.kind === 'FOLLOW') qb = node.dir === 'forward' ? qb.follow(node.predicate) : qb.followReverse(node.predicate);
+      else if (node.kind === 'LIMIT') qb = qb.limit(node.n);
+      else if (node.kind === 'SKIP') qb = qb.skip(node.n);
+      else if (node.kind === 'UNION') qb = qb.union(this.materializeToQueryBuilder(node.other));
+      else if (node.kind === 'UNION_ALL') qb = qb.unionAll(this.materializeToQueryBuilder(node.other));
+    }
+    return qb.all();
+  }
+
+  override toArray(): FactRecord[] {
+    return this.all();
+  }
+
+  private materializeToQueryBuilder(other: QueryBuilder): QueryBuilder {
+    // 如果是 LazyQueryBuilder，先物化为事实数组再包装为普通 QueryBuilder
+    if (other instanceof LazyQueryBuilder) {
+      const facts = other.all();
+      const frontier = rebuildFrontier(facts, this.lazyOrientation);
+      return QueryBuilder.fromFindResult(this.lazyStore, { facts, frontier, orientation: this.lazyOrientation }, this.pinned);
+    }
+    return other;
+  }
+
+  override async *[Symbol.asyncIterator](): AsyncIterableIterator<FactRecord> {
+    // 保持快照一致性
+    if (this.pinned !== undefined) {
+      await this.lazyStore.pushPinnedEpoch(this.pinned);
+    }
+    const self = this;
+    // 构建源
+    let src: AsyncIterableIterator<FactRecord> = (async function* () {})();
+    let currentOrientation: FrontierOrientation = 'object';
+
+    for (const node of self.plan) {
+      if (node.kind === 'FIND') {
+        currentOrientation = node.anchor;
+        const context = await buildStreamingFindContext(self.lazyStore, node.criteria, node.anchor);
+        const base = context.factsStream;
+        src = base;
+        continue;
+      }
+      if (node.kind === 'ANCHOR') {
+        currentOrientation = node.orientation;
+        // 不改变 src，只更新朝向。
+        continue;
+      }
+      if (node.kind === 'WHERE_PRED') {
+        const pred = node.pred;
+        src = (async function* (up: AsyncIterableIterator<FactRecord>) {
+          for await (const f of up) {
+            try {
+              if (pred(f)) yield f;
+            } catch {
+              /* ignore */
+            }
+          }
+        })(src);
+        continue;
+      }
+      if (node.kind === 'WHERE_PROP') {
+        const { propertyName, operator, value, target } = node;
+        src = (async function* (up: AsyncIterableIterator<FactRecord>, store: PersistentStore) {
+          // 预取索引集合
+          const idx = store.getPropertyIndex();
+          let nodeSet: Set<number> | undefined;
+          let edgeSet: Set<string> | undefined;
+          if (target === 'node') {
+            if (operator === '=') nodeSet = idx.queryNodesByProperty(propertyName, value);
+            else {
+              const range = (() => {
+                switch (operator) {
+                  case '>':
+                    return { min: value, max: undefined, includeMin: false, includeMax: true };
+                  case '>=':
+                    return { min: value, max: undefined, includeMin: true, includeMax: true };
+                  case '<':
+                    return { min: undefined, max: value, includeMin: true, includeMax: false };
+                  case '<=':
+                    return { min: undefined, max: value, includeMin: true, includeMax: true };
+                }
+              })();
+              nodeSet = idx.queryNodesByRange(propertyName, range?.min, range?.max, range?.includeMin, range?.includeMax);
+            }
+          } else {
+            if (operator !== '=') throw new Error('边属性暂不支持范围查询');
+            edgeSet = idx.queryEdgesByProperty(propertyName, value);
+          }
+
+          for await (const f of up) {
+            if (target === 'node') {
+              if (nodeSet!.has(f.subjectId) || nodeSet!.has(f.objectId)) yield f;
+            } else {
+              const key = encodeTripleKey(f);
+              if (edgeSet!.has(key)) yield f;
+            }
+          }
+        })(src, self.lazyStore);
+        continue;
+      }
+      if (node.kind === 'WHERE_LABEL') {
+        const { labels, mode, on } = node;
+        src = (async function* (up: AsyncIterableIterator<FactRecord>, store: PersistentStore) {
+          const labelIndex = store.getLabelIndex();
+          for await (const f of up) {
+            const testSubject = on === 'subject' || on === 'both'
+              ? mode === 'AND' ? labelIndex.hasAllNodeLabels(f.subjectId, labels) : labelIndex.hasAnyNodeLabel(f.subjectId, labels)
+              : false;
+            const testObject = on === 'object' || on === 'both'
+              ? mode === 'AND' ? labelIndex.hasAllNodeLabels(f.objectId, labels) : labelIndex.hasAnyNodeLabel(f.objectId, labels)
+              : false;
+            if (testSubject || testObject) yield f;
+          }
+        })(src, self.lazyStore);
+        continue;
+      }
+      if (node.kind === 'FOLLOW') {
+        const { predicate, dir, orientAtBuild } = node;
+        currentOrientation = dir === 'forward'
+          ? orientAtBuild === 'subject' ? 'object' : orientAtBuild === 'object' ? 'subject' : 'both'
+          : orientAtBuild === 'subject' ? 'object' : orientAtBuild === 'object' ? 'subject' : 'both';
+
+        src = (async function* (up: AsyncIterableIterator<FactRecord>, store: PersistentStore) {
+          const predId = store.getNodeIdByValue(predicate);
+          if (predId === undefined) return; // 无结果
+          const expandedFrontier = new Set<number>();
+          const seenTriple = new Set<string>();
+          for await (const f of up) {
+            // 取当前流的前沿节点
+            const frontierIds: number[] = [];
+            if (orientAtBuild === 'subject' || orientAtBuild === 'both') frontierIds.push(f.subjectId);
+            if (orientAtBuild === 'object' || orientAtBuild === 'both') frontierIds.push(f.objectId);
+            for (const nodeId of frontierIds) {
+              if (expandedFrontier.has(nodeId)) continue; // 每节点只扩展一次
+              expandedFrontier.add(nodeId);
+              const criteria = dir === 'forward' ? { subjectId: nodeId, predicateId: predId } : { predicateId: predId, objectId: nodeId };
+              const matches = store.query(criteria);
+              const recs = store.resolveRecords(matches);
+              for (const r of recs) {
+                const key = encodeTripleKey(r);
+                if (seenTriple.has(key)) continue;
+                seenTriple.add(key);
+                yield r;
+              }
+            }
+          }
+        })(src, self.lazyStore);
+        continue;
+      }
+      if (node.kind === 'LIMIT') {
+        const cap = Math.max(0, node.n);
+        src = (async function* (up: AsyncIterableIterator<FactRecord>) {
+          if (cap === 0) return; let i = 0;
+          for await (const f of up) { yield f; i += 1; if (i >= cap) break; }
+        })(src);
+        continue;
+      }
+      if (node.kind === 'SKIP') {
+        const n = Math.max(0, node.n);
+        src = (async function* (up: AsyncIterableIterator<FactRecord>) {
+          let i = 0;
+          for await (const f of up) { if (i++ < n) continue; yield f; }
+        })(src);
+        continue;
+      }
+      if (node.kind === 'UNION' || node.kind === 'UNION_ALL') {
+        const right = node.other[Symbol.asyncIterator]();
+        const left = src;
+        const distinct = node.kind === 'UNION';
+        src = (async function* (a: AsyncIterableIterator<FactRecord>, b: AsyncIterableIterator<FactRecord>) {
+          const seen = new Set<string>();
+          for await (const f of a) {
+            const key = encodeTripleKey(f);
+            if (distinct) {
+              if (seen.has(key)) continue;
+              seen.add(key);
+            }
+            yield f;
+          }
+          for await (const f of b) {
+            const key = encodeTripleKey(f);
+            if (distinct) {
+              if (seen.has(key)) continue;
+              seen.add(key);
+            }
+            yield f;
+          }
+        })(left, right);
+        continue;
+      }
+    }
+    // 产出
+    try {
+      for await (const f of src) yield f;
+    } finally {
+      if (this.pinned !== undefined) {
+        await this.lazyStore.popPinnedEpoch();
+      }
+    }
+  }
+
+  override async *batch(size: number): AsyncIterableIterator<FactRecord[]> {
+    if (size <= 0) throw new Error('批次大小必须大于 0');
+    const cur: FactRecord[] = [];
+    for await (const f of this) {
+      cur.push(f);
+      if (cur.length >= size) { yield cur.splice(0, cur.length); }
+    }
+    if (cur.length) yield cur;
+  }
+
+  // 变长路径：灰度期采用“同步物化前沿 + 现有路径构建器”策略，保持行为与类型一致
+  override variablePath(
+    relation: string,
+    options: { min?: number; max: number; uniqueness?: 'NODE' | 'EDGE' | 'NONE'; direction?: 'forward' | 'reverse' },
+  ) {
+    const self = this;
+    const builder = {
+      all(target?: number) {
+        const acc = self.all();
+        const front = buildInitialFrontier(acc, self.lazyOrientation);
+        const predicateId = self.lazyStore.getNodeIdByValue(relation) ?? 0;
+        return new VariablePathBuilder(self.lazyStore, front, predicateId, options).all(target);
+      },
+      shortest(target: number) {
+        const acc = self.all();
+        const front = buildInitialFrontier(acc, self.lazyOrientation);
+        const predicateId = self.lazyStore.getNodeIdByValue(relation) ?? 0;
+        return new VariablePathBuilder(self.lazyStore, front, predicateId, options).shortest(target);
+      },
+    } as unknown as VariablePathBuilder;
+    return builder;
+  }
+
+  private async runPinned<T>(fn: () => Promise<T>): Promise<T> {
+    const pinned = this.pinned;
+    if (pinned === undefined) return fn();
+    await this.lazyStore.pushPinnedEpoch(pinned);
+    try {
+      return await fn();
+    } finally {
+      await this.lazyStore.popPinnedEpoch();
+    }
+  }
+}
+
 export function buildFindContext(
   store: PersistentStore,
   criteria: FactCriteria,

@@ -8,8 +8,15 @@ export type { SynapseDBPlugin } from './plugins/base.js';
 
 // 内置插件
 export { PathfindingPlugin } from './plugins/pathfinding.js';
+/** @experimental Cypher 查询语言仍处于实验阶段 */
 export { CypherPlugin } from './plugins/cypher.js';
 export { AggregationPlugin } from './plugins/aggregation.js';
+
+// 实验性查询语言工厂
+/** @experimental */
+export { graphql } from './query/graphql/index.js';
+/** @experimental */
+export { gremlin } from './query/gremlin/index.js';
 
 // =======================
 // 兼容性导出（向后兼容）
@@ -25,6 +32,7 @@ export type { FactRecord, FactInput } from './synapseDb.js';
 export { PersistentStore } from './storage/persistentStore.js';
 export type { PersistedFact } from './storage/persistentStore.js';
 export { QueryBuilder } from './query/queryBuilder.js';
+export { LazyQueryBuilder } from './query/queryBuilder.js';
 export type { FactCriteria, FrontierOrientation, PropertyFilter } from './query/queryBuilder.js';
 export { AggregationPipeline } from './query/aggregation.js';
 
