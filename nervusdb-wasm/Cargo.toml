@@ -24,10 +24,19 @@ serde-wasm-bindgen = "0.6.5"
 wasm-bindgen-test = "0.3"
 
 [profile.release]
-opt-level = "z"  # Optimize for size
-lto = true       # Link Time Optimization
-codegen-units = 1
-strip = true     # Strip debug symbols
+opt-level = "z"     # Optimize for size
+lto = true          # Link Time Optimization
+codegen-units = 1   # Better optimization
+strip = true        # Strip debug symbols
+panic = "abort"     # Smaller binary
+overflow-checks = false  # Faster math operations
 
 [profile.dev]
 opt-level = 0
+
+# Production profile with more aggressive optimizations
+[profile.production]
+inherits = "release"
+opt-level = 3       # Maximum speed optimization
+lto = "fat"         # Aggressive LTO
+codegen-units = 1

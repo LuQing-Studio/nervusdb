@@ -2,6 +2,9 @@ use wasm_bindgen::prelude::*;
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
+// Pre-allocate with capacity for better performance
+const DEFAULT_CAPACITY: usize = 1024;
+
 /// Triple representation in NervusDB
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[wasm_bindgen]
@@ -60,7 +63,17 @@ impl StorageEngine {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<StorageEngine, JsValue> {
         Ok(StorageEngine {
-            data: HashMap::new(),
+            data: HashMap::with_capacity(DEFAULT_CAPACITY),
+            insert_count: 0,
+            query_count: 0,
+        })
+    }
+    
+    /// Create engine with custom capacity for better performance
+    #[wasm_bindgen(js_name = withCapacity)]
+    pub fn with_capacity(capacity: usize) -> Result<StorageEngine, JsValue> {
+        Ok(StorageEngine {
+            data: HashMap::with_capacity(capacity),
             insert_count: 0,
             query_count: 0,
         })
@@ -69,7 +82,14 @@ impl StorageEngine {
     /// Insert a triple
     #[wasm_bindgen]
     pub fn insert(&mut self, subject: &str, predicate: &str, object: &str) -> Result<(), JsValue> {
-        let key = format!("{}:{}:{}", subject, predicate, object);
+        // Use String builder for better performance
+        let mut key = String::with_capacity(subject.len() + predicate.len() + object.len() + 2);
+        key.push_str(subject);
+        key.push(':');
+        key.push_str(predicate);
+        key.push(':');
+        key.push_str(object);
+
         let triple = Triple {
             subject: subject.to_string(),
             predicate: predicate.to_string(),
@@ -83,6 +103,25 @@ impl StorageEngine {
         self.insert_count += 1;
 
         Ok(())
+    }
+    
+    /// Batch insert multiple triples for better performance
+    #[wasm_bindgen(js_name = insertBatch)]
+    pub fn insert_batch(&mut self, subjects: Vec<JsValue>, predicates: Vec<JsValue>, objects: Vec<JsValue>) -> Result<usize, JsValue> {
+        let len = subjects.len().min(predicates.len()).min(objects.len());
+        
+        for i in 0..len {
+            let subject = subjects[i].as_string()
+                .ok_or_else(|| JsValue::from_str("Invalid subject"))?;
+            let predicate = predicates[i].as_string()
+                .ok_or_else(|| JsValue::from_str("Invalid predicate"))?;
+            let object = objects[i].as_string()
+                .ok_or_else(|| JsValue::from_str("Invalid object"))?;
+                
+            self.insert(&subject, &predicate, &object)?;
+        }
+        
+        Ok(len)
     }
 
     /// Query triples by subject
