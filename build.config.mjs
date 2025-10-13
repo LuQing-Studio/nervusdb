@@ -1,11 +1,10 @@
 /**
  * NervusDB Build Configuration
- * 使用 esbuild 打包和混淆代码，类似 Claude Code 的发布方式
+ * 方案1: 构建多个独立的 CLI 文件
  */
 
 import { build } from 'esbuild';
 import fs from 'fs';
-import path from 'path';
 
 const outdir = 'dist';
 
@@ -26,47 +25,77 @@ async function buildBundle() {
     target: 'node18',
     format: 'esm',
     outfile: `${outdir}/index.mjs`,
-    minify: true, // 混淆和压缩
-    sourcemap: false, // 不生成 source map
-    treeShaking: true, // 移除未使用代码
-    keepNames: false, // 不保留函数名（更强混淆）
-    legalComments: 'none', // 移除注释
-    external: [
-      // 不打包的外部依赖（如果有）
-    ],
-    banner: {
-      js: '// NervusDB - Neural Knowledge Graph Database\n// (c) 2025. All rights reserved.\n// Version: 1.1.0\n\n// Want to see the unminified source? Check out https://github.com/YourRepo/nervusdb\n',
-    },
-  });
-
-  // 2. 构建 CLI (单独打包，包含所有依赖)
-  await build({
-    entryPoints: ['src/cli/nervusdb.ts'],
-    bundle: true,
-    platform: 'node',
-    target: 'node18',
-    format: 'esm',
-    outfile: `${outdir}/cli.js`,
     minify: true,
     sourcemap: false,
     treeShaking: true,
     keepNames: false,
     legalComments: 'none',
+    external: [],
     banner: {
-      js: '#!/usr/bin/env node\n// NervusDB CLI\n// (c) 2025. All rights reserved.\n',
+      js: '// NervusDB - Neural Knowledge Graph Database\n// (c) 2025. All rights reserved.\n// Version: 1.1.1\n\n',
     },
   });
 
-  // 3. 生成类型定义文件（只生成必要的 .d.ts）
+  // 2. 构建 CLI 子命令 (多文件策略)
+  const cliFiles = [
+    'nervusdb.ts',    // 主入口（分发器）
+    'stats.ts',
+    'check.ts',
+    'compact.ts',
+    'auto_compact.ts',
+    'gc.ts',
+    'hot.ts',
+    'dump.ts',
+    'bench.ts',
+    'cypher.ts',
+    'readers.ts',
+    'repair_page.ts',
+    'benchmark.ts',
+    'txids.ts',
+  ];
+
+  console.log('📝 Building CLI commands...');
+  
+  for (const file of cliFiles) {
+    const isEntry = file === 'nervusdb.ts';
+    const outFile = file.replace('.ts', '.js');
+    
+    await build({
+      entryPoints: [`src/cli/${file}`],
+      bundle: true,
+      platform: 'node',
+      target: 'node18',
+      format: 'esm',
+      outfile: `${outdir}/${outFile}`,
+      minify: true,
+      sourcemap: false,
+      treeShaking: true,
+      keepNames: false,
+      legalComments: 'none',
+      external: [],
+      banner: {
+        js: isEntry 
+          ? '#!/usr/bin/env node\n// NervusDB CLI\n// (c) 2025. All rights reserved.\n'
+          : '// NervusDB CLI sub-command\n',
+      },
+    });
+    
+    // 只为主入口设置可执行权限
+    if (isEntry) {
+      fs.chmodSync(`${outdir}/${outFile}`, 0o755);
+    }
+    
+    console.log(`  ✓ Built ${outFile}`);
+  }
+
+  // 3. 生成类型定义文件
   console.log('📝 Generating type definitions...');
   const { execSync } = await import('child_process');
   
-  // 使用 tsc 生成所有类型定义到临时目录
   execSync('tsc --project tsconfig.build.json --emitDeclarationOnly --outDir dist-types', {
     stdio: 'inherit',
   });
 
-  // 只复制主要的类型定义文件到 dist
   const typesToCopy = [
     'index.d.ts',
     'synapseDb.d.ts',
@@ -82,30 +111,23 @@ async function buildBundle() {
     }
   }
 
-  // 清理临时类型定义目录
   fs.rmSync('dist-types', { recursive: true });
 
-  // 4. 设置 CLI 可执行权限
-  fs.chmodSync(`${outdir}/cli.js`, 0o755);
-
-  // 5. 显示构建结果
-  const stats = {
-    'index.mjs': fs.statSync(`${outdir}/index.mjs`).size,
-    'cli.js': fs.statSync(`${outdir}/cli.js`).size,
-  };
+  // 4. 显示构建结果
+  const distFiles = fs.readdirSync(outdir);
+  const jsFiles = distFiles.filter(f => f.endsWith('.js') || f.endsWith('.mjs'));
+  const totalSize = jsFiles.reduce((sum, f) => sum + fs.statSync(`${outdir}/${f}`).size, 0);
 
   console.log('\n✅ Build complete!');
   console.log(`📦 Output: ${outdir}/`);
   console.log('\n📊 Bundle sizes:');
-  console.log(`  - index.mjs: ${(stats['index.mjs'] / 1024).toFixed(1)} KB`);
-  console.log(`  - cli.js: ${(stats['cli.js'] / 1024).toFixed(1)} KB`);
-  console.log(`  - Total: ${((stats['index.mjs'] + stats['cli.js']) / 1024).toFixed(1)} KB`);
+  console.log(`  - index.mjs: ${(fs.statSync(`${outdir}/index.mjs`).size / 1024).toFixed(1)} KB`);
+  console.log(`  - CLI files: ${jsFiles.length} files, ${((totalSize - fs.statSync(`${outdir}/index.mjs`).size) / 1024).toFixed(1)} KB`);
+  console.log(`  - Total: ${(totalSize / 1024).toFixed(1)} KB`);
   console.log('\n📋 Published files:');
-  console.log('  - index.mjs (main library)');
-  console.log('  - cli.js (CLI tool)');
-  console.log('  - index.d.ts (TypeScript types)');
-  console.log('  - synapseDb.d.ts (Core types)');
-  console.log('  - typedNervusDb.d.ts (Typed API)');
+  console.log(`  - index.mjs (main library)`);
+  console.log(`  - nervusdb.js + ${jsFiles.length - 1} CLI sub-commands`);
+  console.log(`  - 3 TypeScript definition files`);
 }
 
 buildBundle().catch((err) => {

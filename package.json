@@ -13,7 +13,7 @@
   },
   "files": [
     "dist/index.mjs",
-    "dist/cli.js",
+    "dist/*.js",
     "dist/index.d.ts",
     "dist/synapseDb.d.ts",
     "dist/typedNervusDb.d.ts",
@@ -71,7 +71,7 @@
     "db:repair-page": "tsx src/cli/repair_page.ts"
   },
   "bin": {
-    "nervusdb": "dist/cli.js"
+    "nervusdb": "dist/nervusdb.js"
   },
   "keywords": [
     "nervusdb",
