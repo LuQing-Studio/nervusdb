@@ -82,7 +82,7 @@
     "embedded-database"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "packageManager": "pnpm@10.15.0",
   "devDependencies": {
     "@eslint/js": "^9.35.0",
