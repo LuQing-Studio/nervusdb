@@ -107,16 +107,16 @@ try {
     .all();
   assert(youngPeople.length >= 1, `查询年龄 < 30 的人：${youngPeople.length} 个`);
 
-  // Test 5: 边属性查询（可选测试 - 需要配置）
-  console.log('\n📝 Test 5: 边属性查询（跳过 - 需要特殊配置）');
-  console.log('  ⚠️  边属性索引查询需要特殊配置，跳过此测试');
-  // 注意：边属性查询可能需要在 open() 时配置 rebuildIndexes: true
-  // await db.flush();
-  // const strongRelations = db.findByEdgeProperty({
-  //   propertyName: 'closeness',
-  //   operator: '>',
-  //   value: 7,
-  // }).all();
+  // Test 5: 边属性查询（等值查询）
+  console.log('\n📝 Test 5: 边属性查询');
+  await db.flush(); // 确保属性索引已构建
+  
+  // 使用 whereProperty 方法查询边属性（边属性只支持等值查询）
+  const strongRelations = db
+    .find({ predicate: 'KNOWS' })
+    .whereProperty('closeness', '=', 8, 'edge')  // 第4个参数指定为 'edge'，只支持 '=' 操作符
+    .all();
+  assert(strongRelations.length >= 1, `查询亲密度 = 8 的关系：${strongRelations.length} 条`);
 
   // Test 6: 数据持久化
   console.log('\n📝 Test 6: 数据持久化');
