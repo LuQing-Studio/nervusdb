@@ -83,6 +83,9 @@
   ],
   "author": "",
   "license": "SEE LICENSE IN LICENSE",
+  "publishConfig": {
+    "access": "public"
+  },
   "packageManager": "pnpm@10.15.0",
   "devDependencies": {
     "@eslint/js": "^9.35.0",
