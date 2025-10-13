@@ -1,16 +1,83 @@
-MIT License
+NervusDB License
 
 Copyright (c) 2025 NervusDB Contributors
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+================================================================================
+DUAL LICENSE
+================================================================================
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+This software is available under two licenses:
+
+1. GNU Affero General Public License v3.0 (AGPL-3.0) for non-commercial use
+2. Commercial License for commercial use
+
+================================================================================
+1. NON-COMMERCIAL USE - AGPL-3.0
+================================================================================
+
+For individuals, educational institutions, and non-profit organizations, 
+this software is licensed under the GNU Affero General Public License v3.0.
+
+You may use, modify, and distribute this software for NON-COMMERCIAL purposes
+under the terms of AGPL-3.0. See the full license at:
+https://www.gnu.org/licenses/agpl-3.0.html
+
+Key requirements under AGPL-3.0:
+- You must disclose your source code when distributing
+- You must disclose your source code when providing network services
+- Modifications must also be licensed under AGPL-3.0
+- You must preserve copyright and license notices
+
+Non-commercial use includes:
+✅ Personal projects and learning
+✅ Academic research and teaching
+✅ Open source projects (AGPL-compatible)
+✅ Internal use within non-profit organizations
+
+================================================================================
+2. COMMERCIAL USE - Commercial License Required
+================================================================================
+
+If you wish to use this software for COMMERCIAL purposes, you must obtain
+a commercial license.
+
+Commercial use includes, but is not limited to:
+❌ Using this software in a product or service you sell
+❌ Using this software to provide paid services to customers
+❌ Integrating this software into proprietary software
+❌ Using this software in a for-profit organization
+❌ Distributing this software without disclosing your source code
+
+To obtain a commercial license, please contact:
+- Email: commercial@nervusdb.com
+- Website: https://nervusdb.com/pricing
+
+Pricing:
+- Individual: $49/month
+- Team: $149/month  
+- Enterprise: $299+/month (custom)
+
+================================================================================
+DEFINITIONS
+================================================================================
+
+"Commercial use" means any use of the software for the purpose of generating
+revenue, including but not limited to:
+- Selling products or services that incorporate this software
+- Providing SaaS or hosting services using this software
+- Using this software in a for-profit company's internal operations
+- Distributing this software as part of a commercial product
+
+"Non-commercial use" means use by individuals or non-profit organizations for
+purposes other than generating revenue, including:
+- Personal projects and hobbies
+- Academic research and education
+- Use by registered non-profit organizations for their mission
+- Open source development (under AGPL-compatible licenses)
+
+================================================================================
+WARRANTY DISCLAIMER
+================================================================================
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -19,3 +86,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+QUESTIONS?
+================================================================================
+
+If you're unsure whether your use case requires a commercial license, please
+contact us at: license@nervusdb.com
