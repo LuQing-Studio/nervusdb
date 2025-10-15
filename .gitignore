@@ -42,3 +42,4 @@ yarn-error.log*
 # Database files (for testing)
 *.synapsedb
 *.nervusdb
+repomix-output.xml
