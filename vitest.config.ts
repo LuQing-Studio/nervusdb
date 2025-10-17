@@ -25,6 +25,7 @@ export default defineConfig({
       concurrent: false
     },
     include: ['tests/**/*.test.ts'],
+    exclude: ['**/node_modules/**', '**/dist/**', '**/wasm*.test.ts'],
     globalSetup: resolve(rootDir, 'tests/setup/global-cleanup.ts'),
     coverage: {
       provider: 'v8',
