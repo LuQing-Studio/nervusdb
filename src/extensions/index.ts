@@ -26,8 +26,73 @@ export type * from './spatial/types.js';
 export * from './algorithms/index.js';
 
 // 高级查询
-export * from './query/pattern/index.js';
-export * from './query/path/variable.js';
+export {
+  CypherLexer,
+  CypherParser,
+  ParseError,
+  CypherCompiler,
+  CompileError,
+  executeCypher,
+  addCypherSupport,
+  CypherQueryPlanner,
+  CypherQueryExecutor,
+  PatternBuilder,
+  CypherEngine,
+  createCypherEngine,
+  enhanceWithCypher,
+} from './query/pattern/index.js';
+export type {
+  Token as CypherToken,
+  TokenType,
+  CompileResult,
+  CypherSupport,
+  CompilerOptions,
+  PlanNode,
+  IndexScanPlan,
+  JoinPlan,
+  FilterPlan,
+  ProjectPlan,
+  LimitPlan,
+  Statistics,
+  ASTNode,
+  CypherQuery,
+  Clause,
+  MatchClause,
+  CreateClause,
+  ReturnClause,
+  WhereClause,
+  WithClause,
+  Pattern,
+  PathElement,
+  NodePattern,
+  RelationshipPattern,
+  Expression,
+  Literal,
+  Variable,
+  PropertyAccess,
+  BinaryExpression,
+  UnaryExpression,
+  PropertyMap,
+  PropertyPair,
+  VariableLength,
+  Direction as CypherDirection,
+  ReturnItem,
+  OrderByClause,
+  OrderByItem,
+  SourceLocation,
+  Position,
+  NervusDBWithCypher,
+  PatternResult,
+} from './query/pattern/index.js';
+
+export { VariablePathBuilder } from './query/path/variable.js';
+export type {
+  Uniqueness,
+  Direction as PathDirection,
+  PathEdge,
+  PathResult,
+  VariablePathOptions,
+} from './query/path/variable.js';
 export * from './query/path/astar.js';
 export * from './query/path/bidirectional.js';
 export * from './query/path/bidirectionalSimple.js';

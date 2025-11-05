@@ -5,7 +5,8 @@
  * 时间复杂度从 O(b^d) 减少到 O(b^(d/2))，其中 b 是分支因子，d 是深度
  */
 
-import { PersistentStore, FactRecord } from '../../core/storage/persistentStore.js';
+import { PersistentStore, FactRecord } from '../../../core/storage/persistentStore.js';
+import { VariablePathBuilder } from './variable.js';
 import type {
   Uniqueness,
   Direction,
@@ -121,7 +122,7 @@ export class BidirectionalPathBuilder {
       // 检查是否找到交集
       const intersection = this.findIntersection(forwardVisited, backwardVisited, min);
       if (intersection) {
-        return this.buildPath(intersection, dir);
+        return this.buildPath(intersection);
       }
 
       // 扩展两个方向的队列
@@ -226,7 +227,7 @@ export class BidirectionalPathBuilder {
     return null;
   }
 
-  private buildPath(intersection: IntersectionPoint, direction: Direction): PathResult {
+  private buildPath(intersection: IntersectionPoint): PathResult {
     const { forwardState, backwardState, meetingNode } = intersection;
 
     // 构建完整路径
@@ -290,12 +291,11 @@ export function createOptimizedPathBuilder(
     return {
       shortest: () => bidirectional.shortestPath(),
     };
-  } else {
-    // 点到多点查询，回退到原始实现
-    const { VariablePathBuilder } = require('./variable.js');
-    const original = new VariablePathBuilder(store, startNodes, predicateId, options);
-    return {
-      shortest: () => original.shortest(options.target!),
-    };
   }
+
+  // 点到多点查询，回退到原始实现
+  const original = new VariablePathBuilder(store, startNodes, predicateId, options);
+  return {
+    shortest: () => original.shortest(options.target!),
+  };
 }

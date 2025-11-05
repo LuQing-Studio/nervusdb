@@ -5,7 +5,6 @@ import type { PathResult, Direction, Uniqueness } from '../../extensions/query/p
 import { EncodedTriple } from '../storage/tripleStore.js';
 import type { IndexOrder } from '../storage/tripleIndexes.js';
 import { getBestIndexKey } from '../storage/tripleIndexes.js';
-import type { PagedIndexManifest } from '../storage/pagedIndex.js';
 
 export type FactCriteria = Partial<FactInput>;
 
@@ -1506,18 +1505,14 @@ export class LazyQueryBuilder extends QueryBuilder {
     };
     // 构建源
     let src: AsyncIterableIterator<FactRecord> = (async function* () {})();
-    let currentOrientation: FrontierOrientation = 'object';
-
     for (const node of this.plan) {
       if (node.kind === 'FIND') {
-        currentOrientation = node.anchor;
         const context = await buildStreamingFindContext(this.lazyStore, node.criteria, node.anchor);
         const base = context.factsStream;
         src = traceWrap('FIND', base);
         continue;
       }
       if (node.kind === 'ANCHOR') {
-        currentOrientation = node.orientation;
         // 不改变 src，只更新朝向。
         continue;
       }
@@ -1613,18 +1608,6 @@ export class LazyQueryBuilder extends QueryBuilder {
       }
       if (node.kind === 'FOLLOW') {
         const { predicate, dir, orientAtBuild } = node;
-        currentOrientation =
-          dir === 'forward'
-            ? orientAtBuild === 'subject'
-              ? 'object'
-              : orientAtBuild === 'object'
-                ? 'subject'
-                : 'both'
-            : orientAtBuild === 'subject'
-              ? 'object'
-              : orientAtBuild === 'object'
-                ? 'subject'
-                : 'both';
         const stage = (async function* (
           up: AsyncIterableIterator<FactRecord>,
           store: PersistentStore,
@@ -1720,7 +1703,6 @@ export class LazyQueryBuilder extends QueryBuilder {
       }
       if (node.kind === 'FOLLOW_PATH') {
         const { predicate, direction, min, max, orientAtBuild } = node;
-        currentOrientation = direction === 'forward' ? 'object' : 'subject';
         const stage = (async function* (
           up: AsyncIterableIterator<FactRecord>,
           store: PersistentStore,

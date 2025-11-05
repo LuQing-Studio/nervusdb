@@ -3,8 +3,8 @@
  * 重新设计以确保正确性
  */
 
-import { PersistentStore, FactRecord } from '../../core/storage/persistentStore.js';
-import type { Uniqueness, Direction, PathResult, VariablePathOptions } from './variable.js';
+import { PersistentStore, FactRecord } from '../../../core/storage/persistentStore.js';
+import type { Direction, PathResult, VariablePathOptions } from './variable.js';
 
 interface SearchState {
   nodeId: number;
@@ -37,8 +37,6 @@ export class SimpleBidirectionalPathBuilder {
   shortestPath(): PathResult | null {
     const min = Math.max(0, this.options.min ?? 1);
     const max = Math.max(min, this.options.max);
-    const direction = this.options.direction ?? 'forward';
-    const uniqueness = this.options.uniqueness ?? 'NODE';
 
     // 处理零长度路径
     if (min === 0) {

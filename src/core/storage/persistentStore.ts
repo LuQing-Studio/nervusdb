@@ -20,12 +20,7 @@ import { ConcurrencyControl } from './managers/concurrencyControl.js';
 import { QueryEngine, type QueryContext } from './managers/queryEngine.js';
 import { FlushManager, type FlushContext } from './managers/flushManager.js';
 import { encodeTripleKey, decodeTripleKey } from './helpers/tripleOrdering.js';
-
-export interface FactInput {
-  subject: string;
-  predicate: string;
-  object: string;
-}
+import type { FactInput } from './types.js';
 
 export interface PersistedFact extends FactInput {
   subjectId: number;
@@ -53,6 +48,8 @@ export interface PersistentStoreOptions {
   maxRememberTxIds?: number; // 记忆的最大 txId 数（默认 1000）
   stagingMode?: 'default' | 'lsm-lite'; // 预留写入策略（当前仅接收参数，不改变行为）
 }
+
+export type { FactInput } from './types.js';
 
 export class PersistentStore {
   private constructor(
