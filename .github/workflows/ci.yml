@@ -181,6 +181,9 @@ jobs:
       - name: Build native addon
         run: pnpm exec napi build --release --platform --cargo-cwd native/nervusdb-node native/nervusdb-node/npm
 
+      - name: Organize native artifact
+        run: node scripts/organize-native-artifact.mjs "${{ matrix.platform }}"
+
       - name: Debug - List generated files
         run: |
           echo "=== Files in native/nervusdb-node/npm/ ==="
@@ -195,4 +198,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: napi-${{ matrix.platform }}
-          path: native/nervusdb-node/npm/nervusdb-node*.node
+          path: native/nervusdb-node/npm/${{ matrix.platform }}/

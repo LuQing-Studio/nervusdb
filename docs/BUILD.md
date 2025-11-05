@@ -33,12 +33,11 @@ dist/
 ```bash
 pnpm exec napi build --release --platform --cargo-cwd native/nervusdb-node
 PLATFORM=linux-x64-gnu # 将其替换为 darwin-arm64 / darwin-x64 / win32-x64-msvc 等实际平台
-mkdir -p native/nervusdb-node/npm/${PLATFORM}
-mv native/nervusdb-node/npm/index.node native/nervusdb-node/npm/${PLATFORM}/index.node
+node scripts/organize-native-artifact.mjs ${PLATFORM}
 pnpm vitest run tests/integration/native/native_binding.test.ts
 ```
 
-执行完成后，`loadNativeCore()` 将优先从 `native/nervusdb-node/npm/${PLATFORM}/index.node` 加载原生模块。
+执行完成后，脚本会把 `index.<triple>.node` 拷贝到 `native/nervusdb-node/npm/${PLATFORM}/index.node`，`loadNativeCore()` 将优先加载该文件。
 
 ---
 
