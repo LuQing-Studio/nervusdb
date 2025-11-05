@@ -45,6 +45,12 @@ jobs:
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
+      - name: Rust core format check
+        run: cargo fmt --manifest-path nervusdb-core/Cargo.toml -- --check
+
+      - name: Rust core tests
+        run: cargo test --manifest-path nervusdb-core/Cargo.toml
+
       - name: Build WASM module
         run: |
           cd nervusdb-wasm

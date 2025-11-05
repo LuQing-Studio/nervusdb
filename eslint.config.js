@@ -97,7 +97,7 @@ export default tseslint.config(
     }
   },
   {
-    files: ['src/query/**/*.ts', 'src/core/query/**/*.ts', 'src/extensions/query/**/*.ts'],
+    files: ['src/query/**/*.ts', 'src/core/query/**/*.ts', 'src/extensions/query/**/*.ts', 'src/native/**/*.ts'],
     rules: {
       '@typescript-eslint/no-unsafe-argument': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',
