@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { initializeIfMissing, readStorageFile } from './fileHeader.js';
+import { loadNativeCore, type NativeDatabaseHandle } from '../../native/core.js';
 import { StringDictionary } from './dictionary.js';
 import { PropertyStore, TripleKey } from './propertyStore.js';
 import { TripleIndexes, type IndexOrder } from './tripleIndexes.js';
@@ -73,6 +74,7 @@ export class PersistentStore {
   private propertyIndexManager!: PropertyIndexManager;
   private labelManager!: LabelManager;
   private lsm?: LsmLiteStaging<EncodedTriple>;
+  private nativeHandle?: NativeDatabaseHandle;
   // 内存模式（:memory:）支持：使用临时文件路径并在关闭时清理
   private memoryMode = false;
   private memoryBasePath?: string;
@@ -90,6 +92,18 @@ export class PersistentStore {
     }
 
     await initializeIfMissing(effectivePath);
+
+    let nativeHandle: NativeDatabaseHandle | undefined;
+    const nativeBinding = loadNativeCore();
+    if (nativeBinding) {
+      try {
+        nativeHandle = nativeBinding.open({ dataPath: effectivePath });
+      } catch (error) {
+        if (process.env.NERVUSDB_NATIVE_STRICT === '1') {
+          throw error;
+        }
+      }
+    }
     // 当存在写锁且尝试以无锁模式打开时，若 WAL 非空（存在未落盘的写入），拒绝无锁访问
     // 用于防止已加锁写者运行期间，第二个“伪读者”的无锁写入引发并发风险
     try {
@@ -144,6 +158,7 @@ export class PersistentStore {
     // 标记内存模式并记录基础路径，供 close() 清理
     store.memoryMode = memoryMode;
     store.memoryBasePath = effectivePath;
+    store.nativeHandle = nativeHandle;
 
     // 初始化并发控制管理器（需要在锁操作之前初始化）
     store.concurrencyControl = new ConcurrencyControl(indexDirectory, effectivePath);
@@ -253,6 +268,16 @@ export class PersistentStore {
   private pagedIndex!: PagedIndexCoordinator;
 
   addFact(fact: FactInput): PersistedFact {
+    if (this.nativeHandle) {
+      try {
+        this.nativeHandle.addFact(fact.subject, fact.predicate, fact.object);
+      } catch (error) {
+        if (process.env.NERVUSDB_NATIVE_STRICT === '1') {
+          throw error;
+        }
+      }
+    }
+
     // 仅写 WAL 记录；若处于批次中，则暂存到事务管理器，最外层 commit 时再落入主存
     const inBatch = this.transactionManager.isInBatch();
     void this.wal.appendAddTriple(fact);
@@ -629,6 +654,17 @@ export class PersistentStore {
   }
 
   async close(): Promise<void> {
+    if (this.nativeHandle) {
+      try {
+        this.nativeHandle.close();
+      } catch {
+        if (process.env.NERVUSDB_NATIVE_STRICT === '1') {
+          throw new Error('native database close failed');
+        }
+      }
+      this.nativeHandle = undefined;
+    }
+
     // 如果存在未持久化的数据，优先刷新到磁盘，避免依赖重放
     try {
       if (this.dirty) {
