@@ -1,6 +1,8 @@
 import { promises as fs } from 'node:fs';
 import * as fssync from 'node:fs';
 
+import type { FactInput } from './types.js';
+
 export type WalRecordType =
   | 0x10 // addTriple
   | 0x20 // deleteTriple
@@ -9,12 +11,6 @@ export type WalRecordType =
   | 0x40 // beginBatch
   | 0x41 // commitBatch
   | 0x42; // abortBatch
-
-export interface FactInput {
-  subject: string;
-  predicate: string;
-  object: string;
-}
 
 const MAGIC = Buffer.from('SYNWAL', 'utf8');
 const WAL_VERSION = 2;

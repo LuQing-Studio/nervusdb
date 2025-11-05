@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryInvertedIndex } from '@/fulltext/invertedIndex.ts';
-import { MemoryDocumentCorpus } from '@/fulltext/corpus.ts';
-import { TFIDFScorer, BM25Scorer, CompositeScorer } from '@/fulltext/scorer.ts';
+import { MemoryInvertedIndex } from '@/extensions/fulltext/invertedIndex.ts';
+import { MemoryDocumentCorpus } from '@/extensions/fulltext/corpus.ts';
+import { TFIDFScorer, BM25Scorer, CompositeScorer } from '@/extensions/fulltext/scorer.ts';
 import {
   QueryParser,
   FullTextQueryEngine,
   SearchHighlighter,
   FuzzySearchProcessor,
-} from '@/fulltext/query.ts';
-import { StandardAnalyzer } from '@/fulltext/analyzer.ts';
-import { FullTextSearchFactory } from '@/fulltext/engine.ts';
+} from '@/extensions/fulltext/query.ts';
+import { StandardAnalyzer } from '@/extensions/fulltext/analyzer.ts';
+import { FullTextSearchFactory } from '@/extensions/fulltext/engine.ts';
 
 describe('全文 · 索引/语料/评分/查询/引擎', () => {
   it('索引与语料：添加文档与基本搜索', () => {

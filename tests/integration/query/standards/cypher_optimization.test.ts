@@ -4,8 +4,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { NervusDB } from '@/synapseDb';
-import { createCypherSupport } from '@/query/cypher';
-import { CypherQueryPlanner, CypherQueryExecutor } from '@/query/pattern';
+import { createCypherSupport } from '@/extensions/query/cypher';
+import { CypherQueryPlanner, CypherQueryExecutor } from '@/extensions/query/pattern';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { unlinkSync, rmSync, existsSync } from 'fs';

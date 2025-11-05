@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { CypherQueryExecutor } from '@/query/pattern/executor.ts';
-import type { IndexScanPlan, FilterPlan, LimitPlan } from '@/query/pattern/planner.ts';
+import { CypherQueryExecutor } from '@/extensions/query/pattern/executor.ts';
+import type { IndexScanPlan, FilterPlan, LimitPlan } from '@/extensions/query/pattern/planner.ts';
 
 describe('CypherQueryExecutor · IndexScan/Filter/Limit 基础路径', () => {
   it('label 索引扫描 + 属性过滤 + limit', async () => {
@@ -255,7 +255,7 @@ describe('CypherQueryExecutor · IndexScan/Filter/Limit 基础路径', () => {
       cost: 1,
       cardinality: 2,
       properties: {},
-    } as import('@/query/pattern/planner.ts').ProjectPlan;
+    } as import('@/extensions/query/pattern/planner.ts').ProjectPlan;
     const limit: LimitPlan = {
       type: 'Limit',
       child: proj,

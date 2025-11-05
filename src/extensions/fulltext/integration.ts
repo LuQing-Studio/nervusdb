@@ -4,7 +4,7 @@
  * 提供便捷的方法将全文搜索功能集成到 NervusDB 实例中
  */
 
-import { NervusDB } from '../synapseDb.js';
+import { NervusDB } from '../../synapseDb.js';
 import {
   NervusDBFullTextExtension,
   NervusDBFullTextExtensionFactory,
@@ -17,7 +17,7 @@ import type { SearchOptions, SearchResult } from './types.js';
 /**
  * 扩展 NervusDB 类的接口，添加全文搜索方法
  */
-declare module '../synapseDb.js' {
+declare module '../../synapseDb.js' {
   interface NervusDB {
     /** 全文搜索扩展实例 */
     fullText?: NervusDBFullTextExtension;

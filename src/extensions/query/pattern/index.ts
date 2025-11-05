@@ -64,7 +64,7 @@ export type {
 } from './ast.js';
 
 // 便利函数：一站式 Cypher 查询执行
-import type { PersistentStore } from '../../storage/persistentStore.js';
+import type { PersistentStore } from '../../../core/storage/persistentStore.js';
 import { CypherParser } from './parser.js';
 import { CypherCompiler, type CompilerOptions } from './compiler.js';
 

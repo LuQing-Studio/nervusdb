@@ -4,9 +4,9 @@ import {
   StreamingQueryBuilder,
   buildFindContext,
   buildStreamingFindContext,
-} from '@/query/queryBuilder.ts';
+} from '@/core/query/queryBuilder.ts';
 
-type FR = import('@/storage/persistentStore.ts').FactRecord;
+type FR = import('@/core/storage/persistentStore.ts').FactRecord;
 type Triple = { subjectId: number; predicateId: number; objectId: number };
 
 function makeFacts(): FR[] {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PersistentStore } from '@/storage/persistentStore';
+import { PersistentStore } from '@/core/storage/persistentStore';
 import { NervusDB } from '@/synapseDb';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

@@ -5,10 +5,10 @@
  */
 
 import { NervusDB } from '../synapseDb.js';
-import { MemoryGraph } from '../algorithms/graph.js';
-import { GraphAlgorithmSuiteImpl } from '../algorithms/suite.js';
-import { FullTextSearchFactory } from '../fulltext/engine.js';
-import { SpatialGeometryImpl } from '../spatial/geometry.js';
+import { MemoryGraph } from '../extensions/algorithms/graph.js';
+import { GraphAlgorithmSuiteImpl } from '../extensions/algorithms/suite.js';
+import { FullTextSearchFactory } from '../extensions/fulltext/engine.js';
+import { SpatialGeometryImpl } from '../extensions/spatial/geometry.js';
 import type { BenchmarkSuite } from './types.js';
 import { BenchmarkUtils } from './runner.js';
 

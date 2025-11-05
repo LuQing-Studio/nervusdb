@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryInvertedIndex } from '@/fulltext/invertedIndex.ts';
-import { MemoryDocumentCorpus } from '@/fulltext/corpus.ts';
-import { VectorSpaceScorer } from '@/fulltext/scorer.ts';
+import { MemoryInvertedIndex } from '@/extensions/fulltext/invertedIndex.ts';
+import { MemoryDocumentCorpus } from '@/extensions/fulltext/corpus.ts';
+import { VectorSpaceScorer } from '@/extensions/fulltext/scorer.ts';
 
 function mkDoc(id: string, tokens: string[]) {
   return {

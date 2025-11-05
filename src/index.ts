@@ -1,4 +1,14 @@
 // =======================
+// 分层导出（支持 Tree-shaking）
+// =======================
+
+// 核心层：数据库内核（对标 Rust 项目）
+export * as Core from './core/index.js';
+
+// 扩展层：应用层功能（TypeScript 独有）
+export * as Extensions from './extensions/index.js';
+
+// =======================
 // 核心导出
 // =======================
 
@@ -23,12 +33,16 @@ export { AggregationPlugin } from './plugins/aggregation.js';
 // 存储与查询
 // =======================
 
-export { PersistentStore } from './storage/persistentStore.js';
-export type { PersistedFact } from './storage/persistentStore.js';
-export { QueryBuilder } from './query/queryBuilder.js';
-export { LazyQueryBuilder } from './query/queryBuilder.js';
-export type { FactCriteria, FrontierOrientation, PropertyFilter } from './query/queryBuilder.js';
-export { AggregationPipeline } from './query/aggregation.js';
+export { PersistentStore } from './core/storage/persistentStore.js';
+export type { PersistedFact } from './core/storage/persistentStore.js';
+export { QueryBuilder } from './core/query/queryBuilder.js';
+export { LazyQueryBuilder } from './core/query/queryBuilder.js';
+export type {
+  FactCriteria,
+  FrontierOrientation,
+  PropertyFilter,
+} from './core/query/queryBuilder.js';
+export { AggregationPipeline } from './extensions/query/aggregation.js';
 
 // =======================
 // 配置与选项

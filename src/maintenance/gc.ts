@@ -6,8 +6,8 @@ import {
   writePagedManifest,
   pageFileName,
   type PagedIndexManifest,
-} from '../storage/pagedIndex.js';
-import { getActiveReaders } from '../storage/readerRegistry.js';
+} from '../core/storage/pagedIndex.js';
+import { getActiveReaders } from '../core/storage/readerRegistry.js';
 import { triggerCrash } from '../utils/fault.js';
 
 export interface GCStats {

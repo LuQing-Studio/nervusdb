@@ -6,7 +6,7 @@ import {
   mergeTxIds,
   type TxIdEntry,
   type TxIdRegistryData,
-} from '@/storage/txidRegistry';
+} from '@/core/storage/txidRegistry';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rm, mkdir, writeFile, readFile } from 'node:fs/promises';

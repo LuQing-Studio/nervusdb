@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { GraphBuilder } from '@/algorithms/graph';
+import { GraphBuilder } from '@/extensions/algorithms/graph';
 import {
   DijkstraPathAlgorithm,
   AStarPathAlgorithm,
   FloydWarshallPathAlgorithm,
   BellmanFordPathAlgorithm,
   PathAlgorithmFactory,
-} from '@/algorithms/pathfinding';
+} from '@/extensions/algorithms/pathfinding';
 
 describe('图算法 · 路径查找（Dijkstra/A*/Floyd/Bellman-Ford）', () => {
   it('Dijkstra：应找到加权最短路径，并返回正确权重与节点序列', () => {

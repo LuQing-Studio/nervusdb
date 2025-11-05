@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { MemoryGraph, GraphBuilder } from '@/algorithms/graph.ts';
+import { MemoryGraph, GraphBuilder } from '@/extensions/algorithms/graph.ts';
 
 describe('MemoryGraph · 指标与分析', () => {
   it('getStats 应正确计算节点/边/平均度/连通性', () => {

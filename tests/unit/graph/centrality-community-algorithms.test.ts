@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryGraph } from '@/algorithms/graph';
-import { GraphAlgorithmSuiteImpl } from '@/algorithms/suite';
+import { MemoryGraph } from '@/extensions/algorithms/graph';
+import { GraphAlgorithmSuiteImpl } from '@/extensions/algorithms/suite';
 
 describe('图算法套件 · Centrality and Community Algorithms', () => {
   it('基础调用不抛错（小图）', () => {

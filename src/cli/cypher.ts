@@ -10,7 +10,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { NervusDB } from '../synapseDb.js';
-import { formatCypherResults } from '../query/pattern/index.js';
+import { formatCypherResults } from '../extensions/query/pattern/index.js';
 
 interface Args {
   dbPath: string;

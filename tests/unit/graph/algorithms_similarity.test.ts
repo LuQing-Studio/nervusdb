@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GraphBuilder } from '@/algorithms/graph';
+import { GraphBuilder } from '@/extensions/algorithms/graph';
 import {
   JaccardSimilarity,
   CosineSimilarity,
@@ -7,7 +7,7 @@ import {
   PreferentialAttachmentSimilarity,
   NodeAttributeSimilarity,
   SimilarityAlgorithmFactory,
-} from '@/algorithms/similarity';
+} from '@/extensions/algorithms/similarity';
 
 describe('图算法 · 相似度（Jaccard/Cosine/Adamic/PA/属性）', () => {
   it('Jaccard：共同邻居/并集计算应正确', () => {

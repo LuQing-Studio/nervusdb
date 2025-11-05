@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { NervusDB } from '@/synapseDb';
-import { readPagedManifest, writePagedManifest } from '@/storage/pagedIndex';
+import { readPagedManifest, writePagedManifest } from '@/core/storage/pagedIndex';
 
 describe('Manifest 原子更新测试', () => {
   const FAST = process.env.FAST === '1' || process.env.FAST === 'true';

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getBestIndexKey } from '@/storage/tripleIndexes';
+import { getBestIndexKey } from '@/core/storage/tripleIndexes';
 
 describe('索引选择策略（六序）', () => {
   it('s+p 命中 SPO', () => {

@@ -72,7 +72,14 @@ export default tseslint.config(
     }
   },
   {
-    files: ['src/query/graphql/**/*.ts', 'src/query/gremlin/**/*.ts', 'src/query/pattern/**/*.ts'],
+    files: [
+      'src/query/graphql/**/*.ts',
+      'src/query/gremlin/**/*.ts',
+      'src/query/pattern/**/*.ts',
+      'src/extensions/query/graphql/**/*.ts',
+      'src/extensions/query/gremlin/**/*.ts',
+      'src/extensions/query/pattern/**/*.ts'
+    ],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',
@@ -90,7 +97,7 @@ export default tseslint.config(
     }
   },
   {
-    files: ['src/query/**/*.ts'],
+    files: ['src/query/**/*.ts', 'src/core/query/**/*.ts', 'src/extensions/query/**/*.ts'],
     rules: {
       '@typescript-eslint/no-unsafe-argument': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',

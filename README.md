@@ -79,6 +79,7 @@
 | [ADR-002](docs/architecture/ADR-002-Architecture-Design.md)  | 架构设计       | ✅ 已接受 | 分层架构 + 六序索引 + WAL + 插件系统的设计决策   |
 | [ADR-003](docs/architecture/ADR-003-Quality-Assurance.md)    | 质量保障机制   | ✅ 已接受 | CI/CD、测试覆盖率、代码规范的质量保障体系        |
 | [ADR-004](docs/architecture/ADR-004-Architecture-Upgrade.md) | 架构升级路线图 | 📋 提议中 | 从内存中心到磁盘中心的持久化模型升级计划         |
+| [ADR-005](docs/architecture/ADR-005-Code-Organization.md)    | 代码组织与分层 | ✅ 已接受 | 单包 + 清晰目录结构，分离核心层和扩展层          |
 
 **为什么需要 ADR？**
 
@@ -86,6 +87,55 @@
 - ✅ **知识传承**：新成员可以快速理解"为什么这样设计"
 - ✅ **避免重复讨论**：当有人提出"为什么不用 MongoDB/Rust/微内核架构"时，直接查看 ADR
 - ✅ **决策质量**：强制团队考虑多个选项（备选方案），而非"一拍脑袋"决定
+
+### 代码组织架构（ADR-005）
+
+NervusDB 采用**单包 + 清晰目录结构**的组织方式，将代码分为两层：
+
+```
+src/
+├── core/                    # 🔧 数据库内核（对标 Rust 项目）
+│   ├── storage/            # 三元组存储、WAL、六序索引
+│   ├── query/              # 基础查询构建器
+│   └── index.ts            # 核心层导出
+│
+├── extensions/             # 🚀 应用层扩展（TypeScript 独有）
+│   ├── fulltext/          # 全文检索
+│   ├── spatial/           # 空间索引
+│   ├── algorithms/        # 图算法
+│   └── query/             # 高级查询（模式匹配、路径查找、聚合）
+│
+└── index.ts               # 主入口（导出 core + extensions）
+```
+
+**使用方式**：
+
+```typescript
+// 方式 1：使用完整功能（推荐）
+import { NervusDB } from 'nervusdb';
+
+// 方式 2：只使用核心功能
+import { Core } from 'nervusdb';
+const { PersistentStore } = Core;
+
+// 方式 3：只使用扩展功能
+import { Extensions } from 'nervusdb';
+const { FullTextSearch } = Extensions;
+
+// 方式 4：按需导入（支持 Tree-shaking）
+import { PersistentStore } from 'nervusdb';
+import { FullTextSearch } from 'nervusdb';
+```
+
+**为什么这样设计？**
+
+- ✅ **清晰分层**：一眼看出核心 vs 扩展
+- ✅ **易于扩展**：新扩展直接加到 `extensions/`
+- ✅ **对比清晰**：`src/core/` 直接对标 Rust 项目
+- ✅ **支持 Tree-shaking**：打包工具自动移除未使用的代码
+- ✅ **零破坏性**：仍然是单一 npm 包，用户无感知
+
+详见 [ADR-005: 代码组织与分层](docs/architecture/ADR-005-Code-Organization.md)
 
 ## 核心特性矩阵
 

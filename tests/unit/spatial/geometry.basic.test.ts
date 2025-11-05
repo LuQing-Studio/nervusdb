@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GeometryUtils, SpatialGeometryImpl } from '@/spatial/geometry.ts';
+import { GeometryUtils, SpatialGeometryImpl } from '@/extensions/spatial/geometry.ts';
 
 describe('空间几何 · 基础与度量', () => {
   const geo = new SpatialGeometryImpl();

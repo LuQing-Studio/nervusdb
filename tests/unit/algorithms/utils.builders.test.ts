@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GraphAlgorithmUtils } from '@/algorithms/suite.ts';
+import { GraphAlgorithmUtils } from '@/extensions/algorithms/suite.ts';
 
 describe('GraphAlgorithmUtils · 构图便捷函数', () => {
   it('fromEdgeList/fromAdjacencyMatrix/star/cycle/complete', () => {

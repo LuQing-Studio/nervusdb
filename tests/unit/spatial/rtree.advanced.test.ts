@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { RTree } from '@/spatial/rtree.ts';
+import { RTree } from '@/extensions/spatial/rtree.ts';
 
 const rect = (minX: number, minY: number, maxX: number, maxY: number) => ({
   type: 'Polygon' as const,

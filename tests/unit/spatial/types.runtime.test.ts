@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { assertBoundingBox, isBoundingBox } from '@/spatial/types';
+import { assertBoundingBox, isBoundingBox } from '@/extensions/spatial/types';
 
 describe('空间类型运行时守卫', () => {
   it('isBoundingBox: 非数组或长度不匹配时返回 false', () => {

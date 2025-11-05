@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SpatialQueryManager, SpatialQueryUtils } from '@/spatial/spatialQuery.ts';
+import { SpatialQueryManager, SpatialQueryUtils } from '@/extensions/spatial/spatialQuery.ts';
 
 describe('空间查询管理器 · 查询/导出/聚合/验证', () => {
   it('bbox/nearest/distance/intersects/contains/within/complex/export/aggregate', () => {

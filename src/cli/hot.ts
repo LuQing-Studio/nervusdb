@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readHotness } from '../storage/hotness.js';
+import { readHotness } from '../core/storage/hotness.js';
 
 async function main() {
   const [dbPath, ...args] = process.argv.slice(2);

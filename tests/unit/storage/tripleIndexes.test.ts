@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { TripleIndexes } from '@/storage/tripleIndexes';
+import { TripleIndexes } from '@/core/storage/tripleIndexes';
 
 const triples = [
   { subjectId: 2, predicateId: 1, objectId: 3 },

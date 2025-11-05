@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { StreamingQueryBuilder, buildFindContext, QueryBuilder } from '@/query/queryBuilder.ts';
+import {
+  StreamingQueryBuilder,
+  buildFindContext,
+  QueryBuilder,
+} from '@/core/query/queryBuilder.ts';
 
-type FR = import('@/storage/persistentStore.ts').FactRecord;
+type FR = import('@/core/storage/persistentStore.ts').FactRecord;
 type Triple = { subjectId: number; predicateId: number; objectId: number };
 
 function mkFact(s: number, p: number, o: number): FR {

@@ -1,4 +1,4 @@
-import { PersistentStore, FactRecord } from '../../storage/persistentStore.js';
+import { PersistentStore, FactRecord } from '../../../core/storage/persistentStore.js';
 
 export type Uniqueness = 'NODE' | 'EDGE' | 'NONE';
 export type Direction = 'forward' | 'reverse';

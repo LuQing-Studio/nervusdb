@@ -1,4 +1,5 @@
-import { WalReplayer, WalWriter, type FactInput, type WalBeginMeta } from '../wal.js';
+import { WalReplayer, WalWriter, type WalBeginMeta } from '../wal.js';
+import type { FactInput } from '../types.js';
 import {
   readTxIdRegistry,
   writeTxIdRegistry,

@@ -6,7 +6,7 @@
  * - 该模块为里程碑交付清单的占位与基础能力封装，核心流式能力已在 QueryBuilder 与 PersistentStore 内实现。
  */
 
-import type { FactRecord } from '../storage/persistentStore.js';
+import type { FactRecord } from '../../core/storage/persistentStore.js';
 
 /**
  * 将批量异步迭代器扁平化为逐条记录的异步迭代器。

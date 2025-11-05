@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { checkStrict } from '@/maintenance/check.ts';
-import { writePagedManifest, type PagedIndexManifest } from '@/storage/pagedIndex.ts';
+import { writePagedManifest, type PagedIndexManifest } from '@/core/storage/pagedIndex.ts';
 import { makeWorkspace, within, cleanupWorkspace } from '@/../tests/helpers/tempfs.ts';
 
 describe('maintenance.checkStrict · 清单缺失与打开失败', () => {

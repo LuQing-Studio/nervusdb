@@ -18,7 +18,7 @@ import {
   executeCypher,
   formatCypherResults,
   isCypherQuery,
-} from '@/query/pattern';
+} from '@/extensions/query/pattern';
 
 describe('Cypher 文本解析器', () => {
   let testDir: string;

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { NervusDB } from '@/synapseDb';
-import { readPagedManifest } from '@/storage/pagedIndex';
+import { readPagedManifest } from '@/core/storage/pagedIndex';
 import { compactDatabase } from '@/maintenance/compaction';
 
 describe('Compaction 增量按 primary 重写', () => {

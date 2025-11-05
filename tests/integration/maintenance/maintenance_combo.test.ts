@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { NervusDB } from '@/synapseDb';
 import { autoCompact } from '@/maintenance/autoCompact';
-import { readPagedManifest } from '@/storage/pagedIndex';
+import { readPagedManifest } from '@/core/storage/pagedIndex';
 
 describe('运维组合工况（增量合并 + 热度驱动 + autoGC）', () => {
   let workspace: string;

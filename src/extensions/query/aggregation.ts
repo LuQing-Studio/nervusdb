@@ -1,6 +1,6 @@
-import { PersistentStore, FactRecord } from '../storage/persistentStore.js';
-import { FactCriteria } from './queryBuilder.js';
-import { buildFindContext } from './queryBuilder.js';
+import { PersistentStore, FactRecord } from '../../core/storage/persistentStore.js';
+import { FactCriteria } from '../../core/query/queryBuilder.js';
+import { buildFindContext } from '../../core/query/queryBuilder.js';
 
 export interface AggregateResult {
   [key: string]: unknown;

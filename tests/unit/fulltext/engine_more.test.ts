@@ -4,7 +4,7 @@ import {
   FullTextSearchEngine,
   FullTextBatchProcessor,
   SearchPerformanceMonitor,
-} from '@/fulltext/engine.ts';
+} from '@/extensions/fulltext/engine.ts';
 
 describe('全文引擎 · 工厂/批处理/监控', () => {
   it('工厂配置：默认/中文/英文/性能', () => {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import { readPagedManifest, PagedIndexReader } from '../storage/pagedIndex.js';
-import { readStorageFile } from '../storage/fileHeader.js';
-import { StringDictionary } from '../storage/dictionary.js';
+import { readPagedManifest, PagedIndexReader } from '../core/storage/pagedIndex.js';
+import { readStorageFile } from '../core/storage/fileHeader.js';
+import { StringDictionary } from '../core/storage/dictionary.js';
 
 async function dump(dbPath: string, order: string, primaryValue: number): Promise<void> {
   const manifest = await readPagedManifest(`${dbPath}.pages`);

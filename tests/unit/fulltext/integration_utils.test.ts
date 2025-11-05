@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FullTextSearchUtils } from '@/fulltext/integration.ts';
+import { FullTextSearchUtils } from '@/extensions/fulltext/integration.ts';
 
 describe('FullTextSearchUtils · 纯工具函数', () => {
   it('highlightKeywords/parseQueryKeywords', () => {

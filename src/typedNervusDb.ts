@@ -4,8 +4,8 @@
  */
 
 import { NervusDB } from './synapseDb.js';
-import { QueryBuilder } from './query/queryBuilder.js';
-import type { FactRecord } from './storage/persistentStore.js';
+import { QueryBuilder } from './core/query/queryBuilder.js';
+import type { FactRecord } from './core/storage/persistentStore.js';
 import type {
   TypedNervusDB,
   TypedQueryBuilder,

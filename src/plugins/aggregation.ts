@@ -1,7 +1,7 @@
 import { NervusDBPlugin } from './base.js';
 import type { NervusDB } from '../synapseDb.js';
-import { PersistentStore } from '../storage/persistentStore.js';
-import { AggregationPipeline } from '../query/aggregation.js';
+import { PersistentStore } from '../core/storage/persistentStore.js';
+import { AggregationPipeline } from '../extensions/query/aggregation.js';
 
 /**
  * 聚合查询插件

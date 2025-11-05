@@ -12,7 +12,7 @@ import {
   PageRankOptions,
   LouvainOptions,
   PathOptions,
-} from '@/algorithms/types';
+} from '@/extensions/algorithms/types';
 
 describe('图算法类型定义测试', () => {
   describe('基础数据结构', () => {

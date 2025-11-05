@@ -4,8 +4,8 @@
  * 为 NervusDB 添加全文搜索功能，支持三元组内容的高级文本检索
  */
 
-import { NervusDB } from '../synapseDb.js';
-import { FactRecord } from '../storage/persistentStore.js';
+import { NervusDB } from '../../synapseDb.js';
+import { FactRecord } from '../../core/storage/persistentStore.js';
 
 import {
   FullTextSearchFactory,

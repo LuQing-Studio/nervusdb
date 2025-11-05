@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { NervusDB } from '@/synapseDb';
-import { readPagedManifest } from '@/storage/pagedIndex';
+import { readPagedManifest } from '@/core/storage/pagedIndex';
 
 describe('Compaction MVP', () => {
   let workspace: string;

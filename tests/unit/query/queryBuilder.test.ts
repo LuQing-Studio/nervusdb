@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { QueryBuilder } from '@/query/queryBuilder';
+import { QueryBuilder } from '@/core/query/queryBuilder';
 import { NervusDB } from '@/synapseDb';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

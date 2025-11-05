@@ -1,5 +1,5 @@
 import type { NervusDB } from '../synapseDb.js';
-import { PersistentStore } from '../storage/persistentStore.js';
+import { PersistentStore } from '../core/storage/persistentStore.js';
 
 /**
  * 插件基础接口

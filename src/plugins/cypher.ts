@@ -1,14 +1,14 @@
 import { NervusDBPlugin } from './base.js';
 import type { NervusDB } from '../synapseDb.js';
-import { PersistentStore } from '../storage/persistentStore.js';
+import { PersistentStore } from '../core/storage/persistentStore.js';
 import { warnExperimental } from '../utils/experimental.js';
 import {
   createCypherSupport,
   type CypherSupport,
   type CypherResult,
   type CypherExecutionOptions,
-} from '../query/cypher.js';
-import { VariablePathBuilder } from '../query/path/variable.js';
+} from '../extensions/query/cypher.js';
+import { VariablePathBuilder } from '../extensions/query/path/variable.js';
 
 /**
  * Cypher查询插件

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { NervusDB } from '@/synapseDb';
 import { autoCompact } from '@/maintenance/autoCompact';
-import { addReader } from '@/storage/readerRegistry';
+import { addReader } from '@/core/storage/readerRegistry';
 
 describe('Auto-Compact 尊重读者', () => {
   let workspace: string;

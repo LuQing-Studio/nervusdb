@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { NervusDB } from '@/synapseDb';
 import { compactDatabase } from '@/maintenance/compaction';
 import { garbageCollectPages } from '@/maintenance/gc';
-import { addReader } from '@/storage/readerRegistry';
+import { addReader } from '@/core/storage/readerRegistry';
 
 describe('GC 尊重有效读者', () => {
   let workspace: string;
