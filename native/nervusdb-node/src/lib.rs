@@ -46,7 +46,7 @@ pub struct QueryCriteriaInput {
 
 #[napi(object)]
 pub struct CursorId {
-    pub id: u64,
+    pub id: u32,
 }
 
 #[napi(object)]
@@ -157,11 +157,14 @@ impl DatabaseHandle {
             object_id: convert_string_id(criteria.object_id),
         };
         let id = db.open_cursor(query).map_err(map_error)?;
-        Ok(CursorId { id })
+        let cursor_id = u32::try_from(id).map_err(|_| {
+            napi::Error::new(Status::GenericFailure, "cursor id overflow: exceeds 32 bits")
+        })?;
+        Ok(CursorId { id: cursor_id })
     }
 
     #[napi(js_name = "readCursor")]
-    pub fn cursor_next(&self, cursor_id: u64, batch_size: u32) -> NapiResult<CursorBatch> {
+    pub fn cursor_next(&self, cursor_id: u32, batch_size: u32) -> NapiResult<CursorBatch> {
         let mut guard = self
             .inner
             .lock()
@@ -170,7 +173,7 @@ impl DatabaseHandle {
             .as_mut()
             .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
         let (triples, done) = db
-            .cursor_next(cursor_id, batch_size as usize)
+            .cursor_next(cursor_id as u64, batch_size as usize)
             .map_err(map_error)?;
         let mapped = triples
             .into_iter()
@@ -180,7 +183,7 @@ impl DatabaseHandle {
     }
 
     #[napi(js_name = "closeCursor")]
-    pub fn cursor_close(&self, cursor_id: u64) -> NapiResult<()> {
+    pub fn cursor_close(&self, cursor_id: u32) -> NapiResult<()> {
         let mut guard = self
             .inner
             .lock()
@@ -188,7 +191,7 @@ impl DatabaseHandle {
         let db = guard
             .as_mut()
             .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
-        db.close_cursor(cursor_id).map_err(map_error)
+        db.close_cursor(cursor_id as u64).map_err(map_error)
     }
 
     #[napi]
