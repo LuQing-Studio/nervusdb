@@ -181,6 +181,13 @@ jobs:
       - name: Build native addon
         run: pnpm exec napi build --release --platform --cargo-cwd native/nervusdb-node native/nervusdb-node/npm
 
+      - name: Debug - List generated files
+        run: |
+          echo "=== Files in native/nervusdb-node/npm/ ==="
+          ls -la native/nervusdb-node/npm/ || echo "Directory not found"
+          echo "=== .node files ==="
+          find native/nervusdb-node/npm/ -name "*.node" -type f || echo "No .node files found"
+
       - name: Run native vitest subset
         run: pnpm vitest run tests/unit/native/native_loader.test.ts tests/unit/storage/persistentStore.native.test.ts tests/integration/native/native_binding.test.ts
 
