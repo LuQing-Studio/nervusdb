@@ -7,6 +7,7 @@ mod partition;
 mod triple;
 mod wal;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub use dictionary::{Dictionary, StringId};
@@ -44,6 +45,36 @@ pub struct Database {
     index: GlobalIndex,
     wal: WriteAheadLog,
     triples: Vec<Triple>,
+    cursors: HashMap<u64, QueryCursor>,
+    next_cursor_id: u64,
+}
+
+#[derive(Debug)]
+struct QueryCursor {
+    triples: Vec<Triple>,
+    position: usize,
+}
+
+impl QueryCursor {
+    fn new(triples: Vec<Triple>) -> Self {
+        Self {
+            triples,
+            position: 0,
+        }
+    }
+
+    fn next_batch(&mut self, batch_size: usize) -> (Vec<Triple>, bool) {
+        let chunk = if self.position >= self.triples.len() {
+            Vec::new()
+        } else {
+            let end = (self.position + batch_size).min(self.triples.len());
+            let batch = self.triples[self.position..end].to_vec();
+            self.position = end;
+            batch
+        };
+        let done = self.position >= self.triples.len();
+        (chunk, done)
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -62,6 +93,8 @@ impl Database {
             dictionary: Dictionary::new(),
             index: GlobalIndex::new(),
             triples: Vec::new(),
+            cursors: HashMap::new(),
+            next_cursor_id: 1,
         })
     }
 
@@ -83,6 +116,8 @@ impl Database {
             self.index.insert(triple, partition);
             self.triples.push(triple);
         }
+
+        self.reset_cursors();
 
         Ok(())
     }
@@ -138,6 +173,42 @@ impl Database {
             })
             .collect()
     }
+
+    pub fn open_cursor(&mut self, criteria: QueryCriteria) -> Result<u64> {
+        let triples = self.query(criteria);
+        let cursor_id = self.next_cursor_id;
+        self.next_cursor_id = self.next_cursor_id.wrapping_add(1).max(1);
+        self.cursors.insert(cursor_id, QueryCursor::new(triples));
+        Ok(cursor_id)
+    }
+
+    pub fn cursor_next(
+        &mut self,
+        cursor_id: u64,
+        batch_size: usize,
+    ) -> Result<(Vec<Triple>, bool)> {
+        let cursor = self
+            .cursors
+            .get_mut(&cursor_id)
+            .ok_or(Error::InvalidCursor(cursor_id))?;
+        let (batch, done) = cursor.next_batch(batch_size.max(1));
+        if done {
+            self.cursors.remove(&cursor_id);
+        }
+        Ok((batch, done))
+    }
+
+    pub fn close_cursor(&mut self, cursor_id: u64) -> Result<()> {
+        self.cursors
+            .remove(&cursor_id)
+            .ok_or(Error::InvalidCursor(cursor_id))?;
+        Ok(())
+    }
+
+    fn reset_cursors(&mut self) {
+        self.cursors.clear();
+        self.next_cursor_id = 1;
+    }
 }
 
 #[cfg(test)]
@@ -161,5 +232,16 @@ mod tests {
             object_id: None,
         });
         assert_eq!(results, vec![triple]);
+
+        let cursor_id = db
+            .open_cursor(QueryCriteria {
+                subject_id: Some(triple.subject_id),
+                predicate_id: None,
+                object_id: None,
+            })
+            .unwrap();
+        let (batch, done) = db.cursor_next(cursor_id, 10).unwrap();
+        assert!(done);
+        assert_eq!(batch, vec![triple]);
     }
 }

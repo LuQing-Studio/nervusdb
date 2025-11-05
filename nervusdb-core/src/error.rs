@@ -12,6 +12,8 @@ pub enum Error {
     Io(io::Error),
     /// Tried to look up a string that does not exist in the dictionary.
     UnknownString(String),
+    /// Attempted to use an invalid cursor identifier.
+    InvalidCursor(u64),
     /// Generic placeholder for unimplemented features.
     NotImplemented(&'static str),
 }
@@ -21,6 +23,7 @@ impl std::fmt::Display for Error {
         match self {
             Error::Io(err) => write!(f, "I/O error: {err}"),
             Error::UnknownString(s) => write!(f, "unknown string: {s}"),
+            Error::InvalidCursor(id) => write!(f, "invalid cursor id: {id}"),
             Error::NotImplemented(msg) => write!(f, "not implemented: {msg}"),
         }
     }

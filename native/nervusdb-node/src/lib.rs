@@ -44,6 +44,17 @@ pub struct QueryCriteriaInput {
     pub object_id: Option<u32>,
 }
 
+#[napi(object)]
+pub struct CursorId {
+    pub id: u32,
+}
+
+#[napi(object)]
+pub struct CursorBatch {
+    pub triples: Vec<TripleOutput>,
+    pub done: bool,
+}
+
 fn convert_string_id(value: Option<u32>) -> Option<StringId> {
     value.map(|id| id as StringId)
 }
@@ -128,6 +139,59 @@ impl DatabaseHandle {
             .map(|t| (t.subject_id as StringId, t.predicate_id as StringId, t.object_id as StringId))
             .collect();
         db.hydrate(dictionary, triples).map_err(map_error)
+    }
+
+    #[napi(js_name = "openCursor")]
+    pub fn cursor_open(&self, criteria: Option<QueryCriteriaInput>) -> NapiResult<CursorId> {
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
+        let db = guard
+            .as_mut()
+            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let criteria = criteria.unwrap_or_default();
+        let query = QueryCriteria {
+            subject_id: convert_string_id(criteria.subject_id),
+            predicate_id: convert_string_id(criteria.predicate_id),
+            object_id: convert_string_id(criteria.object_id),
+        };
+        let id = db.open_cursor(query).map_err(map_error)?;
+        let cursor_id = u32::try_from(id).map_err(|_| {
+            napi::Error::new(Status::GenericFailure, "cursor id overflow: exceeds 32 bits")
+        })?;
+        Ok(CursorId { id: cursor_id })
+    }
+
+    #[napi(js_name = "readCursor")]
+    pub fn cursor_next(&self, cursor_id: u32, batch_size: u32) -> NapiResult<CursorBatch> {
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
+        let db = guard
+            .as_mut()
+            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let (triples, done) = db
+            .cursor_next(cursor_id as u64, batch_size as usize)
+            .map_err(map_error)?;
+        let mapped = triples
+            .into_iter()
+            .map(triple_to_output)
+            .collect::<NapiResult<Vec<_>>>()?;
+        Ok(CursorBatch { triples: mapped, done })
+    }
+
+    #[napi(js_name = "closeCursor")]
+    pub fn cursor_close(&self, cursor_id: u32) -> NapiResult<()> {
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
+        let db = guard
+            .as_mut()
+            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        db.close_cursor(cursor_id as u64).map_err(map_error)
     }
 
     #[napi]

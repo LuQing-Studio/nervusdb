@@ -32,6 +32,9 @@ export type NativeTriple = NativeAddFactOutput;
 export interface NativeDatabaseHandle {
   addFact(subject: string, predicate: string, object: string): NativeTriple;
   query(criteria?: NativeQueryCriteria): NativeTriple[];
+  openCursor(criteria?: NativeQueryCriteria): { id: number };
+  readCursor(cursorId: number, batchSize: number): { triples: NativeTriple[]; done: boolean };
+  closeCursor(cursorId: number): void;
   hydrate(dictionary: string[], triples: NativeTriple[]): void;
   close(): void;
 }

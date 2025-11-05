@@ -358,6 +358,11 @@ export class PersistentStore {
     criteria: Partial<EncodedTriple>,
     batchSize = 1000,
   ): AsyncGenerator<EncodedTriple[], void, unknown> {
+    const nativeStream = this.createNativeCursorStream(criteria, batchSize);
+    if (nativeStream) {
+      yield* nativeStream;
+      return;
+    }
     yield* this.queryEngine.streamQuery(criteria, { batchSize });
   }
 
@@ -367,10 +372,9 @@ export class PersistentStore {
     batchSize = 1000,
     options: { includeProperties?: boolean } = {},
   ): AsyncGenerator<FactRecord[], void, unknown> {
-    yield* this.queryEngine.streamFactRecords(criteria, {
-      batchSize,
-      includeProperties: options.includeProperties,
-    });
+    for await (const tripleBatch of this.streamQuery(criteria, batchSize)) {
+      yield this.queryEngine.resolveRecords(tripleBatch, options);
+    }
   }
 
   getDictionarySize(): number {
@@ -612,15 +616,7 @@ export class PersistentStore {
    * 流式查询：统一委托给QueryEngine
    */
   async *queryStreaming(criteria: Partial<EncodedTriple>): AsyncIterableIterator<EncodedTriple> {
-    const nativeResult = this.tryNativeQuery(criteria);
-    if (nativeResult !== undefined) {
-      for (const triple of nativeResult) {
-        yield triple;
-      }
-      return;
-    }
-
-    for await (const batch of this.queryEngine.streamQuery(criteria)) {
+    for await (const batch of this.streamQuery(criteria)) {
       yield* batch;
     }
   }
@@ -666,15 +662,9 @@ export class PersistentStore {
       return undefined;
     }
 
-    const nativeCriteria: NativeQueryCriteria = {};
-    if (criteria.subjectId !== undefined) nativeCriteria.subject_id = criteria.subjectId;
-    if (criteria.predicateId !== undefined) nativeCriteria.predicate_id = criteria.predicateId;
-    if (criteria.objectId !== undefined) nativeCriteria.object_id = criteria.objectId;
-
+    const nativeCriteria = this.buildNativeCriteria(criteria);
     try {
-      const result = this.nativeHandle.query(
-        Object.keys(nativeCriteria).length > 0 ? nativeCriteria : undefined,
-      );
+      const result = this.nativeHandle.query(nativeCriteria ?? undefined);
       return result.map((triple) => ({
         subjectId: triple.subject_id,
         predicateId: triple.predicate_id,
@@ -685,6 +675,118 @@ export class PersistentStore {
         throw error;
       }
       return undefined;
+    }
+  }
+
+  private buildNativeCriteria(criteria: Partial<EncodedTriple>): NativeQueryCriteria | undefined {
+    const nativeCriteria: NativeQueryCriteria = {};
+    if (criteria.subjectId !== undefined) nativeCriteria.subject_id = criteria.subjectId;
+    if (criteria.predicateId !== undefined) nativeCriteria.predicate_id = criteria.predicateId;
+    if (criteria.objectId !== undefined) nativeCriteria.object_id = criteria.objectId;
+    return Object.keys(nativeCriteria).length > 0 ? nativeCriteria : undefined;
+  }
+
+  private supportsNativeStreaming(): boolean {
+    if (!this.nativeQueryReady || !this.nativeHandle) return false;
+    return (
+      typeof this.nativeHandle.openCursor === 'function' &&
+      typeof this.nativeHandle.readCursor === 'function' &&
+      typeof this.nativeHandle.closeCursor === 'function'
+    );
+  }
+
+  private createNativeCursorStream(
+    criteria: Partial<EncodedTriple>,
+    batchSize: number,
+  ): AsyncGenerator<EncodedTriple[], void, unknown> | null {
+    if (!this.supportsNativeStreaming()) {
+      return null;
+    }
+
+    const nativeCriteria = this.buildNativeCriteria(criteria);
+    const handle = this.nativeHandle!;
+    let cursorId: number;
+    try {
+      const cursor = handle.openCursor(nativeCriteria ?? undefined);
+      if (!cursor || typeof cursor.id !== 'number') {
+        if (this.nativeStrict) {
+          throw new Error('native cursor returned invalid identifier');
+        }
+        return null;
+      }
+      cursorId = cursor.id;
+    } catch (error) {
+      if (this.nativeStrict) {
+        throw error;
+      }
+      return null;
+    }
+
+    const iterator = (async function* (
+      store: PersistentStore,
+      nativeHandle: NativeDatabaseHandle,
+      id: number,
+      size: number,
+    ): AsyncGenerator<EncodedTriple[], void, unknown> {
+      const strict = store.nativeStrict;
+      let pendingError: unknown = undefined;
+      try {
+        while (true) {
+          const batch = nativeHandle.readCursor(id, Math.max(1, size));
+          const triples = batch.triples.map((triple) => store.toEncodedTriple(triple));
+          if (triples.length > 0) {
+            yield triples;
+          }
+          if (batch.done) {
+            break;
+          }
+          if (triples.length === 0) {
+            await Promise.resolve();
+          }
+        }
+      } catch (error) {
+        if (strict) {
+          pendingError = error;
+        }
+      }
+
+      try {
+        nativeHandle.closeCursor(id);
+      } catch (closeError) {
+        if (strict && !pendingError) {
+          pendingError = closeError ?? new Error('native cursor close failed');
+        }
+      }
+
+      if (pendingError) {
+        throw store.normalizeNativeError(pendingError);
+      }
+    })(this, handle, cursorId, batchSize);
+
+    return iterator;
+  }
+
+  private toEncodedTriple(triple: NativeTriple): EncodedTriple {
+    return {
+      subjectId: triple.subject_id,
+      predicateId: triple.predicate_id,
+      objectId: triple.object_id,
+    };
+  }
+
+  private normalizeNativeError(error: unknown): Error {
+    if (error instanceof Error) return error;
+    if (typeof error === 'string') return new Error(error);
+    if (typeof error === 'number' || typeof error === 'boolean') {
+      return new Error(String(error));
+    }
+    if (error === null || error === undefined) {
+      return new Error('Native cursor error');
+    }
+    try {
+      return new Error(JSON.stringify(error));
+    } catch {
+      return new Error('Native cursor error');
     }
   }
 
