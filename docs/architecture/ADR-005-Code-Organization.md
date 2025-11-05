@@ -159,6 +159,14 @@ export { NervusDB } from './synapseDb.js'; // 主 API（向后兼容）
 | `src/algorithms/`           | `src/extensions/algorithms/`     | 图算法扩展     |
 | `src/query/*` (其他)        | `src/extensions/query/*`         | 高级查询扩展   |
 
+### Rust 核心集成路线
+
+- 新增 `nervusdb-core/` Rust crate（位于仓库根目录），负责实现持久化内核、WAL、索引等功能；CI 运行 `cargo fmt` 与 `cargo test`
+- 新增 `native/nervusdb-node/` 基于 napi-rs 的 Node 原生绑定，暴露 `open/add_fact/close`
+- TypeScript 层通过 `src/native/core.ts` 中的加载器优雅降级：当原生绑定缺失（或设置 `NERVUSDB_DISABLE_NATIVE=1`）时继续使用现有纯 TS 实现
+
+这一步为 v1.0.0 的 Rust 迁移奠定基础，同时确保“不破坏用户空间”：npm 包入口与 API 维持不变，原生绑定可以按需启用。
+
 ## 未来演进路径
 
 如果未来出现以下需求，可以考虑迁移到 Monorepo：
