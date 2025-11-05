@@ -5,7 +5,7 @@
  * 支持多种执行算子：索引扫描、连接、过滤、投影等
  */
 
-import type { PersistentStore } from '../../storage/persistentStore.js';
+import type { PersistentStore } from '../../core/storage/persistentStore.js';
 import type {
   PlanNode,
   IndexScanPlan,

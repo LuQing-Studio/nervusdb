@@ -11,7 +11,7 @@ import { PropertyIndexManager } from '../propertyIndex.js';
 import { writeHotness, type HotnessData } from '../hotness.js';
 import { WalManager } from './walManager.js';
 import { ConcurrencyControl } from './concurrencyControl.js';
-import { triggerCrash } from '../../utils/fault.js';
+import { triggerCrash } from '../../../utils/fault.js';
 import type { LsmLiteStaging } from '../staging.js';
 
 export interface FlushContext {

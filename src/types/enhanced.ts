@@ -3,8 +3,8 @@
  * 提供泛型化的 NervusDB API，支持强类型的属性和查询结果
  */
 
-import type { FactInput, FactRecord } from '../storage/persistentStore.js';
-import type { FactCriteria, FrontierOrientation } from '../query/queryBuilder.js';
+import type { FactInput, FactRecord } from '../core/storage/persistentStore.js';
+import type { FactCriteria, FrontierOrientation } from '../core/query/queryBuilder.js';
 
 /**
  * 节点属性约束类型

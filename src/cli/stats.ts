@@ -2,11 +2,11 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 
-import { readStorageFile } from '../storage/fileHeader.js';
-import { readPagedManifest } from '../storage/pagedIndex.js';
-import { PropertyIndexManager } from '../storage/propertyIndex.js';
-import { readHotness } from '../storage/hotness.js';
-import { getActiveReaders } from '../storage/readerRegistry.js';
+import { readStorageFile } from '../core/storage/fileHeader.js';
+import { readPagedManifest } from '../core/storage/pagedIndex.js';
+import { PropertyIndexManager } from '../core/storage/propertyIndex.js';
+import { readHotness } from '../core/storage/hotness.js';
+import { getActiveReaders } from '../core/storage/readerRegistry.js';
 
 async function stats(
   dbPath: string,
@@ -56,7 +56,7 @@ async function stats(
   let lsmSegments = 0;
   let lsmTriples = 0;
   try {
-    const { readTxIdRegistry } = await import('../storage/txidRegistry.js');
+    const { readTxIdRegistry } = await import('../core/storage/txidRegistry.js');
     const reg = await readTxIdRegistry(`${dbPath}.pages`);
     txIds = reg.txIds.length;
     if (opts.listTxIds && opts.listTxIds > 0) {

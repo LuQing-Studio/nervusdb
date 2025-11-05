@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SpatialGeometryImpl } from '@/spatial/geometry.ts';
+import { SpatialGeometryImpl } from '@/extensions/spatial/geometry.ts';
 
 const geo = new SpatialGeometryImpl();
 

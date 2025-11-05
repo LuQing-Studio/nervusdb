@@ -3,8 +3,8 @@ import { PathfindingPlugin } from './plugins/pathfinding.js';
 import { CypherPlugin } from './plugins/cypher.js';
 import { AggregationPlugin } from './plugins/aggregation.js';
 import { warnExperimental } from './utils/experimental.js';
-import { TripleKey } from './storage/propertyStore.js';
-import { PersistentStore, FactInput, FactRecord } from './storage/persistentStore.js';
+import { TripleKey } from './core/storage/propertyStore.js';
+import { PersistentStore, FactInput, FactRecord } from './core/storage/persistentStore.js';
 import {
   FactCriteria,
   FrontierOrientation,
@@ -16,15 +16,15 @@ import {
   buildFindContextFromLabel,
   PropertyFilter,
   LazyQueryBuilder,
-} from './query/queryBuilder.js';
+} from './core/query/queryBuilder.js';
 import type {
   NervusDBOpenOptions,
   CommitBatchOptions,
   BeginBatchOptions,
 } from './types/openOptions.js';
-import { PatternBuilder } from './query/pattern/match.js';
-import { AggregationPipeline } from './query/aggregation.js';
-import type { CypherResult, CypherExecutionOptions } from './query/cypher.js';
+import { PatternBuilder } from './extensions/query/pattern/match.js';
+import { AggregationPipeline } from './extensions/query/aggregation.js';
+import type { CypherResult, CypherExecutionOptions } from './extensions/query/cypher.js';
 
 export interface FactOptions {
   subjectProperties?: Record<string, unknown>;

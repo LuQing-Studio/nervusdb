@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { NervusDB } from '@/synapseDb';
 import { autoCompact } from '@/maintenance/autoCompact';
-import { readPagedManifest } from '@/storage/pagedIndex';
+import { readPagedManifest } from '@/core/storage/pagedIndex';
 
 describe('Auto-Compact 多因素评分决策', () => {
   let workspace: string;

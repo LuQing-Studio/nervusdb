@@ -31,7 +31,7 @@ import type {
 } from './ast.js';
 
 import { PatternBuilder, type PatternResult } from './match.js';
-import type { PersistentStore } from '../../storage/persistentStore.js';
+import type { PersistentStore } from '../../core/storage/persistentStore.js';
 import { CypherQueryPlanner } from './planner.js';
 import { CypherQueryExecutor } from './executor.js';
 

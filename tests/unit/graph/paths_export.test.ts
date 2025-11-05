@@ -5,7 +5,7 @@ import { VariablePathBuilder } from '@/graph/paths.ts';
 const store = {
   query: () => [],
   resolveRecords: () => [],
-} as unknown as import('@/storage/persistentStore').PersistentStore;
+} as unknown as import('@/core/storage/persistentStore').PersistentStore;
 
 describe('图路径工具 · paths.ts 重导出', () => {
   it('VariablePathBuilder 可被正确导入并实例化', () => {

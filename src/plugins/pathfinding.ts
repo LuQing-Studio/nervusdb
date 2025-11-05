@@ -1,6 +1,6 @@
 import { NervusDBPlugin } from './base.js';
 import type { NervusDB } from '../synapseDb.js';
-import { PersistentStore, FactRecord } from '../storage/persistentStore.js';
+import { PersistentStore, FactRecord } from '../core/storage/persistentStore.js';
 import { MinHeap } from '../utils/minHeap.js';
 
 export interface PathfindingOptions {

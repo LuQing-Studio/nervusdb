@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PatternBuilder } from '@/query/pattern/match.ts';
+import { PatternBuilder } from '@/extensions/query/pattern/match.ts';
 
 type Triple = { subjectId: number; predicateId: number; objectId: number };
 

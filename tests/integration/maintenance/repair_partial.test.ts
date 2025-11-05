@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { promises as fs } from 'node:fs';
 
 import { NervusDB } from '@/synapseDb';
-import { readPagedManifest, pageFileName } from '@/storage/pagedIndex';
+import { readPagedManifest, pageFileName } from '@/core/storage/pagedIndex';
 import { checkStrict } from '@/maintenance/check';
 import { repairCorruptedPagesFast } from '@/maintenance/repair';
 

@@ -4,8 +4,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { NervusDB } from '@/synapseDb';
-import { createCypherSupport, type CypherSupport } from '@/query/cypher';
-import { PersistentStore } from '@/storage/persistentStore';
+import { createCypherSupport, type CypherSupport } from '@/extensions/query/cypher';
+import { PersistentStore } from '@/core/storage/persistentStore';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { unlinkSync, rmSync, existsSync } from 'fs';

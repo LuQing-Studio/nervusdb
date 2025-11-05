@@ -5,7 +5,7 @@
  * 使用启发式函数h(n)估算从当前节点到目标的距离，提供最优路径搜索
  */
 
-import { PersistentStore, FactRecord } from '../../storage/persistentStore.js';
+import { PersistentStore, FactRecord } from '../../core/storage/persistentStore.js';
 import type {
   Uniqueness,
   Direction,

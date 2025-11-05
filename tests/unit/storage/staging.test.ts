@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { LsmLiteStaging, type StagingStrategy, type StagingMode } from '@/storage/staging';
+import { LsmLiteStaging, type StagingStrategy, type StagingMode } from '@/core/storage/staging';
 
 describe('暂存层测试', () => {
   describe('LSM-Lite 暂存实现', () => {

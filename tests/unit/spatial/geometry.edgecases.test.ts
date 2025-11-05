@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SpatialGeometryImpl } from '@/spatial/geometry.ts';
+import { SpatialGeometryImpl } from '@/extensions/spatial/geometry.ts';
 
 // 边界与等容差分支覆盖
 describe('空间几何 · 边界场景与等容差', () => {

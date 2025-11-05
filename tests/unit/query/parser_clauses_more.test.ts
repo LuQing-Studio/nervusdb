@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CypherParser } from '@/query/pattern/parser.ts';
+import { CypherParser } from '@/extensions/query/pattern/parser.ts';
 
 describe('CypherParser · 多子句分支覆盖', () => {
   const p = new CypherParser();

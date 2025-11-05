@@ -9,8 +9,8 @@ import { join } from 'node:path';
 import { cleanupWorkspace, makeWorkspace } from '../../../helpers/tempfs';
 
 import { NervusDB } from '@/synapseDb';
-import { SimpleBidirectionalPathBuilder } from '@/query/path/bidirectionalSimple';
-import { VariablePathBuilder } from '@/query/path/variable';
+import { SimpleBidirectionalPathBuilder } from '@/extensions/query/path/bidirectionalSimple';
+import { VariablePathBuilder } from '@/extensions/query/path/variable';
 
 describe('双向 BFS 路径查询', () => {
   let testDir: string;

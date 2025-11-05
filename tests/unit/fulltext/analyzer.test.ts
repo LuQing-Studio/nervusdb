@@ -4,7 +4,7 @@ import {
   KeywordAnalyzer,
   NGramAnalyzer,
   AnalyzerFactory,
-} from '@/fulltext/analyzer.ts';
+} from '@/extensions/fulltext/analyzer.ts';
 
 describe('全文 · 分析器', () => {
   it('StandardAnalyzer：英/中文分词、停用词与词干', () => {

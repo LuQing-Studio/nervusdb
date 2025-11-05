@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createNode, type Literal } from '@/query/pattern/ast.ts';
+import { createNode, type Literal } from '@/extensions/query/pattern/ast.ts';
 
 describe('Cypher 模式 AST · createNode', () => {
   it('createNode 应正确创建带位置信息的节点', () => {

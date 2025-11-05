@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryGraph } from '@/algorithms/graph';
-import { GraphAlgorithmSuiteImpl } from '@/algorithms/suite';
+import { MemoryGraph } from '@/extensions/algorithms/graph';
+import { GraphAlgorithmSuiteImpl } from '@/extensions/algorithms/suite';
 
 describe('图算法套件 · Path Algorithms', () => {
   it('dijkstra/astar/floyd/bellman 调用路径正常工作', () => {

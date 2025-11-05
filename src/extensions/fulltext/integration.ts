@@ -4,7 +4,7 @@
  * 提供便捷的方法将全文搜索功能集成到 NervusDB 实例中
  */
 
-import { NervusDB } from '../synapseDb.js';
+import { NervusDB } from '../../synapseDb.js';
 import {
   NervusDBFullTextExtension,
   NervusDBFullTextExtensionFactory,

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { rmSync, mkdirSync } from 'node:fs';
-import { PersistentStore } from '../../../src/storage/persistentStore.js';
+import { PersistentStore } from '../../../src/core/storage/persistentStore.js';
 
 describe('Incremental Flush Performance - O(1) Complexity', () => {
   let testDir: string;

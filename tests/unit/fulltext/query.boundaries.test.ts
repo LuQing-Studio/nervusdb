@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryInvertedIndex } from '@/fulltext/invertedIndex.ts';
-import { MemoryDocumentCorpus } from '@/fulltext/corpus.ts';
+import { MemoryInvertedIndex } from '@/extensions/fulltext/invertedIndex.ts';
+import { MemoryDocumentCorpus } from '@/extensions/fulltext/corpus.ts';
 import {
   BooleanQueryProcessor,
   PhraseQueryProcessor,
@@ -9,9 +9,9 @@ import {
   SearchHighlighter,
   EditDistanceCalculator,
   FuzzySearchProcessor,
-} from '@/fulltext/query.ts';
-import { StandardAnalyzer } from '@/fulltext/analyzer.ts';
-import { BM25Scorer } from '@/fulltext/scorer.ts';
+} from '@/extensions/fulltext/query.ts';
+import { StandardAnalyzer } from '@/extensions/fulltext/analyzer.ts';
+import { BM25Scorer } from '@/extensions/fulltext/scorer.ts';
 
 function mkDoc(id: string, text: string) {
   const analyzer = new StandardAnalyzer({ stemming: false, stopWords: false });

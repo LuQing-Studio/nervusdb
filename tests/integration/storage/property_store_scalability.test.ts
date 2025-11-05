@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { rmSync, mkdirSync, statSync } from 'node:fs';
-import { PersistentStore } from '../../../src/storage/persistentStore.js';
+import { PersistentStore } from '../../../src/core/storage/persistentStore.js';
 
 describe('PropertyStore Scalability - Issue #7 Verification', () => {
   let testDir: string;

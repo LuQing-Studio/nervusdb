@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { RTree } from '@/spatial/rtree.ts';
+import { RTree } from '@/extensions/spatial/rtree.ts';
 
 // 触发分裂与关系负例覆盖
 describe('R-Tree · 分裂路径与关系负例', () => {

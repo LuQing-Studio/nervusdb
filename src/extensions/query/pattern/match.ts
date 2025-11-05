@@ -1,4 +1,4 @@
-import { PersistentStore } from '../../storage/persistentStore.js';
+import { PersistentStore } from '../../core/storage/persistentStore.js';
 
 type Direction = '->' | '<-' | '-';
 

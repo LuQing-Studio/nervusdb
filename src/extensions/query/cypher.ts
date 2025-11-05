@@ -5,7 +5,7 @@
  * 提供统一的 API 供 NervusDB 使用
  */
 
-import type { PersistentStore } from '../storage/persistentStore.js';
+import type { PersistentStore } from '../../core/storage/persistentStore.js';
 import type { PatternResult } from './pattern/match.js';
 import { CypherLexer } from './pattern/lexer.js';
 import { CypherParser } from './pattern/parser.js';

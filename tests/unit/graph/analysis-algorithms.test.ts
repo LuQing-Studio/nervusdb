@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryGraph } from '@/algorithms/graph';
-import { GraphAlgorithmSuiteImpl } from '@/algorithms/suite';
+import { MemoryGraph } from '@/extensions/algorithms/graph';
+import { GraphAlgorithmSuiteImpl } from '@/extensions/algorithms/suite';
 
 describe('图算法套件 · Analysis Algorithms', () => {
   it('桥边/关节点/环路/拓扑排序', () => {

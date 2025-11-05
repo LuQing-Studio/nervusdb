@@ -1,4 +1,4 @@
-import { readPagedManifest } from '../storage/pagedIndex.js';
+import { readPagedManifest } from '../core/storage/pagedIndex.js';
 import { promises as fsp } from 'node:fs';
 import {
   compactDatabase,
@@ -6,7 +6,7 @@ import {
   type CompactStats,
   type IndexOrder,
 } from './compaction.js';
-import { readHotness } from '../storage/hotness.js';
+import { readHotness } from '../core/storage/hotness.js';
 import { garbageCollectPages } from './gc.js';
 
 export interface AutoCompactOptions {
@@ -63,7 +63,7 @@ export async function autoCompact(
 
   if (options.respectReaders) {
     try {
-      const { getActiveReaders } = await import('../storage/readerRegistry.js');
+      const { getActiveReaders } = await import('../core/storage/readerRegistry.js');
       const readers = await getActiveReaders(`${dbPath}.pages`);
       if (readers.length > 0) {
         console.log(`🔒 Skipping compaction due to ${readers.length} active readers`);

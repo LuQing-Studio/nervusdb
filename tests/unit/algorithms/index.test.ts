@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 
 // 直接从算法入口导入便捷 API
-import { createGraph, createGraphBuilder, createAlgorithmSuite } from '@/algorithms/index.ts';
+import {
+  createGraph,
+  createGraphBuilder,
+  createAlgorithmSuite,
+} from '@/extensions/algorithms/index.ts';
 
 describe('算法入口与便捷 API', () => {
   it('createGraph 应该返回一个空图实例', () => {

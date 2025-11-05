@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PersistentStore } from '../../../src/storage/persistentStore.js';
+import { PersistentStore } from '../../../src/core/storage/persistentStore.js';
 
 describe('懒加载性能测试 - Issue #12', () => {
   let testDir: string;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SpatialQueryManager, SpatialQueryUtils } from '@/spatial/spatialQuery.ts';
+import { SpatialQueryManager, SpatialQueryUtils } from '@/extensions/spatial/spatialQuery.ts';
 
 // 导出/聚合/批量参数的边界分支
 describe('空间查询 · 导出与聚合边界', () => {

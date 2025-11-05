@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { GraphBuilder } from '@/algorithms/graph';
+import { GraphBuilder } from '@/extensions/algorithms/graph';
 import {
   JaccardSimilarity,
   CosineSimilarity,
   AdamicAdarSimilarity,
   NodeAttributeSimilarity,
   SimilarityAlgorithmFactory,
-} from '@/algorithms/similarity';
+} from '@/extensions/algorithms/similarity';
 
 describe('相似度算法 · 扩展路径（all/mostSimilar/SimRank/Composite）', () => {
   it('Jaccard.computeAllSimilarities 与 findMostSimilar 基本路径', () => {

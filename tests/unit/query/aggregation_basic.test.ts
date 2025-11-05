@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AggregationPipeline } from '@/query/aggregation';
+import { AggregationPipeline } from '@/extensions/query/aggregation';
 
 // 通过 from() 方式直接喂入最小数据，避免依赖持久层
 type R = {

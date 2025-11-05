@@ -5,7 +5,7 @@
  * 时间复杂度从 O(b^d) 减少到 O(b^(d/2))，其中 b 是分支因子，d 是深度
  */
 
-import { PersistentStore, FactRecord } from '../../storage/persistentStore.js';
+import { PersistentStore, FactRecord } from '../../core/storage/persistentStore.js';
 import type {
   Uniqueness,
   Direction,

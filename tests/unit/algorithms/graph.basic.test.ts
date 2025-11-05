@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { MemoryGraph } from '@/algorithms/graph.ts';
+import { MemoryGraph } from '@/extensions/algorithms/graph.ts';
 
 describe('MemoryGraph · 基础操作', () => {
   it('节点与有向边的新增/查询/删除', () => {

@@ -10,7 +10,7 @@ async function main() {
   }
 
   const dir = `${dbPath}.pages`;
-  const { readTxIdRegistry, writeTxIdRegistry } = await import('../storage/txidRegistry.js');
+  const { readTxIdRegistry, writeTxIdRegistry } = await import('../core/storage/txidRegistry.js');
 
   const maxArg = args.find((a) => a.startsWith('--max='));
   const setMax = maxArg ? Number(maxArg.split('=')[1]) : undefined;

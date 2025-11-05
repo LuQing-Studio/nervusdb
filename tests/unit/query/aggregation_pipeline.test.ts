@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { AggregationPipeline } from '@/query/aggregation.ts';
+import { AggregationPipeline } from '@/extensions/query/aggregation.ts';
 
 // 构造最小 FactRecord
-type FR = import('@/storage/persistentStore.ts').FactRecord;
+type FR = import('@/core/storage/persistentStore.ts').FactRecord;
 
 describe('AggregationPipeline · 基础与流式分支', () => {
   it('from/groupBy/count/sum/avg/min/max/order/limit · execute()', () => {

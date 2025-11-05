@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { RTree } from '@/spatial/rtree.ts';
+import { RTree } from '@/extensions/spatial/rtree.ts';
 
 describe('R-Tree 空间索引 · 基础查询', () => {
   it('插入/查询/删除/最近邻/范围查询', () => {

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PropertyDataStore } from '../../../src/storage/propertyDataStore.js';
+import { PropertyDataStore } from '../../../src/core/storage/propertyDataStore.js';
 
 describe('PropertyDataStore - 属性数据分页存储', () => {
   let testDir: string;

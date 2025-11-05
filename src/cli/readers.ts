@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { getActiveReaders } from '../storage/readerRegistry.js';
+import { getActiveReaders } from '../core/storage/readerRegistry.js';
 
 async function main() {
   const [dbPath, ...args] = process.argv.slice(2);

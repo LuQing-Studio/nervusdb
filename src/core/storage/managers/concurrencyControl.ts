@@ -1,5 +1,5 @@
 import { addReader, removeReader } from '../readerRegistry.js';
-import { acquireLock, type LockHandle } from '../../utils/lock.js';
+import { acquireLock, type LockHandle } from '../../../utils/lock.js';
 
 export interface ReaderInfo {
   pid: number;

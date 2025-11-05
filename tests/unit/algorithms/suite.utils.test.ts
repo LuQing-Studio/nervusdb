@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { GraphAlgorithmSuiteImpl } from '@/algorithms/suite.ts';
-import { GraphBuilder } from '@/algorithms/graph.ts';
+import { GraphAlgorithmSuiteImpl } from '@/extensions/algorithms/suite.ts';
+import { GraphBuilder } from '@/extensions/algorithms/graph.ts';
 
 describe('GraphAlgorithmSuiteImpl · analysis 与 utils', () => {
   it('analysis.findBridges/Articulation/DetectCycles/TopoSort 基础路径', () => {

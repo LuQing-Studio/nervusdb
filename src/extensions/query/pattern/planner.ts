@@ -9,7 +9,7 @@
  * - 执行计划缓存
  */
 
-import type { PersistentStore } from '../../storage/persistentStore.js';
+import type { PersistentStore } from '../../core/storage/persistentStore.js';
 import type {
   CypherQuery,
   MatchClause,

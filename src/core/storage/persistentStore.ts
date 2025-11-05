@@ -7,7 +7,7 @@ import { StringDictionary } from './dictionary.js';
 import { PropertyStore, TripleKey } from './propertyStore.js';
 import { TripleIndexes, type IndexOrder } from './tripleIndexes.js';
 import { PropertyIndexManager, type PropertyChange } from './propertyIndex.js';
-import { LabelManager } from '../graph/labels.js';
+import { LabelManager } from '../../graph/labels.js';
 import { EncodedTriple, TripleStore } from './tripleStore.js';
 import { LsmLiteStaging } from './staging.js';
 import { readHotness, type HotnessData } from './hotness.js';

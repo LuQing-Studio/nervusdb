@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CypherParser } from '@/query/pattern/parser.ts';
+import { CypherParser } from '@/extensions/query/pattern/parser.ts';
 
 describe('CypherParser · 轻量语法覆盖', () => {
   it('MATCH/WHERE/RETURN + 变长关系/属性映射/ORDER BY/LIMIT/SKIP', () => {

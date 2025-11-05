@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { createOptimizedPathBuilder } from '@/query/path/bidirectional.ts';
-import { PersistentStore } from '@/storage/persistentStore.ts';
+import { createOptimizedPathBuilder } from '@/extensions/query/path/bidirectional.ts';
+import { PersistentStore } from '@/core/storage/persistentStore.ts';
 
 describe('双向 BFS 变长路径 · createOptimizedPathBuilder', () => {
   it('应能找到点到点的最短路径', async () => {

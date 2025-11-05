@@ -13,9 +13,9 @@ import {
   AStarPathBuilder,
   createAStarPathBuilder,
   createGraphDistanceHeuristic,
-} from '@/query/path/astar';
-import { VariablePathBuilder } from '@/query/path/variable';
-import { SimpleBidirectionalPathBuilder } from '@/query/path/bidirectionalSimple';
+} from '@/extensions/query/path/astar';
+import { VariablePathBuilder } from '@/extensions/query/path/variable';
+import { SimpleBidirectionalPathBuilder } from '@/extensions/query/path/bidirectionalSimple';
 
 describe('A*启发式搜索算法', () => {
   let testDir: string;

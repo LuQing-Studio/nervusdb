@@ -3,7 +3,7 @@
  * 重新设计以确保正确性
  */
 
-import { PersistentStore, FactRecord } from '../../storage/persistentStore.js';
+import { PersistentStore, FactRecord } from '../../core/storage/persistentStore.js';
 import type { Uniqueness, Direction, PathResult, VariablePathOptions } from './variable.js';
 
 interface SearchState {

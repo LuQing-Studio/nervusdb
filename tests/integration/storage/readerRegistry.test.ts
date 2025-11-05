@@ -9,7 +9,7 @@ import {
   cleanupStaleReaders,
   getActiveEpochs,
   isEpochInUse,
-} from '@/storage/readerRegistry';
+} from '@/core/storage/readerRegistry';
 
 describe('ReaderRegistry · 读者登记', () => {
   let dir: string;

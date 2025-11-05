@@ -1,7 +1,7 @@
 import { FactInput, FactRecord } from '../storage/persistentStore.js';
 import { PersistentStore } from '../storage/persistentStore.js';
-import { VariablePathBuilder } from './path/variable.js';
-import type { PathResult, Direction, Uniqueness } from './path/variable.js';
+import { VariablePathBuilder } from '../../extensions/query/path/variable.js';
+import type { PathResult, Direction, Uniqueness } from '../../extensions/query/path/variable.js';
 import { EncodedTriple } from '../storage/tripleStore.js';
 import type { IndexOrder } from '../storage/tripleIndexes.js';
 import { getBestIndexKey } from '../storage/tripleIndexes.js';

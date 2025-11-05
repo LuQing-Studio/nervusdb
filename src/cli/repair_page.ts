@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readPagedManifest } from '../storage/pagedIndex.js';
+import { readPagedManifest } from '../core/storage/pagedIndex.js';
 import { repairCorruptedPagesFast } from '../maintenance/repair.js';
 
 async function main() {

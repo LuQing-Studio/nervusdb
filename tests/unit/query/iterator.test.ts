@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { flattenBatches } from '@/query/iterator.ts';
+import { flattenBatches } from '@/extensions/query/iterator.ts';
 
 describe('流式工具 · flattenBatches', () => {
   it('应将批量异步迭代扁平化为逐条输出', async () => {

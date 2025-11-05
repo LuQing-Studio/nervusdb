@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PersistentStore } from '../../../src/storage/persistentStore.js';
+import { PersistentStore } from '../../../src/core/storage/persistentStore.js';
 
 describe('PropertyDataStore 集成测试 - Issue #7', () => {
   let testDir: string;

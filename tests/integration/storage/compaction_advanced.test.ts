@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { NervusDB } from '@/synapseDb';
 import { compactDatabase } from '@/maintenance/compaction';
-import { readPagedManifest } from '@/storage/pagedIndex';
+import { readPagedManifest } from '@/core/storage/pagedIndex';
 
 describe('Compaction 高级选项', () => {
   let workspace: string;

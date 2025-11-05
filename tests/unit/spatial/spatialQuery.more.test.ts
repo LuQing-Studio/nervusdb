@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SpatialQueryManager, SpatialQueryUtils } from '@/spatial/spatialQuery.ts';
+import { SpatialQueryManager, SpatialQueryUtils } from '@/extensions/spatial/spatialQuery.ts';
 
 const pt = (x: number, y: number) => ({
   type: 'Point' as const,

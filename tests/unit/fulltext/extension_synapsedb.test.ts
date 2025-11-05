@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { NervusDB } from '@/synapseDb.ts';
-import '@/fulltext/integration.ts';
+import '@/extensions/fulltext/integration.ts';
 
 describe('NervusDB 全文搜索扩展 · 启用/调用/统计/重建', () => {
   it('未启用时报错；启用后可调用各 API', async () => {

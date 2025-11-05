@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryInvertedIndex } from '@/fulltext/invertedIndex.ts';
-import { MemoryDocumentCorpus } from '@/fulltext/corpus.ts';
+import { MemoryInvertedIndex } from '@/extensions/fulltext/invertedIndex.ts';
+import { MemoryDocumentCorpus } from '@/extensions/fulltext/corpus.ts';
 import {
   TFIDFScorer,
   BM25Scorer,
@@ -8,7 +8,7 @@ import {
   TimeDecayScorer,
   CompositeScorer,
   ScorerFactory,
-} from '@/fulltext/scorer.ts';
+} from '@/extensions/fulltext/scorer.ts';
 
 function mkDoc(id: string, tokens: string[], fields?: Record<string, string>) {
   return {
