@@ -8,12 +8,28 @@ export * as Core from './core/index.js';
 // 扩展层：应用层功能（TypeScript 独有）
 export * as Extensions from './extensions/index.js';
 
+// 记忆层：时间感知记忆组件
+export { TemporalMemoryStore } from './core/storage/temporal/temporalStore.js';
+export { TemporalMemoryIngestor } from './memory/temporal/ingestor.js';
+
 // =======================
 // 核心导出
 // =======================
 
 export { NervusDB } from './synapseDb.js';
-export type { FactRecord, FactInput } from './synapseDb.js';
+export type {
+  FactRecord,
+  FactInput,
+  TemporalMemoryAPI,
+  TemporalEpisodeInput,
+  TemporalEpisodeLinkRecord,
+  TemporalEnsureEntityOptions,
+  TemporalFactWriteInput,
+  TemporalStoredEpisode,
+  TemporalStoredEntity,
+  TemporalStoredFact,
+  TemporalTimelineQuery,
+} from './synapseDb.js';
 
 // 向后兼容别名（保留旧 API）
 export { NervusDB as CoreNervusDB } from './synapseDb.js';

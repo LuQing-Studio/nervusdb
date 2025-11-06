@@ -4,7 +4,19 @@ import { CypherPlugin } from './plugins/cypher.js';
 import { AggregationPlugin } from './plugins/aggregation.js';
 import { warnExperimental } from './utils/experimental.js';
 import { TripleKey } from './core/storage/propertyStore.js';
-import { PersistentStore, FactInput, FactRecord } from './core/storage/persistentStore.js';
+import {
+  PersistentStore,
+  FactInput,
+  FactRecord,
+  TemporalEpisodeInput,
+  TemporalEpisodeLinkRecord,
+  TemporalEnsureEntityOptions,
+  TemporalFactWriteInput,
+  TemporalStoredEpisode,
+  TemporalStoredEntity,
+  TemporalStoredFact,
+  TemporalTimelineQuery,
+} from './core/storage/persistentStore.js';
 import {
   FactCriteria,
   FrontierOrientation,
@@ -25,6 +37,7 @@ import type {
 import { PatternBuilder } from './extensions/query/pattern/match.js';
 import { AggregationPipeline } from './extensions/query/aggregation.js';
 import type { CypherResult, CypherExecutionOptions } from './extensions/query/cypher.js';
+import type { TemporalMemoryStore } from './core/storage/temporal/temporalStore.js';
 
 export interface FactOptions {
   subjectProperties?: Record<string, unknown>;
@@ -34,6 +47,34 @@ export interface FactOptions {
 
 // 重新导出核心类型
 export type { FactInput, FactRecord };
+
+export interface TemporalMemoryAPI {
+  getStore(): TemporalMemoryStore | undefined;
+  addEpisode(input: TemporalEpisodeInput): Promise<TemporalStoredEpisode>;
+  ensureEntity(
+    kind: string,
+    canonicalName: string,
+    options?: TemporalEnsureEntityOptions,
+  ): Promise<TemporalStoredEntity>;
+  upsertFact(input: TemporalFactWriteInput): Promise<TemporalStoredFact>;
+  linkEpisode(
+    episodeId: number,
+    options: { entityId?: number | null; factId?: number | null; role: string },
+  ): Promise<TemporalEpisodeLinkRecord>;
+  timeline(query: TemporalTimelineQuery): TemporalStoredFact[];
+  traceBack(factId: number): TemporalStoredEpisode[];
+}
+
+export type {
+  TemporalEpisodeInput,
+  TemporalEpisodeLinkRecord,
+  TemporalEnsureEntityOptions,
+  TemporalFactWriteInput,
+  TemporalStoredEpisode,
+  TemporalStoredEntity,
+  TemporalStoredFact,
+  TemporalTimelineQuery,
+};
 
 /**
  * NervusDB - 嵌入式三元组知识库
@@ -64,6 +105,7 @@ export class NervusDB {
   private snapshotDepth = 0;
   private pluginManager: PluginManager;
   private hasCypherPlugin: boolean;
+  public readonly memory: TemporalMemoryAPI;
 
   private constructor(
     private readonly store: PersistentStore,
@@ -72,11 +114,25 @@ export class NervusDB {
   ) {
     this.hasCypherPlugin = hasCypher;
     this.pluginManager = new PluginManager(this, store);
+    this.memory = this.createTemporalApi();
 
     // 注册所有插件
     for (const plugin of plugins) {
       this.pluginManager.register(plugin);
     }
+  }
+
+  private createTemporalApi(): TemporalMemoryAPI {
+    return {
+      getStore: () => this.store.getTemporalMemory(),
+      addEpisode: (input) => this.store.addEpisodeToTemporalStore(input),
+      ensureEntity: (kind, canonicalName, options) =>
+        this.store.ensureTemporalEntity(kind, canonicalName, options ?? {}),
+      upsertFact: (input) => this.store.upsertTemporalFact(input),
+      linkEpisode: (episodeId, options) => this.store.linkTemporalEpisode(episodeId, options),
+      timeline: (query) => this.store.queryTemporalTimeline(query),
+      traceBack: (factId) => this.store.traceTemporalFact(factId),
+    };
   }
 
   /**
