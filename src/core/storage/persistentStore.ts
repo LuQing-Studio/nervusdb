@@ -30,9 +30,11 @@ import type { FactInput } from './types.js';
 import {
   TemporalMemoryStore,
   type EpisodeInput,
+  type EpisodeLinkRecord,
   type FactWriteInput,
   type EnsureEntityOptions,
   type StoredEpisode,
+  type StoredEntity,
   type StoredFact,
   type TimelineQuery,
 } from './temporal/temporalStore.js';
@@ -65,6 +67,16 @@ export interface PersistentStoreOptions {
 }
 
 export type { FactInput } from './types.js';
+export type {
+  EpisodeInput as TemporalEpisodeInput,
+  EnsureEntityOptions as TemporalEnsureEntityOptions,
+  FactWriteInput as TemporalFactWriteInput,
+  EpisodeLinkRecord as TemporalEpisodeLinkRecord,
+  StoredEpisode as TemporalStoredEpisode,
+  StoredEntity as TemporalStoredEntity,
+  StoredFact as TemporalStoredFact,
+  TimelineQuery as TemporalTimelineQuery,
+} from './temporal/temporalStore.js';
 
 export class PersistentStore {
   private constructor(
@@ -1099,10 +1111,9 @@ export class PersistentStore {
     kind: string,
     canonicalName: string,
     options: EnsureEntityOptions = {},
-  ): Promise<number> {
+  ): Promise<StoredEntity> {
     if (!this.temporal) throw new Error('Temporal memory is disabled');
-    const entity = await this.temporal.ensureEntity(kind, canonicalName, options);
-    return entity.entityId;
+    return this.temporal.ensureEntity(kind, canonicalName, options);
   }
 
   async upsertTemporalFact(input: FactWriteInput): Promise<StoredFact> {
@@ -1113,9 +1124,9 @@ export class PersistentStore {
   async linkTemporalEpisode(
     episodeId: number,
     options: { entityId?: number | null; factId?: number | null; role: string },
-  ): Promise<void> {
+  ): Promise<EpisodeLinkRecord> {
     if (!this.temporal) throw new Error('Temporal memory is disabled');
-    await this.temporal.linkEpisode(episodeId, options);
+    return this.temporal.linkEpisode(episodeId, options);
   }
 
   queryTemporalTimeline(query: TimelineQuery): StoredFact[] {

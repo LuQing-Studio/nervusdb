@@ -17,7 +17,19 @@ export { TemporalMemoryIngestor } from './memory/temporal/ingestor.js';
 // =======================
 
 export { NervusDB } from './synapseDb.js';
-export type { FactRecord, FactInput } from './synapseDb.js';
+export type {
+  FactRecord,
+  FactInput,
+  TemporalMemoryAPI,
+  TemporalEpisodeInput,
+  TemporalEpisodeLinkRecord,
+  TemporalEnsureEntityOptions,
+  TemporalFactWriteInput,
+  TemporalStoredEpisode,
+  TemporalStoredEntity,
+  TemporalStoredFact,
+  TemporalTimelineQuery,
+} from './synapseDb.js';
 
 // 向后兼容别名（保留旧 API）
 export { NervusDB as CoreNervusDB } from './synapseDb.js';

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 
 import { TemporalMemoryStore } from '../../../src/core/storage/temporal/temporalStore.js';
 import { TemporalMemoryIngestor } from '../../../src/memory/temporal/ingestor.js';
+import { NervusDB } from '../../../src/index.js';
 
 let tempDir: string;
 let basePath: string;
@@ -71,5 +72,41 @@ describe('TemporalMemoryIngestor', () => {
     expect(authors).toContain('Alice');
 
     await store.close();
+  });
+});
+
+describe('NervusDB memory facade', () => {
+  it('exposes temporal helpers through the public API', async () => {
+    const db = await NervusDB.open(':memory:');
+
+    try {
+      const episode = await db.memory.addEpisode({
+        sourceType: 'test',
+        payload: { kind: 'note' },
+        occurredAt: '2025-03-01T09:00:00Z',
+      });
+
+      const entity = await db.memory.ensureEntity('agent', 'alice', {
+        alias: 'Alice',
+        occurredAt: '2025-03-01T09:00:00Z',
+      });
+
+      const fact = await db.memory.upsertFact({
+        subjectEntityId: entity.entityId,
+        predicateKey: 'mentions',
+        objectValue: 'graph databases',
+        sourceEpisodeId: episode.episodeId,
+      });
+
+      await db.memory.linkEpisode(episode.episodeId, { factId: fact.factId, role: 'fact' });
+
+      const timeline = db.memory.timeline({ entityId: entity.entityId });
+      expect(timeline).toHaveLength(1);
+
+      const traced = db.memory.traceBack(fact.factId);
+      expect(traced.some((ep) => ep.episodeId === episode.episodeId)).toBe(true);
+    } finally {
+      await db.close();
+    }
   });
 });
