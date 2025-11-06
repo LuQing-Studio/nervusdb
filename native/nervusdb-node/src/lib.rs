@@ -6,7 +6,10 @@ use napi::Result as NapiResult;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use nervusdb_core::{Database, Fact, Options, QueryCriteria, StringId, Triple};
+use nervusdb_core::{
+    Database, Fact, Options, QueryCriteria, StringId, StoredEpisode, StoredFact, TimelineQuery,
+    TimelineRole, Triple,
+};
 
 fn map_error(err: nervusdb_core::Error) -> napi::Error {
     napi::Error::new(Status::GenericFailure, format!("{err}"))
@@ -55,6 +58,39 @@ pub struct CursorBatch {
     pub done: bool,
 }
 
+#[napi(object)]
+pub struct TimelineQueryInput {
+    pub entity_id: String,
+    pub predicate_key: Option<String>,
+    pub role: Option<String>,
+    pub as_of: Option<String>,
+    pub between_start: Option<String>,
+    pub between_end: Option<String>,
+}
+
+#[napi(object)]
+pub struct TimelineFactOutput {
+    pub fact_id: String,
+    pub subject_entity_id: String,
+    pub predicate_key: String,
+    pub object_entity_id: Option<String>,
+    pub object_value: Option<String>,
+    pub valid_from: String,
+    pub valid_to: Option<String>,
+    pub confidence: f64,
+    pub source_episode_id: String,
+}
+
+#[napi(object)]
+pub struct TimelineEpisodeOutput {
+    pub episode_id: String,
+    pub source_type: String,
+    pub payload: String,
+    pub occurred_at: String,
+    pub ingested_at: String,
+    pub trace_hash: String,
+}
+
 fn convert_string_id(value: Option<u32>) -> Option<StringId> {
     value.map(|id| id as StringId)
 }
@@ -71,6 +107,54 @@ fn triple_to_output(triple: Triple) -> NapiResult<TripleOutput> {
             napi::Error::new(Status::GenericFailure, "object id overflow")
         })?,
     })
+}
+
+fn fact_to_output(fact: StoredFact) -> TimelineFactOutput {
+    TimelineFactOutput {
+        fact_id: fact.fact_id.to_string(),
+        subject_entity_id: fact.subject_entity_id.to_string(),
+        predicate_key: fact.predicate_key,
+        object_entity_id: fact.object_entity_id.map(|id| id.to_string()),
+        object_value: fact
+            .object_value
+            .and_then(|value| serde_json::to_string(&value).ok()),
+        valid_from: fact.valid_from,
+        valid_to: fact.valid_to,
+        confidence: fact.confidence,
+        source_episode_id: fact.source_episode_id.to_string(),
+    }
+}
+
+fn parse_timeline_role(value: Option<String>) -> NapiResult<Option<TimelineRole>> {
+    match value.map(|s| s.to_ascii_lowercase()) {
+        None => Ok(None),
+        Some(ref role) if role == "subject" => Ok(Some(TimelineRole::Subject)),
+        Some(ref role) if role == "object" => Ok(Some(TimelineRole::Object)),
+        Some(role) => Err(napi::Error::new(
+            Status::GenericFailure,
+            format!("invalid timeline role: {role}"),
+        )),
+    }
+}
+
+fn parse_id(value: &str, field: &str) -> NapiResult<u64> {
+    value.parse::<u64>().map_err(|err| {
+        napi::Error::new(
+            Status::GenericFailure,
+            format!("invalid {field} id '{value}': {err}"),
+        )
+    })
+}
+
+fn episode_to_output(episode: StoredEpisode) -> TimelineEpisodeOutput {
+    TimelineEpisodeOutput {
+        episode_id: episode.episode_id.to_string(),
+        source_type: episode.source_type,
+        payload: serde_json::to_string(&episode.payload).unwrap_or_else(|_| "{}".into()),
+        occurred_at: episode.occurred_at,
+        ingested_at: episode.ingested_at,
+        trace_hash: episode.trace_hash,
+    }
 }
 
 #[napi]
@@ -119,6 +203,55 @@ impl DatabaseHandle {
             .into_iter()
             .map(triple_to_output)
             .collect::<NapiResult<Vec<_>>>()
+    }
+
+    #[napi]
+    pub fn timeline_query(&self, input: TimelineQueryInput) -> NapiResult<Vec<TimelineFactOutput>> {
+        let guard = self
+            .inner
+            .lock()
+            .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
+        let db = guard
+            .as_ref()
+            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+
+        let role = parse_timeline_role(input.role)?;
+        let between = match (input.between_start, input.between_end) {
+            (Some(start), Some(end)) => Some((start, end)),
+            (None, None) => None,
+            _ => {
+                return Err(napi::Error::new(
+                    Status::GenericFailure,
+                    "between_start and between_end must be provided together",
+                ))
+            }
+        };
+
+        let entity_id = parse_id(&input.entity_id, "entity")?;
+
+        let facts = db.timeline_query(TimelineQuery {
+            entity_id,
+            predicate_key: input.predicate_key,
+            role,
+            as_of: input.as_of,
+            between,
+        });
+
+        Ok(facts.into_iter().map(fact_to_output).collect())
+    }
+
+    #[napi(js_name = "timelineTrace")]
+    pub fn timeline_trace(&self, fact_id: String) -> NapiResult<Vec<TimelineEpisodeOutput>> {
+        let guard = self
+            .inner
+            .lock()
+            .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
+        let db = guard
+            .as_ref()
+            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let fact_id = parse_id(&fact_id, "fact")?;
+        let episodes = db.timeline_trace(fact_id);
+        Ok(episodes.into_iter().map(episode_to_output).collect())
     }
 
     #[napi]
