@@ -167,5 +167,9 @@ export function loadNativeCore(): NativeCoreBinding | null {
  * Allows tests to override the cached binding.
  */
 export function __setNativeCoreForTesting(binding: NativeCoreBinding | null | undefined): void {
+  if (binding === undefined) {
+    cachedBinding = undefined;
+    return;
+  }
   cachedBinding = binding ?? null;
 }
