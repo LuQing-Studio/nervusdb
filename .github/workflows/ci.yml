@@ -187,9 +187,17 @@ jobs:
       - name: Debug - List generated files
         run: |
           echo "=== Files in native/nervusdb-node/npm/ ==="
-          ls -la native/nervusdb-node/npm/ || echo "Directory not found"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            Get-ChildItem native/nervusdb-node/npm/
+          else
+            ls -la native/nervusdb-node/npm/ || echo "Directory not found"
+          fi
           echo "=== .node files ==="
-          find native/nervusdb-node/npm/ -name "*.node" -type f || echo "No .node files found"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            Get-ChildItem -Recurse -Filter *.node native/nervusdb-node/npm/
+          else
+            find native/nervusdb-node/npm/ -name "*.node" -type f || echo "No .node files found"
+          fi
 
       - name: Run native vitest subset
         run: pnpm vitest run tests/unit/native/native_loader.test.ts tests/unit/storage/persistentStore.native.test.ts tests/integration/native/native_binding.test.ts
