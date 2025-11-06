@@ -4,6 +4,7 @@ mod dictionary;
 mod error;
 mod global_index;
 mod partition;
+mod temporal;
 mod triple;
 mod wal;
 
@@ -14,6 +15,10 @@ pub use dictionary::{Dictionary, StringId};
 pub use error::{Error, Result};
 pub use global_index::GlobalIndex;
 pub use partition::{PartitionConfig, PartitionId};
+pub use temporal::{
+    EnsureEntityOptions, EpisodeInput, EpisodeLinkOptions, EpisodeLinkRecord, FactWriteInput,
+    StoredEntity, StoredEpisode, StoredFact, TemporalStore, TimelineQuery, TimelineRole,
+};
 pub use triple::{Fact, Triple};
 pub use wal::{WalEntry, WalRecordType, WriteAheadLog};
 
@@ -47,6 +52,7 @@ pub struct Database {
     triples: Vec<Triple>,
     cursors: HashMap<u64, QueryCursor>,
     next_cursor_id: u64,
+    temporal: temporal::TemporalStore,
 }
 
 #[derive(Debug)]
@@ -87,6 +93,9 @@ pub struct QueryCriteria {
 impl Database {
     pub fn open(options: Options) -> Result<Self> {
         let wal_path = options.data_path.join("wal.log");
+        let temporal_path = options.data_path.with_extension("temporal.json");
+        let temporal = TemporalStore::open(temporal_path)?;
+
         Ok(Self {
             wal: WriteAheadLog::new(wal_path),
             options,
@@ -95,6 +104,7 @@ impl Database {
             triples: Vec::new(),
             cursors: HashMap::new(),
             next_cursor_id: 1,
+            temporal,
         })
     }
 
@@ -208,6 +218,14 @@ impl Database {
     fn reset_cursors(&mut self) {
         self.cursors.clear();
         self.next_cursor_id = 1;
+    }
+
+    pub fn temporal_store(&self) -> &TemporalStore {
+        &self.temporal
+    }
+
+    pub fn temporal_store_mut(&mut self) -> &mut TemporalStore {
+        &mut self.temporal
     }
 }
 

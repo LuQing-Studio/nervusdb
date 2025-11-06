@@ -16,6 +16,8 @@ pub enum Error {
     InvalidCursor(u64),
     /// Generic placeholder for unimplemented features.
     NotImplemented(&'static str),
+    /// Miscellaneous error message.
+    Other(String),
 }
 
 impl std::fmt::Display for Error {
@@ -25,6 +27,7 @@ impl std::fmt::Display for Error {
             Error::UnknownString(s) => write!(f, "unknown string: {s}"),
             Error::InvalidCursor(id) => write!(f, "invalid cursor id: {id}"),
             Error::NotImplemented(msg) => write!(f, "not implemented: {msg}"),
+            Error::Other(msg) => write!(f, "{msg}"),
         }
     }
 }
