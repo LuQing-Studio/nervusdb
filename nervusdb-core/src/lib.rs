@@ -227,15 +227,24 @@ impl Database {
     pub fn temporal_store_mut(&mut self) -> &mut TemporalStore {
         &mut self.temporal
     }
+
+    pub fn timeline_query(&self, query: TimelineQuery) -> Vec<StoredFact> {
+        self.temporal.query_timeline(&query)
+    }
+
+    pub fn timeline_trace(&self, fact_id: u64) -> Vec<StoredEpisode> {
+        self.temporal.trace_back(fact_id)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn open_and_insert() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = tempdir().unwrap();
         let mut db = Database::open(Options::new(tmp.path())).unwrap();
         let triple = db.add_fact(Fact::new("alice", "knows", "bob")).unwrap();
         assert_eq!(db.all_triples(), &[triple]);
@@ -261,5 +270,80 @@ mod tests {
         let (batch, done) = db.cursor_next(cursor_id, 10).unwrap();
         assert!(done);
         assert_eq!(batch, vec![triple]);
+    }
+
+    #[test]
+    fn timeline_query_via_database() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("timeline-db");
+        let mut db = Database::open(Options::new(&path)).unwrap();
+
+        {
+            let store = db.temporal_store_mut();
+            let alice = store
+                .ensure_entity(
+                    "agent",
+                    "alice",
+                    EnsureEntityOptions {
+                        alias: Some("Alice".into()),
+                        occurred_at: Some("2025-01-01T00:00:00Z".into()),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            let bob = store
+                .ensure_entity(
+                    "agent",
+                    "bob",
+                    EnsureEntityOptions {
+                        alias: Some("Bob".into()),
+                        occurred_at: Some("2025-01-01T00:00:00Z".into()),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            let episode = store
+                .add_episode(EpisodeInput {
+                    source_type: "conversation".into(),
+                    payload: serde_json::json!({ "text": "hello" }),
+                    occurred_at: "2025-01-01T00:00:00Z".into(),
+                    trace_hash: None,
+                })
+                .unwrap();
+            let fact = store
+                .upsert_fact(FactWriteInput {
+                    subject_entity_id: alice.entity_id,
+                    predicate_key: "mentions".into(),
+                    object_entity_id: Some(bob.entity_id),
+                    object_value: None,
+                    valid_from: Some("2025-01-01T00:00:00Z".into()),
+                    valid_to: None,
+                    confidence: None,
+                    source_episode_id: episode.episode_id,
+                })
+                .unwrap();
+            store
+                .link_episode(
+                    episode.episode_id,
+                    EpisodeLinkOptions {
+                        entity_id: Some(alice.entity_id),
+                        fact_id: Some(fact.fact_id),
+                        role: "author".into(),
+                    },
+                )
+                .unwrap();
+        }
+
+        let alice_id = db.temporal_store().get_entities()[0].entity_id;
+        let timeline = db.timeline_query(TimelineQuery {
+            entity_id: alice_id,
+            predicate_key: Some("mentions".into()),
+            role: Some(TimelineRole::Subject),
+            ..Default::default()
+        });
+        assert_eq!(timeline.len(), 1);
+
+        let episodes = db.timeline_trace(timeline[0].fact_id);
+        assert_eq!(episodes.len(), 1);
     }
 }
