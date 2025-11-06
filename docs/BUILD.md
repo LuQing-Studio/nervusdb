@@ -23,6 +23,22 @@ dist/
 └── **/*.d.ts       # 其他类型定义文件
 ```
 
+## 🧱 原生 N-API 产物
+
+- GitHub Actions 中的 `native-matrix` 任务会在 Linux、macOS（ARM64 / x64）以及 Windows 上编译原生扩展。
+- 每个平台的二进制会被移动到 `native/nervusdb-node/npm/<platform>/index.node`，并通过 `upload-artifact` 暂存夜间构建。
+- 测试矩阵在构建后运行 `pnpm vitest run tests/unit/native/native_loader.test.ts tests/unit/storage/persistentStore.native.test.ts`，并设置 `NERVUSDB_EXPECT_NATIVE=1` 以确保 `loadNativeCore()` 能在 CI 中实际加载到扩展。
+- 本地验证示例：
+
+```bash
+pnpm exec napi build --release --platform --cargo-cwd native/nervusdb-node
+PLATFORM=linux-x64-gnu # 将其替换为 darwin-arm64 / darwin-x64 / win32-x64-msvc 等实际平台
+node scripts/organize-native-artifact.mjs ${PLATFORM}
+pnpm vitest run tests/integration/native/native_binding.test.ts
+```
+
+执行完成后，脚本会把 `index.<triple>.node` 拷贝到 `native/nervusdb-node/npm/${PLATFORM}/index.node`，`loadNativeCore()` 将优先加载该文件。
+
 ---
 
 ## 🛠️ 本地构建
