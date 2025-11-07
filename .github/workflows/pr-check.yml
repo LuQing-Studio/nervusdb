@@ -15,15 +15,18 @@ jobs:
       - name: Check PR description contains issue reference
         id: check-closes
         run: |
-          PR_BODY="${{ github.event.pull_request.body }}"
+          set -euo pipefail
+
+          # 直接从事件JSON中读取原始body，避免shell对反引号/美元符号做命令替换
+          PR_BODY=$(jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH")
 
           # 检查是否包含 Closes #数字 格式
-          if echo "$PR_BODY" | grep -qE "Closes #[0-9]+"; then
+          if printf '%s' "$PR_BODY" | grep -qE "Closes #[0-9]+"; then
             echo "✅ PR描述包含Issue关联"
 
             # 提取Issue编号
-            ISSUE_NUMBER=$(echo "$PR_BODY" | grep -oE "Closes #[0-9]+" | head -1 | grep -oE "[0-9]+")
-            echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+            ISSUE_NUMBER=$(printf '%s' "$PR_BODY" | grep -oE "Closes #[0-9]+" | head -1 | grep -oE "[0-9]+")
+            echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
           else
             echo "❌ PR描述缺少Issue关联"
             echo "::error::PR描述必须包含 'Closes #<issue-number>' 格式的Issue关联"
