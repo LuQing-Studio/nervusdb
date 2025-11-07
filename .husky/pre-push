@@ -13,9 +13,8 @@ fi
 echo "[husky] pre-push: prettier format check"
 pnpm run format:check
 
-echo "[husky] pre-push: running complete CI pipeline (typecheck + lint(full) + build)"
+echo "[husky] pre-push: running complete CI pipeline (typecheck + lint + test + build)"
 pnpm run typecheck
 pnpm run lint
-# Skip tests in pre-push (tests run in GitHub CI)
-# pnpm test
+pnpm test
 pnpm run build
