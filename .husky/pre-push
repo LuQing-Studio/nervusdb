@@ -16,5 +16,5 @@ pnpm run format:check
 echo "[husky] pre-push: running complete CI pipeline (typecheck + lint + test + build)"
 pnpm run typecheck
 pnpm run lint
-pnpm test -- --exclude 'tests/**/*performance*.test.ts' --exclude 'tests/**/*perf*.test.ts'
+pnpm test -- --exclude '**/incremental_flush_performance.test.ts' --exclude '**/lazy_loading_performance.test.ts' --exclude '**/disk_centric_performance.test.ts'
 pnpm run build
