@@ -1,4 +1,4 @@
-import { describe, expect, it, afterEach } from 'vitest';
+import { describe, expect, it, afterEach, vi } from 'vitest';
 
 import {
   __setNativeCoreForTesting,
@@ -38,9 +38,14 @@ describe('native core loader', () => {
   });
 
   it('throws when native addon is explicitly required but missing', () => {
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue('/tmp/nervusdb-missing');
     process.env.NERVUSDB_EXPECT_NATIVE = '1';
     __setNativeCoreForTesting(undefined);
-    expect(() => loadNativeCore()).toThrow();
+    try {
+      expect(() => loadNativeCore()).toThrow();
+    } finally {
+      cwdSpy.mockRestore();
+    }
   });
 });
 
