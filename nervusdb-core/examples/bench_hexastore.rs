@@ -9,13 +9,16 @@ fn main() {
     let n = 100_000;
     println!("Generating and inserting {} triples...", n);
 
+    // Use transaction for batch insert (10-100x faster than individual inserts)
     let start = Instant::now();
+    db.begin_transaction().unwrap();
     for i in 0..n {
         let s = format!("subject_{}", i);
         let p = "knows";
         let o = format!("object_{}", i + 1);
         db.add_fact(Fact::new(&s, p, &o)).unwrap();
     }
+    db.commit_transaction().unwrap();
     let duration = start.elapsed();
     println!("Insert time: {:.2?}", duration);
     println!(
