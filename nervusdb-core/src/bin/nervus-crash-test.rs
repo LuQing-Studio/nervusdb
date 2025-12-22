@@ -400,8 +400,7 @@ fn dictionary_error(kind: &str, id: StringId) -> nervusdb_core::Error {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn verify_triples(db: &Database) -> Result<()> {
-    let mut iter = db.query(QueryCriteria::default());
-    while let Some(triple) = iter.next() {
+    for triple in db.query(QueryCriteria::default()) {
         verify_triple_ids(db, triple.subject_id, triple.predicate_id, triple.object_id)?;
     }
     Ok(())
