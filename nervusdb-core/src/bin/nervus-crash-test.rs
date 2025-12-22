@@ -377,16 +377,24 @@ fn verify_db(path: &PathBuf) -> Result<()> {
 #[cfg(not(target_arch = "wasm32"))]
 fn verify_dictionary(db: &Database) -> Result<()> {
     let size = db.dictionary_size()?;
-    for raw in 0..size {
+    let has_zero = db.resolve_str(0)?.is_some();
+    let start: StringId = if has_zero { 0 } else { 1 };
+    let end: StringId = if has_zero {
+        size.saturating_sub(1)
+    } else {
+        size
+    };
+
+    for id in start..=end {
         let s = db
-            .resolve_str(raw as StringId)?
-            .ok_or_else(|| dictionary_error("missing id_to_str", raw as StringId))?;
+            .resolve_str(id)?
+            .ok_or_else(|| dictionary_error("missing id_to_str", id))?;
         let back = db
             .resolve_id(&s)?
-            .ok_or_else(|| dictionary_error("missing str_to_id", raw as StringId))?;
-        if back != raw as StringId {
+            .ok_or_else(|| dictionary_error("missing str_to_id", id))?;
+        if back != id {
             return Err(nervusdb_core::Error::Other(format!(
-                "dictionary mismatch: id={raw} -> {s:?} -> id={back}"
+                "dictionary mismatch: id={id} -> {s:?} -> id={back}"
             )));
         }
     }
