@@ -4,70 +4,56 @@
 
 | 数据库 | 插入/秒 | S?? 查询/秒 | ??O 查询/秒 |
 |--------|---------|-------------|-------------|
-| **SQLite** | 940,956 | 343,695 | 376,022 |
-| **redb (raw)** | 170,210 | 326,732 | 989,275 |
-| **NervusDB** | 72,281 | 103,974 | 92,693 |
+| **SQLite** | 1,020,350 | 411,403 | 416,641 |
+| **redb (raw)** | 194,816 | 553,886 | 563,001 |
+| **NervusDB** | 465,685 | 727,418 | 952,317 |
 
 ## 性能差距
 
-- NervusDB 插入比 redb 慢 **2.4 倍**（72K vs 170K）
-- NervusDB 查询比 redb 慢 **3-10 倍**
+- NervusDB 插入约为 SQLite 的 **45.6%**（465K vs 1,020K，约慢 2.2 倍）
+- NervusDB 在本基准的两类点查（S?? / ??O）上已不落后（主要得益于读事务/表句柄复用）
 
 ## 已完成的优化
 
-### 1. WriteTableHandles 缓存（已实现）
+### 1. 索引表精简：5 → 3（已实现）
+
+- 现仅维护 `SPO / POS / OSP` 三张索引表（仍可覆盖常见 `S?? / ??O / P??` 以及 `S?O / ?PO` 等模式）
+- 插入路径写放大显著下降：每条 triple 写入 3 次（不含 dictionary/props）
+
+### 2. WriteTableHandles 缓存（已实现）
 
 ```rust
 pub(crate) struct WriteTableHandles<'txn> {
     pub spo: Table<'txn, (u64, u64, u64), ()>,
-    pub sop: Table<'txn, (u64, u64, u64), ()>,
-    // ... 共 7 个表句柄
+    pub pos: Table<'txn, (u64, u64, u64), ()>,
+    pub osp: Table<'txn, (u64, u64, u64), ()>,
+    pub str_to_id: Table<'txn, &'static str, u64>,
+    pub id_to_str: Table<'txn, u64, &'static str>,
 }
 ```
 
-- 效果：插入从 62,738 → 72,281（提升 15%）
-- 问题：仍然比 redb 慢很多
+- 写事务内复用表句柄，避免每次 `open_table()` 的重复开销
+
+### 3. 字符串 LRU 缓存 + 单路径 intern（已实现）
+
+- `WriteTableHandles` 内部维护字符串 **LRU** 缓存，减少热字符串反复 `str_to_id.get()` 的 B-Tree 查找
+- `next_id` 在写事务开始时计算一次，写入过程中不再重复 `id_to_str.last()` 探测
+- 统一 intern 路径，移除空库 `fast_intern` 的特殊分支（避免缓存容量边界导致的字典不一致风险）
+
+### 4. 读事务/表句柄缓存（已实现）
+
+- 复用 `ReadTransaction + ReadOnlyTable`（写入 commit 后通过 generation 失效）
+- 避免查询路径每次 `begin_read/open_table` 的固定成本
 
 ## 仍存在的瓶颈
 
-### 1. 五个索引表 vs 三个
+### 1. 插入仍慢于 SQLite
 
-NervusDB 维护 5 个索引表：SPO, SOP, POS, PSO, OSP
+- 仍有 dictionary/序列化/多表写入等固定成本；要继续追近 SQLite，需要进一步压缩“每条事实”的写放大与分配次数。
 
-Benchmark 的 redb 只维护 3 个：
-- SPO 主表
-- subject_idx（S?? 查询）
-- object_idx（??O 查询）
+### 2. Binding 侧的解码/resolve 开销
 
-**每次插入写 5 个表 vs 3 个表，开销多 67%**
-
-### 2. 字符串 intern 开销
-
-每次插入 fact 需要：
-1. 查 str_to_id 表看字符串是否存在
-2. 如果不存在，写入 str_to_id 和 id_to_str 两个表
-
-Benchmark 的 redb 和 SQLite 直接存字符串，没有这个开销。
-
-### 3. 重复检查开销
-
-```rust
-// 每次插入前都要查一遍
-if spo.get((s, p, o))?.is_some() {
-    return Ok(false);  // 跳过重复
-}
-```
-
-### 4. 查询时每次创建新事务
-
-```rust
-fn query(&self, ...) {
-    let txn = db.begin_read()?;      // 每次查询都创建新事务
-    let table = txn.open_table(...)?; // 每次都打开表
-}
-```
-
-而 benchmark 的 redb 复用同一个读事务和表句柄。
+- Rust 核心的查询返回的是 `u64` ID 三元组；Node/Python 若逐条 `resolveStr()` 还原字符串，会引入额外往返与分配。
 
 ## 代码位置
 
@@ -77,17 +63,15 @@ fn query(&self, ...) {
 - `nervusdb-core/src/lib.rs` - Database API
 - `nervusdb-core/examples/bench_compare.rs` - Benchmark 代码
 
-关键函数：
-- `WriteTableHandles::insert_fact()` - 优化后的插入
-- `WriteTableHandles::intern()` - 字符串 intern
-- `DiskCursor::create()` - 查询游标创建
+关键结构/函数：
+- `WriteTableHandles` - 写事务表句柄与字符串缓存
+- `ReadHandles` - 读事务与表句柄缓存
+- `DiskHexastore::read_handles()` - 缓存复用入口
 
 ## 问题
 
-1. **是否需要 5 个索引？** 能否减少到 3 个？
-2. **字符串 intern 是否必要？** 有什么更高效的方式？
-3. **如何优化查询？** 能否缓存读事务/表句柄？
-4. **重复检查能否跳过？** 提供 `insert_unchecked` 选项？
+1. **写性能再提升的优先级**：下一步要继续追 SQLite，是继续优化 dictionary（缓存/批量）、还是进一步降低索引写放大？
+2. **跨语言吞吐**：是否需要提供“批量 resolve / 批量返回字符串”的 API 来降低 binding 往返成本？
 
 ## 运行 Benchmark
 

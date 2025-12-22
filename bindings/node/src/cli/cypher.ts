@@ -3,7 +3,7 @@
  * Cypher 命令行执行器
  *
  * 用法：
- *   synapsedb cypher <db> [--query|-q <cypher>] [--file <path>] \
+ *   nervusdb cypher <db> [--query|-q <cypher>] [--file <path>] \
  *     [--readonly] [--params '{"k":"v"}'] [--format table|json] [--limit N]
  */
 
@@ -84,13 +84,13 @@ function parseArgs(argv: string[]): Args {
 function usage(): void {
   const lines = [
     '用法:',
-    '  synapsedb cypher <db> [--query|-q <cypher>] [--file <path>]',
+    '  nervusdb cypher <db> [--query|-q <cypher>] [--file <path>]',
     '                       [--readonly] [--params JSON]',
     '                       [--format table|json] [--limit N]',
     '',
     '示例:',
-    "  synapsedb cypher data.synapsedb -q 'MATCH (n) RETURN n LIMIT 5' --readonly",
-    '  synapsedb cypher data.synapsedb --file query.cql --params \'{"minAge":25}\'',
+    "  nervusdb cypher data.redb -q 'MATCH (n) RETURN n LIMIT 5' --readonly",
+    '  nervusdb cypher data.redb --file query.cql --params \'{"minAge":25}\'',
   ];
   console.log(lines.join('\n'));
 }

@@ -1100,6 +1100,7 @@ impl Database {
             .take()
             .ok_or_else(|| Error::Other("no active transaction".to_string()))?;
         tx.commit().map_err(|e| Error::Other(e.to_string()))?;
+        self.store.after_write_commit();
         Ok(())
     }
 

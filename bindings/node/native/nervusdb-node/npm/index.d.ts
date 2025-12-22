@@ -28,6 +28,32 @@ export interface CursorBatch {
   triples: Array<TripleOutput>
   done: boolean
 }
+export interface FactOutput {
+  subject: string
+  predicate: string
+  object: string
+  subjectId: bigint
+  predicateId: bigint
+  objectId: bigint
+}
+export interface FactCursorBatch {
+  facts: Array<FactOutput>
+  done: boolean
+}
+export interface PathResultOutput {
+  path: Array<bigint>
+  cost: number
+  hops: number
+}
+export interface PageRankEntryOutput {
+  nodeId: bigint
+  score: number
+}
+export interface PageRankResultOutput {
+  scores: Array<PageRankEntryOutput>
+  iterations: number
+  converged: boolean
+}
 export interface TimelineQueryInput {
   entityId: string
   predicateKey?: string
@@ -124,14 +150,22 @@ export declare class DatabaseHandle {
   setEdgeProperty(subjectId: bigint, predicateId: bigint, objectId: bigint, json: string): NapiResult
   getEdgeProperty(subjectId: bigint, predicateId: bigint, objectId: bigint): NapiResult
   query(criteria?: QueryCriteriaInput | undefined | null): NapiResult
+  queryFacts(criteria?: QueryCriteriaInput | undefined | null): NapiResult
   timelineQuery(input: TimelineQueryInput): NapiResult
   timelineTrace(factId: string): NapiResult
   hydrate(dictionary: Array<string>, triples: Array<TripleInput>): NapiResult
   openCursor(criteria?: QueryCriteriaInput | undefined | null): NapiResult
   readCursor(cursorId: bigint, batchSize: number): NapiResult
+  readCursorFacts(cursorId: bigint, batchSize: number): NapiResult
   closeCursor(cursorId: bigint): NapiResult
   beginTransaction(): NapiResult
   commitTransaction(): NapiResult
   abortTransaction(): NapiResult
   close(): NapiResult
+  /** BFS shortest path (unweighted) */
+  bfsShortestPath(startId: bigint, endId: bigint, predicateId?: bigint | undefined | null, maxHops?: number | undefined | null, bidirectional?: boolean | undefined | null): NapiResult
+  /** Dijkstra shortest path (weighted, uniform weight = 1.0) */
+  dijkstraShortestPath(startId: bigint, endId: bigint, predicateId?: bigint | undefined | null, maxHops?: number | undefined | null): NapiResult
+  /** PageRank algorithm */
+  pagerank(predicateId?: bigint | undefined | null, damping?: number | undefined | null, maxIterations?: number | undefined | null, tolerance?: number | undefined | null): NapiResult
 }

@@ -28,6 +28,17 @@ export interface NativeQueryCriteria {
 
 export type NativeTriple = NativeAddFactOutput;
 
+export interface NativeFactOutput extends NativeTriple {
+  subject: string;
+  predicate: string;
+  object: string;
+}
+
+export interface NativeFactCursorBatch {
+  facts: NativeFactOutput[];
+  done: boolean;
+}
+
 export interface NativeTimelineQueryInput {
   entity_id: string;
   predicate_key?: string;
@@ -145,8 +156,10 @@ export interface NativeDatabaseHandle {
   resolveStr(id: number): string | null | undefined;
   executeQuery(query: string, params?: Record<string, unknown> | null): Record<string, any>[];
   query(criteria?: NativeQueryCriteria): NativeTriple[];
+  queryFacts?(criteria?: NativeQueryCriteria): NativeFactOutput[];
   openCursor(criteria?: NativeQueryCriteria): { id: number };
   readCursor(cursorId: number, batchSize: number): { triples: NativeTriple[]; done: boolean };
+  readCursorFacts?(cursorId: number, batchSize: number): NativeFactCursorBatch;
   closeCursor(cursorId: number): void;
   hydrate(dictionary: string[], triples: NativeTriple[]): void;
   setNodeProperty(nodeId: number, json: string): void;

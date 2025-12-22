@@ -69,6 +69,22 @@ pub struct CursorBatch {
     pub done: bool,
 }
 
+#[napi(object)]
+pub struct FactOutput {
+    pub subject: String,
+    pub predicate: String,
+    pub object: String,
+    pub subject_id: BigInt,
+    pub predicate_id: BigInt,
+    pub object_id: BigInt,
+}
+
+#[napi(object)]
+pub struct FactCursorBatch {
+    pub facts: Vec<FactOutput>,
+    pub done: bool,
+}
+
 // Graph Algorithm Output Types
 
 #[napi(object)]
@@ -240,6 +256,44 @@ fn triple_to_output(triple: Triple) -> TripleOutput {
         predicate_id: BigInt::from(triple.predicate_id),
         object_id: BigInt::from(triple.object_id),
     }
+}
+
+fn resolve_str_cached(
+    db: &Database,
+    cache: &mut HashMap<u64, String>,
+    id: u64,
+) -> NapiResult<String> {
+    if let Some(value) = cache.get(&id) {
+        return Ok(value.clone());
+    }
+    match db.resolve_str(id).map_err(map_error)? {
+        Some(value) => {
+            cache.insert(id, value.clone());
+            Ok(value)
+        }
+        None => Err(napi::Error::new(
+            Status::GenericFailure,
+            format!("failed to resolve string id: {id}"),
+        )),
+    }
+}
+
+fn triple_to_fact_output(
+    db: &Database,
+    cache: &mut HashMap<u64, String>,
+    triple: Triple,
+) -> NapiResult<FactOutput> {
+    let subject = resolve_str_cached(db, cache, triple.subject_id)?;
+    let predicate = resolve_str_cached(db, cache, triple.predicate_id)?;
+    let object = resolve_str_cached(db, cache, triple.object_id)?;
+    Ok(FactOutput {
+        subject,
+        predicate,
+        object,
+        subject_id: BigInt::from(triple.subject_id),
+        predicate_id: BigInt::from(triple.predicate_id),
+        object_id: BigInt::from(triple.object_id),
+    })
 }
 
 fn fact_to_output(fact: StoredFact) -> TimelineFactOutput {
@@ -659,16 +713,6 @@ impl DatabaseHandle {
         query: String,
         params: Option<Object>,
     ) -> NapiResult<Vec<std::collections::HashMap<String, serde_json::Value>>> {
-        std::fs::write(
-            "/tmp/napi-log",
-            format!(
-                "query:{} params_some:{} contains:{}\n",
-                query,
-                params.is_some(),
-                query.contains('$')
-            ),
-        )
-        .ok();
         let mut guard = self
             .inner
             .lock()
@@ -830,6 +874,32 @@ impl DatabaseHandle {
         Ok(triples.into_iter().map(triple_to_output).collect())
     }
 
+    #[napi(js_name = "queryFacts")]
+    pub fn query_facts(&self, criteria: Option<QueryCriteriaInput>) -> NapiResult<Vec<FactOutput>> {
+        let guard = self
+            .inner
+            .lock()
+            .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
+        let db = guard
+            .as_ref()
+            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+
+        let criteria = criteria.unwrap_or_default();
+        let query = QueryCriteria {
+            subject_id: convert_string_id(criteria.subject_id),
+            predicate_id: convert_string_id(criteria.predicate_id),
+            object_id: convert_string_id(criteria.object_id),
+        };
+
+        let triples: Vec<_> = db.query(query).collect();
+        let mut cache: HashMap<u64, String> = HashMap::new();
+        let mut out = Vec::with_capacity(triples.len());
+        for triple in triples {
+            out.push(triple_to_fact_output(db, &mut cache, triple)?);
+        }
+        Ok(out)
+    }
+
     #[napi]
     pub fn timeline_query(&self, input: TimelineQueryInput) -> NapiResult<Vec<TimelineFactOutput>> {
         let guard = self
@@ -937,6 +1007,31 @@ impl DatabaseHandle {
             triples: mapped,
             done,
         })
+    }
+
+    #[napi(js_name = "readCursorFacts")]
+    pub fn cursor_next_facts(
+        &self,
+        cursor_id: BigInt,
+        batch_size: u32,
+    ) -> NapiResult<FactCursorBatch> {
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
+        let db = guard
+            .as_mut()
+            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let (_, id, _) = cursor_id.get_u64();
+        let (triples, done) = db.cursor_next(id, batch_size as usize).map_err(map_error)?;
+
+        let mut cache: HashMap<u64, String> = HashMap::new();
+        let mut facts = Vec::with_capacity(triples.len());
+        for triple in triples {
+            facts.push(triple_to_fact_output(db, &mut cache, triple)?);
+        }
+
+        Ok(FactCursorBatch { facts, done })
     }
 
     #[napi(js_name = "closeCursor")]

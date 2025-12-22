@@ -145,6 +145,12 @@ pub trait Hexastore: Send {
         }
         Ok(ids)
     }
+
+    /// Called after a write transaction has been committed through an external path.
+    ///
+    /// Example: `Database::commit_transaction()` commits a `redb::WriteTransaction` directly.
+    /// Storage backends with read caches should override this hook to invalidate them.
+    fn after_write_commit(&self) {}
 }
 
 /// Instantiate the default storage backend for the current target.

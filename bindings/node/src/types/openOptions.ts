@@ -1,58 +1,11 @@
 /**
  * NervusDB 数据库打开选项
  *
- * 这些选项控制数据库的行为、性能和并发特性。
+ * v2 仅使用 Rust Core（redb 单文件）作为存储引擎。
+ *
+ * 这里的选项只保留“能真实映射到 Rust Core 行为”的最小集合。
  */
 export interface NervusDBOpenOptions {
-  /**
-   * 索引目录路径
-   *
-   * 如果未指定，将使用 `${dbPath}.pages` 作为默认目录。
-   * 索引目录包含分页索引文件、manifest 和相关元数据。
-   *
-   * @default `${dbPath}.pages`
-   * @example '/path/to/database.synapsedb.pages'
-   */
-  indexDirectory?: string;
-
-  /**
-   * 页面大小（三元组数量）
-   *
-   * 控制每个索引页面包含的最大三元组数量。较小的页面减少内存使用但增加查询开销；
-   * 较大的页面提高查询性能但增加内存使用。
-   *
-   * @default 1000
-   * @minimum 1
-   * @maximum 10000
-   * @example 2000
-   */
-  pageSize?: number;
-
-  /**
-   * 是否重建索引
-   *
-   * 当设为 true 时，打开数据库时将丢弃现有的分页索引并从头重建。
-   * 用于索引损坏恢复或格式升级。
-   *
-   * @default false
-   * @warning 重建索引会导致启动时间显著增加
-   */
-  rebuildIndexes?: boolean;
-
-  /**
-   * 压缩选项
-   *
-   * 控制索引页面的压缩方式。压缩可以减少磁盘使用但增加 CPU 开销。
-   *
-   * @default { codec: 'none' }
-   */
-  compression?: {
-    /** 压缩算法 */
-    codec: 'none' | 'brotli';
-    /** 压缩级别 (1-11 for brotli) */
-    level?: number;
-  };
-
   /**
    * 启用进程级独占写锁
    *
@@ -75,48 +28,6 @@ export interface NervusDBOpenOptions {
    * @note 设为 false 可能导致维护任务与查询冲突
    */
   registerReader?: boolean;
-
-  /**
-   * 暂存模式
-   *
-   * 控制写入策略。'lsm-lite' 模式使用 LSM 风格的暂存层，
-   * 可以提高写入性能但增加复杂性。
-   *
-   * @default 'default'
-   * @experimental 'lsm-lite' 模式仍在实验阶段
-   */
-  stagingMode?: 'default' | 'lsm-lite';
-
-  /**
-   * 存储引擎选择
-   * - 'auto'（默认）：优先尝试 native，失败则回退 JS
-   * - 'native'：强制要求 native 引擎，不可用则抛错
-   * - 'js'：禁用 native，仅使用 JS 引擎
-   */
-  engine?: 'auto' | 'native' | 'js';
-
-  /**
-   * 启用跨周期 txId 幂等去重
-   *
-   * 当启用时，系统将持久化事务 ID 以支持跨数据库重启的幂等性。
-   * 适用于需要精确一次执行语义的场景。
-   *
-   * @default false
-   * @note 启用会略微增加存储开销和启动时间
-   */
-  enablePersistentTxDedupe?: boolean;
-
-  /**
-   * 记忆的最大事务 ID 数量
-   *
-   * 控制内存中保持的事务 ID 数量，用于幂等性检查。
-   * 较大的值提供更长的幂等窗口但使用更多内存。
-   *
-   * @default 1000
-   * @minimum 100
-   * @maximum 100000
-   */
-  maxRememberTxIds?: number;
 
   /**
    * 实验性功能开关
@@ -189,78 +100,11 @@ export function isNervusDBOpenOptions(value: unknown): value is NervusDBOpenOpti
     return typeof options[key] === 'boolean';
   };
 
-  const ensureOptionalNumber = (
-    key: keyof NervusDBOpenOptions,
-    { min, max, integer }: { min?: number; max?: number; integer?: boolean } = {},
-  ): boolean => {
-    if (!(key in options)) return true;
-    const candidate = options[key];
-    if (typeof candidate !== 'number' || !Number.isFinite(candidate)) return false;
-    if (integer && !Number.isInteger(candidate)) return false;
-    if (min !== undefined && candidate < min) return false;
-    if (max !== undefined && candidate > max) return false;
-    return true;
-  };
-
-  if ('indexDirectory' in options && typeof options.indexDirectory !== 'string') {
-    return false;
-  }
-
-  if (!ensureOptionalNumber('pageSize', { min: 1, max: 10000, integer: true })) {
-    return false;
-  }
-
-  if (!ensureOptionalBoolean('rebuildIndexes')) {
-    return false;
-  }
-
-  if ('compression' in options) {
-    const compression = options.compression;
-    if (compression === null || typeof compression !== 'object') {
-      return false;
-    }
-
-    const { codec, level } = compression as { codec?: unknown; level?: unknown };
-    if (codec !== 'none' && codec !== 'brotli') {
-      return false;
-    }
-
-    if (
-      level !== undefined &&
-      (typeof level !== 'number' || !Number.isFinite(level) || level < 1 || level > 11)
-    ) {
-      return false;
-    }
-  }
-
   if (!ensureOptionalBoolean('enableLock')) {
     return false;
   }
 
   if (!ensureOptionalBoolean('registerReader')) {
-    return false;
-  }
-
-  if (
-    'stagingMode' in options &&
-    options.stagingMode !== 'default' &&
-    options.stagingMode !== 'lsm-lite'
-  ) {
-    return false;
-  }
-
-  if ('engine' in options) {
-    const engine = options.engine;
-    if (engine !== 'auto' && engine !== 'native' && engine !== 'js') {
-      return false;
-    }
-  }
-
-  if (!ensureOptionalBoolean('enablePersistentTxDedupe')) {
-    return false;
-  }
-
-  if (!ensureOptionalNumber('maxRememberTxIds', { min: 100, max: 100000, integer: true })) {
     return false;
   }
 
