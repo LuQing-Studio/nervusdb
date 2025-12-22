@@ -24,9 +24,11 @@
 1. 先对齐现有暴露面：
    - 清点 `ffi.rs` 实际导出的 symbol，与 `nervusdb.h` 做一致化。
 2. 增量引入 `exec_cypher`：
-   - 输出用 callback 或 JSON 字符串（二选一，优先最蠢最清楚的那种）。
+   - 输出 **JSON 字符串**（最蠢最清楚），并提供 `nervusdb_free_string()` 统一释放。
 3. 加版本机制：
    - 例如 `nervusdb_version()` 或宏常量，避免“盲猜 ABI”。
+4. 砍掉未公开的导出：
+   - `ffi.rs` 里存在但 `nervusdb.h` 未声明的算法导出（BFS/Dijkstra/PageRank）不进入 1.0 契约：要么删掉，要么 feature gate（默认关）。
 
 ## 5. Testing Strategy
 
@@ -36,4 +38,3 @@
 ## 6. Risks
 
 - ABI 一旦冻结就不能乱改：需要明确哪些能力“永远不进核心”。
-
