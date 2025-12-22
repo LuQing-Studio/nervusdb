@@ -40,6 +40,16 @@ typedef bool (*nervusdb_triple_callback)(
     uint64_t object_id,
     void *user_data);
 
+// ---------------------------------------------------------------------------
+// Version / memory management
+// ---------------------------------------------------------------------------
+
+// Returns a NUL-terminated, static version string (do not free).
+const char *nervusdb_version(void);
+
+// Frees a string allocated by NervusDB (e.g. resolve_str / exec_cypher outputs).
+void nervusdb_free_string(char *value);
+
 nervusdb_status nervusdb_open(const char *path, nervusdb_db **out_db, nervusdb_error **out_error);
 void nervusdb_close(nervusdb_db *db);
 
@@ -49,6 +59,18 @@ nervusdb_status nervusdb_intern(
     uint64_t *out_id,
     nervusdb_error **out_error);
 
+nervusdb_status nervusdb_resolve_id(
+    nervusdb_db *db,
+    const char *value,
+    uint64_t *out_id,
+    nervusdb_error **out_error);
+
+nervusdb_status nervusdb_resolve_str(
+    nervusdb_db *db,
+    uint64_t id,
+    char **out_value,
+    nervusdb_error **out_error);
+
 nervusdb_status nervusdb_add_triple(
     nervusdb_db *db,
     uint64_t subject_id,
@@ -56,11 +78,22 @@ nervusdb_status nervusdb_add_triple(
     uint64_t object_id,
     nervusdb_error **out_error);
 
+nervusdb_status nervusdb_begin_transaction(nervusdb_db *db, nervusdb_error **out_error);
+nervusdb_status nervusdb_commit_transaction(nervusdb_db *db, nervusdb_error **out_error);
+nervusdb_status nervusdb_abort_transaction(nervusdb_db *db, nervusdb_error **out_error);
+
 nervusdb_status nervusdb_query_triples(
     nervusdb_db *db,
     const nervusdb_query_criteria *criteria,
     nervusdb_triple_callback callback,
     void *user_data,
+    nervusdb_error **out_error);
+
+nervusdb_status nervusdb_exec_cypher(
+    nervusdb_db *db,
+    const char *query,
+    const char *params_json,
+    char **out_json,
     nervusdb_error **out_error);
 
 void nervusdb_free_error(nervusdb_error *error);
