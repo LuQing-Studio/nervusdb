@@ -14,33 +14,25 @@ describe('NervusDB 打开选项运行时守卫', () => {
   });
 
   it('isNervusDBOpenOptions: 检查字段约束', () => {
-    expect(isNervusDBOpenOptions({ pageSize: 0 })).toBe(false);
-    expect(isNervusDBOpenOptions({ pageSize: 1, compression: { codec: 'invalid' } })).toBe(false);
-    expect(isNervusDBOpenOptions({ stagingMode: 'unknown' })).toBe(false);
-    expect(isNervusDBOpenOptions({ enablePersistentTxDedupe: true, maxRememberTxIds: 50 })).toBe(
-      false,
-    );
+    expect(isNervusDBOpenOptions({ enableLock: 'yes' })).toBe(false);
+    expect(isNervusDBOpenOptions({ registerReader: 1 })).toBe(false);
+    expect(isNervusDBOpenOptions({ experimental: null })).toBe(false);
+    expect(isNervusDBOpenOptions({ experimental: { cypher: 'yes' } })).toBe(false);
   });
 
   it('isNervusDBOpenOptions: 合法输入返回 true', () => {
     expect(isNervusDBOpenOptions({})).toBe(true);
     expect(
       isNervusDBOpenOptions({
-        indexDirectory: '/tmp/index',
-        pageSize: 2000,
-        rebuildIndexes: false,
-        compression: { codec: 'brotli', level: 5 },
         enableLock: true,
         registerReader: true,
-        stagingMode: 'default',
-        enablePersistentTxDedupe: false,
-        maxRememberTxIds: 5000,
+        experimental: { cypher: true },
       }),
     ).toBe(true);
   });
 
   it('assertNervusDBOpenOptions: 非法输入抛出 TypeError，合法输入不抛', () => {
-    expect(() => assertNervusDBOpenOptions({ pageSize: 0 })).toThrowError(TypeError);
-    expect(() => assertNervusDBOpenOptions({ pageSize: 100 })).not.toThrow();
+    expect(() => assertNervusDBOpenOptions({ experimental: null })).toThrowError(TypeError);
+    expect(() => assertNervusDBOpenOptions({ enableLock: true })).not.toThrow();
   });
 });

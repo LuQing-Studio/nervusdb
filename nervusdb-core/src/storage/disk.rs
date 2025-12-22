@@ -3,12 +3,13 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
+use lru::LruCache;
 use ouroboros::self_referencing;
 use redb::{
     Database, Range, ReadTransaction, ReadableDatabase, ReadableTable, ReadableTableMetadata,
     Table, WriteTransaction,
 };
-use std::collections::HashMap;
+use std::num::NonZeroUsize;
 
 use crate::error::{Error, Result};
 use crate::storage::schema::{
@@ -175,16 +176,13 @@ impl Hexastore for DiskHexastore {
     }
 
     fn insert_fact(&mut self, fact: Fact<'_>) -> Result<Triple> {
-        let mut write_txn = self
+        let write_txn = self
             .db
             .begin_write()
             .map_err(|e| Error::Other(e.to_string()))?;
-
-        let s = intern_in_txn(&mut write_txn, fact.subject)?;
-        let p = intern_in_txn(&mut write_txn, fact.predicate)?;
-        let o = intern_in_txn(&mut write_txn, fact.object)?;
-        let triple = Triple::new(s, p, o);
-        insert_triple(&mut write_txn, &triple)?;
+        let mut handles = WriteTableHandles::new(&write_txn)?;
+        let triple = handles.insert_fact(fact)?;
+        drop(handles);
         write_txn
             .commit()
             .map_err(|e| Error::Other(e.to_string()))?;
@@ -253,14 +251,17 @@ impl Hexastore for DiskHexastore {
     }
 
     fn intern(&mut self, value: &str) -> Result<u64> {
-        let mut write_txn = self
+        let write_txn = self
             .db
             .begin_write()
             .map_err(|e| Error::Other(e.to_string()))?;
-        let id = intern_in_txn(&mut write_txn, value)?;
+        let mut handles = WriteTableHandles::new(&write_txn)?;
+        let id = handles.intern(value)?;
+        drop(handles);
         write_txn
             .commit()
             .map_err(|e| Error::Other(e.to_string()))?;
+        self.invalidate_read_cache();
         Ok(id)
     }
 
@@ -591,6 +592,10 @@ impl Hexastore for DiskHexastore {
             .map_err(|e| Error::Other(e.to_string()))?
             .map(|v| v.value().as_bytes().to_vec()))
     }
+
+    fn after_write_commit(&self) {
+        self.invalidate_read_cache();
+    }
 }
 
 /// Cached table handles for write operations
@@ -601,8 +606,7 @@ pub(crate) struct WriteTableHandles<'txn> {
     pub osp: Table<'txn, (u64, u64, u64), ()>,
     pub str_to_id: Table<'txn, &'static str, u64>,
     pub id_to_str: Table<'txn, u64, &'static str>,
-    string_cache: HashMap<String, u64>,
-    fast_intern: bool,
+    string_cache: LruCache<String, u64>,
     next_id: u64,
 }
 
@@ -632,7 +636,9 @@ impl<'txn> WriteTableHandles<'txn> {
             .map_err(|e| Error::Other(e.to_string()))?
             .map(|(id, _)| id.value() + 1)
             .unwrap_or(1);
-        let fast_intern = next_id == 1;
+        let string_cache = LruCache::new(
+            NonZeroUsize::new(STRING_CACHE_LIMIT).expect("STRING_CACHE_LIMIT must be > 0"),
+        );
 
         Ok(Self {
             spo,
@@ -640,29 +646,14 @@ impl<'txn> WriteTableHandles<'txn> {
             osp,
             str_to_id,
             id_to_str,
-            string_cache: HashMap::new(),
-            fast_intern,
+            string_cache,
             next_id,
         })
     }
 
     /// Intern a string using cached table handles
     pub fn intern(&mut self, value: &str) -> Result<u64> {
-        if let Some(id) = self.string_cache.remove(value) {
-            self.string_cache.insert(value.to_owned(), id);
-            return Ok(id);
-        }
-
-        if self.fast_intern {
-            let id = self.next_id;
-            self.next_id += 1;
-            self.str_to_id
-                .insert(value, id)
-                .map_err(|e| Error::Other(e.to_string()))?;
-            self.id_to_str
-                .insert(id, value)
-                .map_err(|e| Error::Other(e.to_string()))?;
-            self.cache_insert(value, id);
+        if let Some(id) = self.string_cache.get(value).copied() {
             return Ok(id);
         }
 
@@ -676,7 +667,7 @@ impl<'txn> WriteTableHandles<'txn> {
             None
         };
         if let Some(id) = existing_id {
-            self.cache_insert(value, id);
+            self.string_cache.put(value.to_owned(), id);
             return Ok(id);
         }
 
@@ -688,14 +679,8 @@ impl<'txn> WriteTableHandles<'txn> {
         self.id_to_str
             .insert(id, value)
             .map_err(|e| Error::Other(e.to_string()))?;
-        self.cache_insert(value, id);
+        self.string_cache.put(value.to_owned(), id);
         Ok(id)
-    }
-
-    fn cache_insert(&mut self, value: &str, id: u64) {
-        if self.string_cache.len() < STRING_CACHE_LIMIT {
-            self.string_cache.insert(value.to_owned(), id);
-        }
     }
 
     /// Insert a triple using cached table handles

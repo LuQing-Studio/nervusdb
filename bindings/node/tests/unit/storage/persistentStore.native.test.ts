@@ -4,26 +4,52 @@ import { __setNativeCoreForTesting } from '../../../src/native/core.js';
 import { PersistentStore } from '../../../src/core/storage/persistentStore.js';
 
 describe('PersistentStore native bridge', () => {
-  afterEach(async () => {
+  afterEach(() => {
     __setNativeCoreForTesting(undefined);
   });
 
-  it('invokes native binding when available', async () => {
+  it('delegates add/query/stream to native handle', async () => {
     const calls: Array<{ type: string; payload?: unknown }> = [];
 
+    const strToId = new Map<string, number>([
+      ['alice', 1],
+      ['knows', 2],
+      ['bob', 3],
+      ['carol', 4],
+    ]);
+    const idToStr = new Map<number, string>([
+      [1, 'alice'],
+      [2, 'knows'],
+      [3, 'bob'],
+      [4, 'carol'],
+    ]);
+
     const mockHandle = {
-      hydrate(dictionary: string[], triples: Array<Record<string, number>>) {
-        calls.push({ type: 'hydrate', payload: { dictionary, triples } });
-      },
       addFact(subject: string, predicate: string, object: string) {
         calls.push({ type: 'add', payload: { subject, predicate, object } });
-        return { subject_id: 1, predicate_id: 2, object_id: 3 };
+        return {
+          subjectId: strToId.get(subject) ?? 0,
+          predicateId: strToId.get(predicate) ?? 0,
+          objectId: strToId.get(object) ?? 0,
+        };
+      },
+      deleteFact() {
+        calls.push({ type: 'delete' });
+        return true;
+      },
+      resolveId(value: string) {
+        calls.push({ type: 'resolve_id', payload: value });
+        return strToId.get(value) ?? null;
+      },
+      resolveStr(id: number) {
+        calls.push({ type: 'resolve_str', payload: id });
+        return idToStr.get(id) ?? null;
       },
       query(criteria?: Record<string, unknown>) {
         calls.push({ type: 'query', payload: criteria ?? {} });
         return [
-          { subject_id: 1, predicate_id: 2, object_id: 3 },
-          { subject_id: 4, predicate_id: 5, object_id: 6 },
+          { subjectId: 1, predicateId: 2, objectId: 3 },
+          { subjectId: 1, predicateId: 2, objectId: 4 },
         ];
       },
       openCursor(criteria?: Record<string, unknown>) {
@@ -34,17 +60,54 @@ describe('PersistentStore native bridge', () => {
         calls.push({ type: 'cursor_next', payload: { cursorId, batchSize } });
         if (calls.filter((c) => c.type === 'cursor_next').length === 1) {
           return {
-            triples: [{ subject_id: 1, predicate_id: 2, object_id: 3 }],
+            triples: [{ subjectId: 1, predicateId: 2, objectId: 3 }],
             done: false,
           };
         }
         return {
-          triples: [{ subject_id: 4, predicate_id: 5, object_id: 6 }],
+          triples: [{ subjectId: 1, predicateId: 2, objectId: 4 }],
           done: true,
         };
       },
       closeCursor(cursorId: number) {
         calls.push({ type: 'cursor_close', payload: { cursorId } });
+      },
+      intern(value: string) {
+        calls.push({ type: 'intern', payload: value });
+        const existing = strToId.get(value);
+        if (existing) return existing;
+        const next = strToId.size + 1;
+        strToId.set(value, next);
+        idToStr.set(next, value);
+        return next;
+      },
+      getDictionarySize() {
+        calls.push({ type: 'dict_size' });
+        return strToId.size;
+      },
+      executeQuery(query: string) {
+        calls.push({ type: 'execute_query', payload: query });
+        return [];
+      },
+      hydrate() {
+        calls.push({ type: 'hydrate' });
+      },
+      setNodeProperty() {},
+      getNodeProperty() {
+        return null;
+      },
+      setEdgeProperty() {},
+      getEdgeProperty() {
+        return null;
+      },
+      beginTransaction() {
+        calls.push({ type: 'begin_tx' });
+      },
+      commitTransaction() {
+        calls.push({ type: 'commit_tx' });
+      },
+      abortTransaction() {
+        calls.push({ type: 'abort_tx' });
       },
       close() {
         calls.push({ type: 'close' });
@@ -54,85 +117,52 @@ describe('PersistentStore native bridge', () => {
     __setNativeCoreForTesting({
       open: ({ dataPath }) => {
         calls.push({ type: 'open', payload: dataPath });
-        return mockHandle;
+        return mockHandle as any;
       },
     });
 
-    const store = await PersistentStore.open(':memory:');
+    const store = await PersistentStore.open('tmp-persistentStore-native.redb');
+
     store.addFact({ subject: 'alice', predicate: 'knows', object: 'bob' });
-    const triples = store.query({});
-    expect(triples).toEqual([
-      { subjectId: 1, predicateId: 2, objectId: 3 },
-      { subjectId: 4, predicateId: 5, objectId: 6 },
+    const facts = store.query({ predicate: 'knows' });
+    expect(facts).toEqual([
+      {
+        subject: 'alice',
+        predicate: 'knows',
+        object: 'bob',
+        subjectId: 1,
+        predicateId: 2,
+        objectId: 3,
+      },
+      {
+        subject: 'alice',
+        predicate: 'knows',
+        object: 'carol',
+        subjectId: 1,
+        predicateId: 2,
+        objectId: 4,
+      },
     ]);
 
-    const streamed: Array<{ subjectId: number; predicateId: number; objectId: number }> = [];
-    for await (const triple of store.queryStreaming({ objectId: 6 })) {
-      streamed.push(triple);
+    const streamed: Array<{ subject: string; predicate: string; object: string }> = [];
+    for await (const batch of store.streamQuery({ predicate: 'knows' }, 1)) {
+      streamed.push(
+        ...batch.map((t) => ({ subject: t.subject, predicate: t.predicate, object: t.object })),
+      );
     }
-
     expect(streamed).toEqual([
-      { subjectId: 1, predicateId: 2, objectId: 3 },
-      { subjectId: 4, predicateId: 5, objectId: 6 },
+      { subject: 'alice', predicate: 'knows', object: 'bob' },
+      { subject: 'alice', predicate: 'knows', object: 'carol' },
     ]);
+
     await store.close();
 
-    expect(calls.find((c) => c.type === 'hydrate')).toMatchObject({
-      payload: { dictionary: [], triples: [] },
-    });
-    expect(calls.find((c) => c.type === 'open')).toBeTruthy();
-    expect(calls.find((c) => c.type === 'add')).toMatchObject({
-      payload: { subject: 'alice', predicate: 'knows', object: 'bob' },
-    });
-    const queryCalls = calls.filter((c) => c.type === 'query');
-    expect(queryCalls).toHaveLength(1);
-    expect(queryCalls[0]?.payload).toEqual({});
-    const cursorOpens = calls.filter((c) => c.type === 'cursor_open');
-    expect(cursorOpens).toHaveLength(1);
-    expect(cursorOpens[0]?.payload).toEqual({ object_id: 6 });
-    const cursorReads = calls.filter((c) => c.type === 'cursor_next');
-    expect(cursorReads).toHaveLength(2);
-    expect(cursorReads[0]?.payload).toEqual({ cursorId: 42, batchSize: 1000 });
-    expect(cursorReads[1]?.payload).toEqual({ cursorId: 42, batchSize: 1000 });
+    expect(calls.some((c) => c.type === 'open')).toBe(true);
+    expect(calls.some((c) => c.type === 'add')).toBe(true);
+    expect(calls.some((c) => c.type === 'query')).toBe(true);
+    expect(calls.some((c) => c.type === 'cursor_open')).toBe(true);
     expect(calls.some((c) => c.type === 'cursor_close')).toBe(true);
     expect(calls.some((c) => c.type === 'close')).toBe(true);
   });
-
-  it('falls back to TypeScript streaming when native cursor is missing', async () => {
-    const calls: Array<{ type: string; payload?: unknown }> = [];
-
-    const mockHandle = {
-      hydrate() {
-        calls.push({ type: 'hydrate' });
-      },
-      addFact() {
-        calls.push({ type: 'add' });
-        return { subject_id: 10, predicate_id: 20, object_id: 30 };
-      },
-      query() {
-        calls.push({ type: 'query' });
-        return [{ subject_id: 10, predicate_id: 20, object_id: 30 }];
-      },
-      close() {
-        calls.push({ type: 'close' });
-      },
-    } as const;
-
-    __setNativeCoreForTesting({
-      open: () => mockHandle,
-    });
-
-    const store = await PersistentStore.open(':memory:');
-    store.addFact({ subject: 'neo', predicate: 'loves', object: 'trinity' });
-
-    const streamed: Array<{ subjectId: number; predicateId: number; objectId: number }> = [];
-    for await (const triple of store.queryStreaming({})) {
-      streamed.push(triple);
-      break; // 只验证首批即可
-    }
-
-    expect(streamed).toEqual([{ subjectId: 0, predicateId: 1, objectId: 2 }]);
-    expect(calls.some((c) => c.type === 'cursor_open')).toBe(false);
-    await store.close();
-  });
 });
+

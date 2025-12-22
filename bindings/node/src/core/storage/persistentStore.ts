@@ -30,6 +30,12 @@ interface NativeTriple {
   objectId: number;
 }
 
+interface NativeFact extends NativeTriple {
+  subject: string;
+  predicate: string;
+  object: string;
+}
+
 interface NativeQueryCriteria {
   subjectId?: number;
   predicateId?: number;
@@ -63,8 +69,13 @@ export interface NativeDatabaseHandle {
   resolveStr(id: number): string | null | undefined;
   executeQuery(query: string, params?: Record<string, unknown> | null): Record<string, any>[];
   query(criteria?: NativeQueryCriteria): NativeTriple[];
+  queryFacts?(criteria?: NativeQueryCriteria): NativeFact[];
   openCursor(criteria?: NativeQueryCriteria): { id: number };
   readCursor(cursorId: number, batchSize: number): { triples: NativeTriple[]; done: boolean };
+  readCursorFacts?(
+    cursorId: number,
+    batchSize: number,
+  ): { facts: NativeFact[]; done: boolean };
   closeCursor(cursorId: number): void;
   hydrate(dictionary: string[], triples: NativeTriple[]): void;
   setNodeProperty(nodeId: number, json: string): void;
@@ -194,6 +205,9 @@ export class PersistentStore {
 
   listFacts(): FactRecord[] {
     this.ensureOpen();
+    if (typeof this.native.queryFacts === 'function') {
+      return this.native.queryFacts().map((t) => this.toFactRecordResolved(t));
+    }
     const triples = this.native.query();
     return triples.map((t) => this.toFactRecord(t));
   }
@@ -224,6 +238,11 @@ export class PersistentStore {
       nativeCriteria.objectId = this.native.resolveId(criteria.object) ?? undefined;
     } else if (criteria.objectId !== undefined) {
       nativeCriteria.objectId = criteria.objectId;
+    }
+
+    if (typeof this.native.queryFacts === 'function') {
+      const facts = this.native.queryFacts(nativeCriteria);
+      return facts.map((t) => this.toFactRecordResolved(t));
     }
 
     const triples = this.native.query(nativeCriteria);
@@ -379,6 +398,15 @@ export class PersistentStore {
 
     try {
       while (true) {
+        if (typeof this.native.readCursorFacts === 'function') {
+          const { facts, done } = this.native.readCursorFacts(cursor.id, batchSize);
+          if (facts.length > 0) {
+            yield facts.map((t) => this.toFactRecordResolved(t));
+          }
+          if (done) break;
+          continue;
+        }
+
         const { triples, done } = this.native.readCursor(cursor.id, batchSize);
         if (triples.length > 0) {
           yield triples.map((t) => this.toFactRecord(t));
@@ -578,7 +606,9 @@ export class PersistentStore {
     const object = this.native.resolveStr(triple.objectId);
 
     if (!subject || !predicate || !object) {
-      throw new Error(`Failed to resolve triple: ${JSON.stringify(triple)}`);
+      throw new Error(
+        `Failed to resolve triple: s=${String(triple.subjectId)} p=${String(triple.predicateId)} o=${String(triple.objectId)}`,
+      );
     }
 
     return {
@@ -588,6 +618,23 @@ export class PersistentStore {
       subjectId: triple.subjectId,
       predicateId: triple.predicateId,
       objectId: triple.objectId,
+    };
+  }
+
+  private toFactRecordResolved(fact: NativeFact): FactRecord {
+    if (!fact.subject || !fact.predicate || !fact.object) {
+      throw new Error(
+        `Failed to resolve triple: s=${String(fact.subjectId)} p=${String(fact.predicateId)} o=${String(fact.objectId)}`,
+      );
+    }
+
+    return {
+      subject: fact.subject,
+      predicate: fact.predicate,
+      object: fact.object,
+      subjectId: fact.subjectId,
+      predicateId: fact.predicateId,
+      objectId: fact.objectId,
     };
   }
 }

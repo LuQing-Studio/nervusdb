@@ -2,23 +2,11 @@
  * NervusDB 顶层 CLI 分发器
  *
  * 用法：
- *   synapsedb <command> [...args]
+ *   nervusdb <command> [...args]
  *
  * 可用命令：
- *   check <db> [--summary|--strict]
- *   repair <db> [--fast]
- *   compact [...args]
- *   stats <db> [--txids[=N]] [--txids-window=MINUTES]
- *   txids <db> [--list[=N]] [--since=MINUTES] [--session=ID] [--max=N] [--clear]
- *   dump <db> [...args]
- *   bench <db> [count] [mode]
- *   auto-compact [...args]
- *   gc <db> [...args]
- *   hot <db> [...args]
- *   readers <db> [--json] [--watch] [--details]
- *   repair-page <db> <order> <primary>
- *   cypher <db> [--query|-q <cypher>] [--file <path>] [--readonly] [--optimize[=basic|aggressive]] [--params JSON] [--format table|json] [--limit N]
- *   benchmark [run|core|search|graph|spatial|regression|memory-leak] [...args]
+ *   bench <db> [count]
+ *   cypher <db> [--query|-q <cypher>] [--file <path>] [--readonly] [--params JSON] [--format table|json] [--limit N]
  */
 
 import { spawn } from 'node:child_process';
@@ -40,23 +28,11 @@ function usage(): void {
     'NervusDB CLI',
     '',
     '用法:',
-    '  synapsedb <command> [...args]',
+    '  nervusdb <command> [...args]',
     '',
     '命令:',
-    '  check <db> [--summary|--strict]',
-    '  repair <db> [--fast]',
-    '  compact [...args]',
-    '  stats <db> [--txids[=N]] [--txids-window=MIN]',
-    '  txids <db> [--list[=N]] [--since=MIN] [--session=ID] [--max=N] [--clear]',
-    '  dump <db> [...args]',
-    '  bench <db> [count] [mode]',
-    '  auto-compact [...args]',
-    '  gc <db> [...args]',
-    '  hot <db> [...args]',
-    '  readers <db> [--json] [--watch] [--details]',
-    '  repair-page <db> <order> <primary>',
-    '  cypher <db> [--query|-q <cypher>] [--file <path>] [--readonly] [--optimize[=basic|aggressive]] [--params JSON] [--format table|json] [--limit N]',
-    '  benchmark [run|core|search|graph|spatial|regression|memory-leak] [...args]',
+    '  bench <db> [count]',
+    '  cypher <db> [--query|-q <cypher>] [--file <path>] [--readonly] [--params JSON] [--format table|json] [--limit N]',
   ];
   console.log(lines.join('\n'));
 }
@@ -70,69 +46,13 @@ async function main() {
 
   const rel = (p: string) => resolve(here, p);
   switch (cmd) {
-    case 'check':
-    case 'repair': {
-      const code = await run(rel('./check.js'), [cmd, ...rest]);
-      process.exit(code);
-      break;
-    }
-    case 'compact': {
-      const code = await run(rel('./compact.js'), rest);
-      process.exit(code);
-      break;
-    }
-    case 'stats': {
-      const code = await run(rel('./stats.js'), rest);
-      process.exit(code);
-      break;
-    }
-    case 'txids': {
-      const code = await run(rel('./txids.js'), rest);
-      process.exit(code);
-      break;
-    }
-    case 'dump': {
-      const code = await run(rel('./dump.js'), rest);
-      process.exit(code);
-      break;
-    }
     case 'bench': {
       const code = await run(rel('./bench.js'), rest);
       process.exit(code);
       break;
     }
-    case 'auto-compact': {
-      const code = await run(rel('./auto_compact.js'), rest);
-      process.exit(code);
-      break;
-    }
-    case 'gc': {
-      const code = await run(rel('./gc.js'), rest);
-      process.exit(code);
-      break;
-    }
-    case 'hot': {
-      const code = await run(rel('./hot.js'), rest);
-      process.exit(code);
-      break;
-    }
-    case 'readers': {
-      const code = await run(rel('./readers.js'), rest);
-      process.exit(code);
-      break;
-    }
-    case 'repair-page': {
-      const code = await run(rel('./repair_page.js'), rest);
-      process.exit(code);
-      break;
-    }
     case 'cypher': {
       const code = await run(rel('./cypher.js'), ['cypher', ...rest]);
-      process.exit(code);
-      break;
-    }
-    case 'benchmark': {
-      const code = await run(rel('./benchmark.js'), rest);
       process.exit(code);
       break;
     }
