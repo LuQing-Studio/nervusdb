@@ -35,7 +35,12 @@
 - 为 `bindings/node/native/nervusdb-node` 添加同名 feature `temporal`：
   - 该 feature 透传启用 `nervusdb-core/temporal`
   - 相关类型 import 与 `#[napi] temporal*` 方法都加 `#[cfg(feature = \"temporal\")]`
-- TypeScript 侧无需“模拟 temporal”：继续按现有 `nativeTemporalSupported()` 判定能力。
+
+### 4.3 TypeScript 绑定侧（能力探测与错误边界）
+
+- TypeScript 不“模拟实现”，只做能力探测与 fail-fast：
+  - 用现有 `nativeTemporalSupported(nativeHandle)` 判定是否支持。
+  - 不支持时：调用任何 `db.memory.*`（除 `getStore()`）必须抛出清晰错误：`Temporal feature is disabled. Rebuild native addon with --features temporal.`
 
 ## 5. Testing Strategy
 
@@ -45,4 +50,3 @@
 ## 6. Risks
 
 - feature gate 牵涉到 public API 和 N-API 导出：容易出现“某处引用了 temporal 类型但 feature off”导致编译失败，需要系统性梳理。
-

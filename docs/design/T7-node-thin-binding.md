@@ -12,11 +12,11 @@
 - **现在就砍（Breaking Change）**：移除 Node 侧插件系统与 JS 聚合逻辑，绑定层退化为“参数转换 + N-API 调用”。
 - 修复 `cypherQuery()` 的错误数据返回路径，确保 Cypher **只走 Rust Core 的查询执行器**（Native `executeQuery` / `exec_cypher`）。
 - 保留 Cypher 的 `@experimental` 标签，但实现必须正确、可测。
-- 输出面向用户的最小 Node API：点/边/属性 + 事务 + Cypher（实验性）。
+- 输出面向用户的最小 Node API：点/边/属性 + 事务 + Cypher（实验性）+ **图算法 native 透传接口**（如 Path / PageRank）。
 
 ## 3. Non-Goals
 
-- 不在 Node 侧保留任何聚合/优化/算法的“回退实现”（宁可没有，也别给错的）。
+- 不在 Node 侧保留任何聚合/优化/算法的“回退实现”（宁可没有，也别给错的）；算法接口允许存在，但必须是 **绝对透传** 的 native wrapper。
 - 不在本任务里实现 Rust 侧聚合执行器（后续单独 T 任务）。
 - 不引入新的二进制 Row 协议（1.0 前先用 JSON/对象返回，后续再做迭代器/二进制）。
 
@@ -30,6 +30,7 @@
 - `NervusDB` 保留为单一入口，但职责变为薄封装：
   - 只持有 `PersistentStore` / native handle。
   - 不再做插件注册/生命周期管理。
+  - 图算法接口统一挂在 `db.algorithms.*` 命名空间下（避免把主类搞成“工具箱大杂烩”）。
 
 ### 4.2 Cypher 正确路径（P0）
 
@@ -60,4 +61,3 @@
 
 - Breaking change 会打断现有 Node 用户：但 1.0 之前必须干净，不然以后就是坏疽。
 - 删除插件系统后，部分“便利方法”会消失：这是刻意的收敛，避免绑定层各写各的逻辑。
-

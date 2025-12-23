@@ -7,11 +7,13 @@ use napi::Result as NapiResult;
 use napi::{JsBoolean, JsNumber, JsString, JsUnknown, ValueType};
 use napi_derive::napi;
 
+use nervusdb_core::{Database, Fact, Options, QueryCriteria, StringId, Triple};
+#[cfg(feature = "temporal")]
 use nervusdb_core::{
-    Database, EnsureEntityOptions as CoreEnsureEntityOptions, EpisodeInput as CoreEpisodeInput,
-    EpisodeLinkOptions as CoreEpisodeLinkOptions, EpisodeLinkRecord, Fact,
-    FactWriteInput as CoreFactWriteInput, Options, QueryCriteria, StoredEntity, StoredEpisode,
-    StoredFact, StringId, TimelineQuery, TimelineRole, Triple,
+    EnsureEntityOptions as CoreEnsureEntityOptions, EpisodeInput as CoreEpisodeInput,
+    EpisodeLinkOptions as CoreEpisodeLinkOptions, EpisodeLinkRecord,
+    FactWriteInput as CoreFactWriteInput, StoredEntity, StoredEpisode, StoredFact, TimelineQuery,
+    TimelineRole,
 };
 use serde_json::Value;
 
@@ -107,6 +109,7 @@ pub struct PageRankResultOutput {
     pub converged: bool,
 }
 
+#[cfg(feature = "temporal")]
 #[napi(object)]
 pub struct TimelineQueryInput {
     pub entity_id: String,
@@ -117,6 +120,7 @@ pub struct TimelineQueryInput {
     pub between_end: Option<String>,
 }
 
+#[cfg(feature = "temporal")]
 #[napi(object)]
 pub struct TimelineFactOutput {
     pub fact_id: String,
@@ -130,6 +134,7 @@ pub struct TimelineFactOutput {
     pub source_episode_id: String,
 }
 
+#[cfg(feature = "temporal")]
 #[napi(object)]
 pub struct TimelineEpisodeOutput {
     pub episode_id: String,
@@ -140,6 +145,7 @@ pub struct TimelineEpisodeOutput {
     pub trace_hash: String,
 }
 
+#[cfg(feature = "temporal")]
 #[napi(object)]
 pub struct TemporalEpisodeInput {
     pub source_type: String,
@@ -148,6 +154,7 @@ pub struct TemporalEpisodeInput {
     pub trace_hash: Option<String>,
 }
 
+#[cfg(feature = "temporal")]
 #[napi(object)]
 pub struct TemporalEnsureEntityInput {
     pub kind: String,
@@ -158,6 +165,7 @@ pub struct TemporalEnsureEntityInput {
     pub version_increment: Option<bool>,
 }
 
+#[cfg(feature = "temporal")]
 #[napi(object)]
 pub struct TemporalEntityOutput {
     pub entity_id: String,
@@ -169,6 +177,7 @@ pub struct TemporalEntityOutput {
     pub version: String,
 }
 
+#[cfg(feature = "temporal")]
 #[napi(object)]
 pub struct TemporalFactWriteInput {
     pub subject_entity_id: String,
@@ -181,6 +190,7 @@ pub struct TemporalFactWriteInput {
     pub source_episode_id: String,
 }
 
+#[cfg(feature = "temporal")]
 #[napi(object)]
 pub struct TemporalLinkInput {
     pub episode_id: String,
@@ -189,6 +199,7 @@ pub struct TemporalLinkInput {
     pub role: String,
 }
 
+#[cfg(feature = "temporal")]
 #[napi(object)]
 pub struct TemporalLinkOutput {
     pub link_id: String,
@@ -296,6 +307,7 @@ fn triple_to_fact_output(
     })
 }
 
+#[cfg(feature = "temporal")]
 fn fact_to_output(fact: StoredFact) -> TimelineFactOutput {
     TimelineFactOutput {
         fact_id: fact.fact_id.to_string(),
@@ -312,6 +324,7 @@ fn fact_to_output(fact: StoredFact) -> TimelineFactOutput {
     }
 }
 
+#[cfg(feature = "temporal")]
 fn parse_timeline_role(value: Option<String>) -> NapiResult<Option<TimelineRole>> {
     match value.map(|s| s.to_ascii_lowercase()) {
         None => Ok(None),
@@ -324,6 +337,7 @@ fn parse_timeline_role(value: Option<String>) -> NapiResult<Option<TimelineRole>
     }
 }
 
+#[cfg(feature = "temporal")]
 fn parse_id(value: &str, field: &str) -> NapiResult<u64> {
     value.parse::<u64>().map_err(|err| {
         napi::Error::new(
@@ -333,6 +347,7 @@ fn parse_id(value: &str, field: &str) -> NapiResult<u64> {
     })
 }
 
+#[cfg(feature = "temporal")]
 fn episode_to_output(episode: StoredEpisode) -> TimelineEpisodeOutput {
     TimelineEpisodeOutput {
         episode_id: episode.episode_id.to_string(),
@@ -344,6 +359,7 @@ fn episode_to_output(episode: StoredEpisode) -> TimelineEpisodeOutput {
     }
 }
 
+#[cfg(feature = "temporal")]
 fn entity_to_output(entity: StoredEntity) -> TemporalEntityOutput {
     TemporalEntityOutput {
         entity_id: entity.entity_id.to_string(),
@@ -356,6 +372,7 @@ fn entity_to_output(entity: StoredEntity) -> TemporalEntityOutput {
     }
 }
 
+#[cfg(feature = "temporal")]
 fn link_to_output(record: EpisodeLinkRecord) -> TemporalLinkOutput {
     TemporalLinkOutput {
         link_id: record.link_id.to_string(),
@@ -366,6 +383,7 @@ fn link_to_output(record: EpisodeLinkRecord) -> TemporalLinkOutput {
     }
 }
 
+#[cfg(feature = "temporal")]
 fn parse_optional_id(value: Option<String>, field: &str) -> NapiResult<Option<u64>> {
     match value {
         Some(raw) => parse_id(&raw, field).map(Some),
@@ -373,6 +391,7 @@ fn parse_optional_id(value: Option<String>, field: &str) -> NapiResult<Option<u6
     }
 }
 
+#[cfg(feature = "temporal")]
 fn parse_json_value(raw: Option<String>, field: &str) -> NapiResult<Option<Value>> {
     match raw {
         Some(value) => serde_json::from_str(&value).map(Some).map_err(|err| {
@@ -385,6 +404,7 @@ fn parse_json_value(raw: Option<String>, field: &str) -> NapiResult<Option<Value
     }
 }
 
+#[cfg(feature = "temporal")]
 fn parse_payload_json(raw: &str) -> NapiResult<Value> {
     serde_json::from_str(raw).map_err(|err| {
         napi::Error::new(
