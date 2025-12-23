@@ -18,3 +18,4 @@
 | T16 | 代码清理：删除 _archive + 统一命名 | L1 | P1 | Done | - | 删除 `_archive/`；`synapseDb.ts` → `nervusDb.ts`；删除冗余 `lock.ts` |
 | T17 | 真流式执行器（消除 collect） | L3 | P0 | Done | feat/T17-arc-database | Arc<Database> 包装 + execute_streaming 返回 'static 迭代器；FFI 层无 collect() |
 | T18 | Node.js 属性写入优化 - 消除 JSON 序列化 | L2 | P0 | Done | feat/T18-msgpack-properties | 添加 *Direct 方法，直接传 JS Object，跳过 JSON.stringify/parse |
+| T19 | temporal_v2 分离为独立 crate | L3 | P1 | Done | refactor/T19-T20-architecture | 创建 nervusdb-temporal crate，nervusdb-core 通过 feature gate 依赖 |
