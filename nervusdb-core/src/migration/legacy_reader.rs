@@ -256,7 +256,7 @@ mod tests {
 
         // Write header
         let mut header = vec![0u8; FILE_HEADER_LENGTH as usize];
-        header[..MAGIC_HEADER.len()].copy_from_slice(&MAGIC_HEADER);
+        header[..MAGIC_HEADER.len()].copy_from_slice(MAGIC_HEADER);
         header[MAGIC_HEADER.len()..MAGIC_HEADER.len() + 4]
             .copy_from_slice(&FILE_VERSION.to_le_bytes());
 

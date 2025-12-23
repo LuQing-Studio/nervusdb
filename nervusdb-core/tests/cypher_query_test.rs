@@ -22,7 +22,7 @@ fn test_simple_match_return() {
     let results = db.execute_query(query).unwrap();
 
     // Should return nodes
-    assert!(results.len() > 0, "Expected at least one result");
+    assert!(!results.is_empty(), "Expected at least one result");
     println!("Simple MATCH results: {} records", results.len());
 }
 
@@ -95,7 +95,7 @@ fn test_match_relationship() {
     match db.execute_query(query) {
         Ok(results) => {
             println!("Relationship MATCH results: {} records", results.len());
-            assert!(results.len() > 0, "Expected relationship matches");
+            assert!(!results.is_empty(), "Expected relationship matches");
 
             // Check structure
             if let Some(first) = results.first() {
