@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { NervusDB } from '../synapseDb.js';
+import { NervusDB } from '../nervusDb.js';
 
 async function main() {
   const [dbPath, countArg, modeArg] = process.argv.slice(2);

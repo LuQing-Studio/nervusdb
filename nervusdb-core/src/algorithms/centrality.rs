@@ -142,11 +142,11 @@ pub fn pagerank(
     }
 }
 
+/// Graph adjacency structure
+type GraphStructure = (Vec<u64>, HashMap<u64, Vec<u64>>, HashMap<u64, Vec<u64>>);
+
 /// Build graph structure from Hexastore
-fn build_graph_structure(
-    store: &dyn Hexastore,
-    predicate_id: Option<u64>,
-) -> (Vec<u64>, HashMap<u64, Vec<u64>>, HashMap<u64, Vec<u64>>) {
+fn build_graph_structure(store: &dyn Hexastore, predicate_id: Option<u64>) -> GraphStructure {
     let mut nodes_set = std::collections::HashSet::new();
     let mut outgoing: HashMap<u64, Vec<u64>> = HashMap::new();
     let mut incoming: HashMap<u64, Vec<u64>> = HashMap::new();

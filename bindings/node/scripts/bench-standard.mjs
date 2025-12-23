@@ -2,7 +2,7 @@
 // 简易标准基准：生成合成数据，对比 PatternBuilder 与 Cypher 引擎的查询耗时
 // 用法：node scripts/bench-standard.mjs <db> [--count=100000] [--limit=1000]
 
-import { SynapseDB } from '../dist/synapseDb.js';
+import { NervusDB } from '../dist/nervusDb.js';
 
 function parseArgs(argv) {
   const args = { db: '', count: 100000, limit: 1000 };
@@ -22,7 +22,7 @@ async function main() {
     process.exit(1);
   }
 
-  const db = await SynapseDB.open(args.db);
+  const db = await NervusDB.open(args.db);
 
   // 合成数据：S{i%10000} -[R]-> O{i}
   console.log(`生成数据 ${args.count} 条...`);

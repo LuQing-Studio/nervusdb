@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * 迁移脚本：从 NDJSON(每行一个 {subject,predicate,object,props?}) 导入到 SynapseDB
+ * 迁移脚本：从 NDJSON(每行一个 {subject,predicate,object,props?}) 导入到 NervusDB
  * 用法：node scripts/migrate-ndjson.mjs <input.ndjson> <db.synapsedb>
  */
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { SynapseDB } from '../dist/synapseDb.js';
+import { NervusDB } from '../dist/nervusDb.js';
 
 async function main() {
   const [input, dbPath] = process.argv.slice(2);
@@ -13,7 +13,7 @@ async function main() {
     console.error('用法: node scripts/migrate-ndjson.mjs <input.ndjson> <db.synapsedb>');
     process.exit(1);
   }
-  const db = await SynapseDB.open(dbPath);
+  const db = await NervusDB.open(dbPath);
   const rl = createInterface({ input: createReadStream(input, 'utf8'), crlfDelay: Infinity });
   let n = 0;
   for await (const line of rl) {

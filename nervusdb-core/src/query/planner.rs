@@ -75,6 +75,12 @@ pub struct DeleteNode {
 
 pub struct QueryPlanner;
 
+impl Default for QueryPlanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl QueryPlanner {
     pub fn new() -> Self {
         Self

@@ -69,7 +69,7 @@ const COMMENTS = {
   'src/test': '辅助测试资源（若有）',
   'tests': '单元与集成测试（Vitest）',
   'docs': '文档与示例',
-  'docs/SynapseDB设计文档.md': '设计说明',
+  'docs/NervusDB设计文档.md': '设计说明',
   'docs/使用示例': '使用教程与FAQ',
   'docs/教学文档': '系列教程与API',
   'docs/milestones': '里程碑规划',
@@ -378,8 +378,8 @@ async function buildDocsSection() {
   const lines = [];
   if (!hasDir('docs')) return lines;
   lines.push('├─ docs/                         ' + (COMMENTS['docs'] || ''));
-  if (hasFile('docs/SynapseDB设计文档.md'))
-    lines.push('│  ├─ ' + withComment('docs/SynapseDB设计文档.md'));
+  if (hasFile('docs/NervusDB设计文档.md'))
+    lines.push('│  ├─ ' + withComment('docs/NervusDB设计文档.md'));
   const subdirs = ['milestones','使用示例','教学文档','项目发展路线图','项目实施建议','项目审查文档'];
   const present = subdirs.filter((d)=> hasDir(path.posix.join('docs', d)));
   present.forEach((d, idx) => {

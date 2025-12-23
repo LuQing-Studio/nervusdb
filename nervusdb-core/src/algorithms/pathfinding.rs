@@ -160,10 +160,10 @@ where
 
     while let Some(DijkstraEntry { node_id, cost }) = heap.pop() {
         // Skip if we've found a better path
-        if let Some(&best) = distances.get(&node_id) {
-            if cost > best {
-                continue;
-            }
+        if let Some(&best) = distances.get(&node_id)
+            && cost > best
+        {
+            continue;
         }
 
         // Check hop limit
