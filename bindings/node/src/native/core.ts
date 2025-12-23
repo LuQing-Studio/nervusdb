@@ -39,6 +39,25 @@ export interface NativeFactCursorBatch {
   done: boolean;
 }
 
+export interface NativeCypherRelationship {
+  subjectId: bigint;
+  predicateId: bigint;
+  objectId: bigint;
+}
+
+export interface NativeCypherStatement {
+  step(): boolean;
+  columnCount(): number;
+  columnName(column: number): string | null;
+  columnType(column: number): number;
+  columnText(column: number): string | null;
+  columnFloat(column: number): number | null;
+  columnBool(column: number): boolean | null;
+  columnNodeId(column: number): bigint | null;
+  columnRelationship(column: number): NativeCypherRelationship | null;
+  finalize(): void;
+}
+
 export interface NativeTimelineQueryInput {
   entity_id: string;
   predicate_key?: string;
@@ -155,6 +174,7 @@ export interface NativeDatabaseHandle {
   resolveId(value: string): number | null | undefined;
   resolveStr(id: number): string | null | undefined;
   executeQuery(query: string, params?: Record<string, unknown> | null): Record<string, any>[];
+  prepareV2(query: string, params?: Record<string, unknown> | null): NativeCypherStatement;
   query(criteria?: NativeQueryCriteria): NativeTriple[];
   queryFacts?(criteria?: NativeQueryCriteria): NativeFactOutput[];
   openCursor(criteria?: NativeQueryCriteria): { id: number };
