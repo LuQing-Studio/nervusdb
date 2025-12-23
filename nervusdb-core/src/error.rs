@@ -42,3 +42,10 @@ impl From<io::Error> for Error {
         Error::Io(err)
     }
 }
+
+#[cfg(all(feature = "temporal", not(target_arch = "wasm32")))]
+impl From<nervusdb_temporal::Error> for Error {
+    fn from(err: nervusdb_temporal::Error) -> Self {
+        Error::Other(err.to_string())
+    }
+}

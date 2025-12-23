@@ -21,13 +21,41 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::{Error, Result};
 use redb::{ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+
+// ============================================================================
+// Error Types
+// ============================================================================
+
+/// Error type for temporal store operations
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("Database error: {0}")]
+    Database(#[from] redb::Error),
+    #[error("Transaction error: {0}")]
+    Transaction(#[from] redb::TransactionError),
+    #[error("Table error: {0}")]
+    Table(#[from] redb::TableError),
+    #[error("Storage error: {0}")]
+    Storage(#[from] redb::StorageError),
+    #[error("Commit error: {0}")]
+    Commit(#[from] redb::CommitError),
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+    #[error("Not found: {0}")]
+    NotFound(String),
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+    #[error("Other error: {0}")]
+    Other(String),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 // ============================================================================
 // Table Definitions
