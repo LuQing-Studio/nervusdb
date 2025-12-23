@@ -21,13 +21,41 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::{Error, Result};
 use redb::{ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+
+// ============================================================================
+// Error Types
+// ============================================================================
+
+/// Error type for temporal store operations
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("Database error: {0}")]
+    Database(#[from] redb::Error),
+    #[error("Transaction error: {0}")]
+    Transaction(#[from] redb::TransactionError),
+    #[error("Table error: {0}")]
+    Table(#[from] redb::TableError),
+    #[error("Storage error: {0}")]
+    Storage(#[from] redb::StorageError),
+    #[error("Commit error: {0}")]
+    Commit(#[from] redb::CommitError),
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+    #[error("Not found: {0}")]
+    NotFound(String),
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+    #[error("Other error: {0}")]
+    Other(String),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 // ============================================================================
 // Table Definitions
@@ -98,23 +126,12 @@ pub struct StoredAlias {
     pub confidence: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EnsureEntityOptions {
     pub alias: Option<String>,
     pub confidence: Option<f64>,
     pub occurred_at: Option<String>,
     pub version_increment: bool,
-}
-
-impl Default for EnsureEntityOptions {
-    fn default() -> Self {
-        Self {
-            alias: None,
-            confidence: None,
-            occurred_at: None,
-            version_increment: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1036,10 +1053,10 @@ impl TemporalStoreV2 {
                     .map_err(|e| Error::Other(format!("msgpack error: {e}")))?;
 
                 // 过滤 predicate_key
-                if let Some(key) = &query.predicate_key {
-                    if &fact.predicate_key != key {
-                        continue;
-                    }
+                if let Some(key) = &query.predicate_key
+                    && &fact.predicate_key != key
+                {
+                    continue;
                 }
 
                 // 过滤时间范围

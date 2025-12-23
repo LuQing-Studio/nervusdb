@@ -9,8 +9,6 @@ pub mod migration;
 pub mod parser;
 pub mod query;
 pub mod storage;
-#[cfg(all(feature = "temporal", not(target_arch = "wasm32")))]
-pub mod temporal_v2; // New multi-table architecture
 pub mod triple;
 
 use std::collections::HashMap;
@@ -25,9 +23,9 @@ pub type StringId = u64;
 pub use error::{Error, Result};
 #[cfg(not(target_arch = "wasm32"))]
 use redb::{Database as RedbDatabase, WriteTransaction};
-// Re-export Temporal Store v2 types (replacing legacy v1)
+// Re-export Temporal Store types from nervusdb-temporal crate
 #[cfg(all(feature = "temporal", not(target_arch = "wasm32")))]
-pub use temporal_v2::{
+pub use nervusdb_temporal::{
     EnsureEntityOptions, EpisodeInput, EpisodeLinkOptions, EpisodeLinkRecord, FactWriteInput,
     StoredAlias, StoredEntity, StoredEpisode, StoredFact, TemporalStoreV2 as TemporalStore,
     TimelineQuery, TimelineRole,

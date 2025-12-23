@@ -65,4 +65,4 @@ nervusdb-node
 
 ## 5. Status
 
-**Plan** - 等待 v1.1 发布后实施
+**Done** - nervusdb-temporal crate 已创建并迁移完成
