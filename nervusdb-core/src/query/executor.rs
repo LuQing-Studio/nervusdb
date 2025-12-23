@@ -838,11 +838,77 @@ fn evaluate_expression_value_streaming(
             }
         }
         Expression::FunctionCall(func) => match func.name.to_lowercase().as_str() {
-            "id" => {
-                if let Some(arg) = func.arguments.first()
-                    && let Value::Node(id) = evaluate_expression_value_streaming(arg, record, ctx)
-                {
-                    return Value::Float(id as f64);
+            "id" => match func
+                .arguments
+                .first()
+                .map(|arg| evaluate_expression_value_streaming(arg, record, ctx))
+            {
+                Some(Value::Node(id)) => Value::Float(id as f64),
+                _ => Value::Null,
+            },
+            "type" => match func
+                .arguments
+                .first()
+                .map(|arg| evaluate_expression_value_streaming(arg, record, ctx))
+            {
+                Some(Value::Relationship(triple)) => relationship_type_value(&ctx.db, &triple),
+                _ => Value::Null,
+            },
+            "labels" => match func
+                .arguments
+                .first()
+                .map(|arg| evaluate_expression_value_streaming(arg, record, ctx))
+            {
+                Some(Value::Node(id)) => node_labels_value(&ctx.db, id),
+                _ => Value::Null,
+            },
+            "keys" => match func
+                .arguments
+                .first()
+                .map(|arg| evaluate_expression_value_streaming(arg, record, ctx))
+            {
+                Some(Value::Node(id)) => node_property_keys_value(&ctx.db, id),
+                Some(Value::Relationship(triple)) => edge_property_keys_value(&ctx.db, &triple),
+                _ => Value::Null,
+            },
+            "size" => match func
+                .arguments
+                .first()
+                .map(|arg| evaluate_expression_value_streaming(arg, record, ctx))
+            {
+                Some(Value::String(s)) => Value::Float(s.len() as f64),
+                _ => Value::Null,
+            },
+            "toupper" => match func
+                .arguments
+                .first()
+                .map(|arg| evaluate_expression_value_streaming(arg, record, ctx))
+            {
+                Some(Value::String(s)) => Value::String(s.to_uppercase()),
+                _ => Value::Null,
+            },
+            "tolower" => match func
+                .arguments
+                .first()
+                .map(|arg| evaluate_expression_value_streaming(arg, record, ctx))
+            {
+                Some(Value::String(s)) => Value::String(s.to_lowercase()),
+                _ => Value::Null,
+            },
+            "trim" => match func
+                .arguments
+                .first()
+                .map(|arg| evaluate_expression_value_streaming(arg, record, ctx))
+            {
+                Some(Value::String(s)) => Value::String(s.trim().to_string()),
+                _ => Value::Null,
+            },
+            "coalesce" => {
+                for arg in &func.arguments {
+                    let v = evaluate_expression_value_streaming(arg, record, ctx);
+                    if !matches!(v, Value::Null) {
+                        return v;
+                    }
                 }
                 Value::Null
             }
@@ -850,6 +916,63 @@ fn evaluate_expression_value_streaming(
         },
         _ => Value::Null,
     }
+}
+
+fn json_array_string(mut values: Vec<String>) -> Value {
+    values.sort();
+    let json =
+        serde_json::Value::Array(values.into_iter().map(serde_json::Value::String).collect());
+    Value::String(json.to_string())
+}
+
+fn relationship_type_value(db: &Database, triple: &Triple) -> Value {
+    match db.resolve_str(triple.predicate_id).ok().flatten() {
+        Some(s) => Value::String(s),
+        None => Value::Null,
+    }
+}
+
+fn node_labels_value(db: &Database, node_id: u64) -> Value {
+    let Some(type_id) = db.resolve_id("type").ok().flatten() else {
+        return Value::String("[]".to_string());
+    };
+
+    let criteria = QueryCriteria {
+        subject_id: Some(node_id),
+        predicate_id: Some(type_id),
+        object_id: None,
+    };
+
+    let labels: Vec<String> = db
+        .query(criteria)
+        .filter_map(|t| db.resolve_str(t.object_id).ok().flatten())
+        .collect();
+
+    json_array_string(labels)
+}
+
+fn node_property_keys_value(db: &Database, node_id: u64) -> Value {
+    let keys: Vec<String> = db
+        .get_node_property_binary(node_id)
+        .ok()
+        .flatten()
+        .and_then(|binary| crate::storage::property::deserialize_properties(&binary).ok())
+        .map(|props| props.keys().cloned().collect())
+        .unwrap_or_default();
+
+    json_array_string(keys)
+}
+
+fn edge_property_keys_value(db: &Database, triple: &Triple) -> Value {
+    let keys: Vec<String> = db
+        .get_edge_property_binary(triple.subject_id, triple.predicate_id, triple.object_id)
+        .ok()
+        .flatten()
+        .and_then(|binary| crate::storage::property::deserialize_properties(&binary).ok())
+        .map(|props| props.keys().cloned().collect())
+        .unwrap_or_default();
+
+    json_array_string(keys)
 }
 
 // ============================================================================
@@ -1803,9 +1926,9 @@ pub fn evaluate_expression_value(
         Expression::Literal(l) => match l {
             Literal::String(s) => Value::String(s.clone()),
             Literal::Float(f) => Value::Float(*f),
+            Literal::Integer(i) => Value::Float(*i as f64),
             Literal::Boolean(b) => Value::Boolean(*b),
             Literal::Null => Value::Null,
-            _ => Value::Null,
         },
         Expression::Variable(name) => record.get(name).cloned().unwrap_or(Value::Null),
         Expression::Parameter(name) => ctx.params.get(name).cloned().unwrap_or(Value::Null),
@@ -1893,6 +2016,83 @@ pub fn evaluate_expression_value(
                 },
             }
         }
+        Expression::FunctionCall(func) => match func.name.to_lowercase().as_str() {
+            "id" => match func
+                .arguments
+                .first()
+                .map(|arg| evaluate_expression_value(arg, record, ctx))
+            {
+                Some(Value::Node(id)) => Value::Float(id as f64),
+                _ => Value::Null,
+            },
+            "type" => match func
+                .arguments
+                .first()
+                .map(|arg| evaluate_expression_value(arg, record, ctx))
+            {
+                Some(Value::Relationship(triple)) => relationship_type_value(ctx.db, &triple),
+                _ => Value::Null,
+            },
+            "labels" => match func
+                .arguments
+                .first()
+                .map(|arg| evaluate_expression_value(arg, record, ctx))
+            {
+                Some(Value::Node(id)) => node_labels_value(ctx.db, id),
+                _ => Value::Null,
+            },
+            "keys" => match func
+                .arguments
+                .first()
+                .map(|arg| evaluate_expression_value(arg, record, ctx))
+            {
+                Some(Value::Node(id)) => node_property_keys_value(ctx.db, id),
+                Some(Value::Relationship(triple)) => edge_property_keys_value(ctx.db, &triple),
+                _ => Value::Null,
+            },
+            "size" => match func
+                .arguments
+                .first()
+                .map(|arg| evaluate_expression_value(arg, record, ctx))
+            {
+                Some(Value::String(s)) => Value::Float(s.len() as f64),
+                _ => Value::Null,
+            },
+            "toupper" => match func
+                .arguments
+                .first()
+                .map(|arg| evaluate_expression_value(arg, record, ctx))
+            {
+                Some(Value::String(s)) => Value::String(s.to_uppercase()),
+                _ => Value::Null,
+            },
+            "tolower" => match func
+                .arguments
+                .first()
+                .map(|arg| evaluate_expression_value(arg, record, ctx))
+            {
+                Some(Value::String(s)) => Value::String(s.to_lowercase()),
+                _ => Value::Null,
+            },
+            "trim" => match func
+                .arguments
+                .first()
+                .map(|arg| evaluate_expression_value(arg, record, ctx))
+            {
+                Some(Value::String(s)) => Value::String(s.trim().to_string()),
+                _ => Value::Null,
+            },
+            "coalesce" => {
+                for arg in &func.arguments {
+                    let v = evaluate_expression_value(arg, record, ctx);
+                    if !matches!(v, Value::Null) {
+                        return v;
+                    }
+                }
+                Value::Null
+            }
+            _ => Value::Null,
+        },
         _ => Value::Null,
     }
 }

@@ -383,6 +383,53 @@ fn test_union_all_keeps_duplicates() {
 }
 
 #[test]
+fn test_function_type() {
+    let dir = tempdir().unwrap();
+    let mut db = Database::open(Options::new(dir.path().join("test.db"))).unwrap();
+
+    db.add_fact(Fact::new("alice", "knows", "bob")).unwrap();
+
+    let results = db
+        .execute_query("MATCH (a)-[r:knows]->(b) RETURN type(r) AS t")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0].get("t"),
+        Some(&nervusdb_core::query::executor::Value::String(
+            "knows".to_string()
+        ))
+    );
+}
+
+#[test]
+fn test_function_labels_and_keys() {
+    let dir = tempdir().unwrap();
+    let mut db = Database::open(Options::new(dir.path().join("test.db"))).unwrap();
+
+    let _ = db
+        .execute_query("CREATE (n:Person {name: \"Alice\", age: 30})")
+        .unwrap();
+
+    let results = db
+        .execute_query("MATCH (n:Person) RETURN labels(n) AS l, keys(n) AS k LIMIT 1")
+        .unwrap();
+    assert_eq!(results.len(), 1);
+
+    assert_eq!(
+        results[0].get("l"),
+        Some(&nervusdb_core::query::executor::Value::String(
+            "[\"Person\"]".to_string()
+        ))
+    );
+
+    let Some(nervusdb_core::query::executor::Value::String(keys)) = results[0].get("k") else {
+        panic!("Expected keys(n) to return a JSON string");
+    };
+    assert!(keys.contains("\"age\""));
+    assert!(keys.contains("\"name\""));
+}
+
+#[test]
 fn test_where_arithmetic_in_expressions() {
     let dir = tempdir().unwrap();
     let mut db = Database::open(Options::new(dir.path().join("test.db"))).unwrap();
