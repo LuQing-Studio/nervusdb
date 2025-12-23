@@ -2,6 +2,11 @@
 name = "nervusdb-core"
 version = "1.0.0"
 edition = "2024"
+license = "AGPL-3.0-only"
+description = "Embeddable Graph Database Core (Rust)"
+repository = "https://github.com/LuQing-Studio/nervusdb"
+keywords = ["graph", "database", "embedded", "rdf", "cypher"]
+categories = ["database", "data-structures"]
 
 [lib]
 crate-type = ["rlib", "cdylib"]

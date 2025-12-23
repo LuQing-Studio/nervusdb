@@ -4,7 +4,7 @@ version = "1.2.0"
 authors = ["NervusDB Team"]
 edition = "2021"
 description = "WebAssembly storage engine for NervusDB"
-license = "MIT"
+license = "AGPL-3.0-only"
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-O", "--enable-bulk-memory"]

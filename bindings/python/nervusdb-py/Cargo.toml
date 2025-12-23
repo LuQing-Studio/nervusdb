@@ -3,7 +3,7 @@ name = "nervusdb-py"
 version = "1.0.0"
 edition = "2021"
 description = "Python bindings for NervusDB"
-license = "MIT"
+license = "AGPL-3.0-only"
 
 [lib]
 name = "nervusdb"
