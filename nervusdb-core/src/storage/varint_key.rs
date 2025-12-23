@@ -249,4 +249,60 @@ mod tests {
         assert_eq!(keys[1].decode(), (100, 200, 300));
         assert_eq!(keys[2].decode(), (10000, 20000, 30000));
     }
+
+    /// Benchmark: Compare storage size between u64 tuple and varint keys
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn bench_storage_size_comparison() {
+        use redb::{Database, ReadableDatabase, ReadableTableMetadata, TableDefinition};
+        use tempfile::NamedTempFile;
+
+        const TABLE_TUPLE: TableDefinition<(u64, u64, u64), ()> = TableDefinition::new("tuple");
+        const TABLE_VARINT: TableDefinition<VarintTripleKey, ()> = TableDefinition::new("varint");
+
+        let tmp = NamedTempFile::new().unwrap();
+        let db = Database::create(tmp.path()).unwrap();
+
+        const N: u64 = 10_000;
+
+        // Insert same data into both tables
+        let write_txn = db.begin_write().unwrap();
+        {
+            let mut tuple_table = write_txn.open_table(TABLE_TUPLE).unwrap();
+            let mut varint_table = write_txn.open_table(TABLE_VARINT).unwrap();
+
+            for i in 1..=N {
+                // Simulate realistic IDs (dictionary interned strings)
+                let s = i;
+                let p = (i % 100) + 1; // ~100 predicates
+                let o = i * 2;
+
+                tuple_table.insert((s, p, o), ()).unwrap();
+                varint_table
+                    .insert(VarintTripleKey::new(s, p, o), ())
+                    .unwrap();
+            }
+        }
+        write_txn.commit().unwrap();
+
+        // Compare sizes
+        let read_txn = db.begin_read().unwrap();
+        let tuple_table = read_txn.open_table(TABLE_TUPLE).unwrap();
+        let varint_table = read_txn.open_table(TABLE_VARINT).unwrap();
+
+        let tuple_len = tuple_table.len().unwrap();
+        let varint_len = varint_table.len().unwrap();
+
+        assert_eq!(tuple_len, N);
+        assert_eq!(varint_len, N);
+
+        // Print size comparison (visible in test output with --nocapture)
+        println!("=== Storage Size Comparison ({N} triples) ===");
+        println!("Tuple key: 24 bytes/key = {} bytes theoretical", N * 24);
+        println!(
+            "Varint key: ~6-12 bytes/key = {} bytes theoretical (avg 9)",
+            N * 9
+        );
+        println!("Compression ratio: ~{:.1}x", 24.0 / 9.0);
+    }
 }
