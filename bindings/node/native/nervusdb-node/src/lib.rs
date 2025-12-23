@@ -15,6 +15,7 @@ use nervusdb_core::{
     FactWriteInput as CoreFactWriteInput, StoredEntity, StoredEpisode, StoredFact, TimelineQuery,
     TimelineRole,
 };
+#[cfg(feature = "temporal")]
 use serde_json::Value;
 
 fn map_error(err: nervusdb_core::Error) -> napi::Error {
@@ -416,6 +417,7 @@ fn parse_payload_json(raw: &str) -> NapiResult<Value> {
 
 #[napi]
 impl DatabaseHandle {
+    #[cfg(feature = "temporal")]
     #[napi(js_name = "temporalAddEpisode")]
     pub fn temporal_add_episode(
         &self,
@@ -432,7 +434,6 @@ impl DatabaseHandle {
         let payload = parse_payload_json(&input.payload_json)?;
         let episode = db
             .temporal_store_mut()
-            .expect("temporal store not available")
             .add_episode(CoreEpisodeInput {
                 source_type: input.source_type,
                 payload,
@@ -443,6 +444,7 @@ impl DatabaseHandle {
         Ok(episode_to_output(episode))
     }
 
+    #[cfg(feature = "temporal")]
     #[napi(js_name = "temporalEnsureEntity")]
     pub fn temporal_ensure_entity(
         &self,
@@ -465,12 +467,12 @@ impl DatabaseHandle {
 
         let entity = db
             .temporal_store_mut()
-            .expect("temporal store not available")
             .ensure_entity(&input.kind, &input.canonical_name, options)
             .map_err(map_error)?;
         Ok(entity_to_output(entity))
     }
 
+    #[cfg(feature = "temporal")]
     #[napi(js_name = "temporalUpsertFact")]
     pub fn temporal_upsert_fact(
         &self,
@@ -491,7 +493,6 @@ impl DatabaseHandle {
 
         let fact = db
             .temporal_store_mut()
-            .expect("temporal store not available")
             .upsert_fact(CoreFactWriteInput {
                 subject_entity_id,
                 predicate_key: input.predicate_key,
@@ -506,6 +507,7 @@ impl DatabaseHandle {
         Ok(fact_to_output(fact))
     }
 
+    #[cfg(feature = "temporal")]
     #[napi(js_name = "temporalLinkEpisode")]
     pub fn temporal_link_episode(
         &self,
@@ -525,7 +527,6 @@ impl DatabaseHandle {
 
         let record = db
             .temporal_store_mut()
-            .expect("temporal store not available")
             .link_episode(
                 episode_id,
                 CoreEpisodeLinkOptions {
@@ -538,6 +539,7 @@ impl DatabaseHandle {
         Ok(link_to_output(record))
     }
 
+    #[cfg(feature = "temporal")]
     #[napi(js_name = "temporalListEntities")]
     pub fn temporal_list_entities(&self) -> NapiResult<Vec<TemporalEntityOutput>> {
         let guard = self
@@ -548,15 +550,12 @@ impl DatabaseHandle {
             .as_ref()
             .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
 
-        let entities = db
-            .temporal_store()
-            .expect("temporal store not available")
-            .get_entities()
-            .map_err(map_error)?;
+        let entities = db.temporal_store().get_entities().map_err(map_error)?;
 
         Ok(entities.into_iter().map(entity_to_output).collect())
     }
 
+    #[cfg(feature = "temporal")]
     #[napi(js_name = "temporalListEpisodes")]
     pub fn temporal_list_episodes(&self) -> NapiResult<Vec<TimelineEpisodeOutput>> {
         let guard = self
@@ -567,15 +566,12 @@ impl DatabaseHandle {
             .as_ref()
             .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
 
-        let episodes = db
-            .temporal_store()
-            .expect("temporal store not available")
-            .get_episodes()
-            .map_err(map_error)?;
+        let episodes = db.temporal_store().get_episodes().map_err(map_error)?;
 
         Ok(episodes.into_iter().map(episode_to_output).collect())
     }
 
+    #[cfg(feature = "temporal")]
     #[napi(js_name = "temporalListFacts")]
     pub fn temporal_list_facts(&self) -> NapiResult<Vec<TimelineFactOutput>> {
         let guard = self
@@ -586,11 +582,7 @@ impl DatabaseHandle {
             .as_ref()
             .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
 
-        let facts = db
-            .temporal_store()
-            .expect("temporal store not available")
-            .get_facts()
-            .map_err(map_error)?;
+        let facts = db.temporal_store().get_facts().map_err(map_error)?;
 
         Ok(facts.into_iter().map(fact_to_output).collect())
     }
@@ -920,6 +912,7 @@ impl DatabaseHandle {
         Ok(out)
     }
 
+    #[cfg(feature = "temporal")]
     #[napi]
     pub fn timeline_query(&self, input: TimelineQueryInput) -> NapiResult<Vec<TimelineFactOutput>> {
         let guard = self
@@ -955,6 +948,7 @@ impl DatabaseHandle {
         Ok(facts.into_iter().map(fact_to_output).collect())
     }
 
+    #[cfg(feature = "temporal")]
     #[napi(js_name = "timelineTrace")]
     pub fn timeline_trace(&self, fact_id: String) -> NapiResult<Vec<TimelineEpisodeOutput>> {
         let guard = self
