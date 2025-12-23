@@ -462,13 +462,13 @@ pub fn execute(db: &Database, query: &str) -> Result<Vec<Triple>> {
             } // Literal not found -> no match
         }
         QueryPart::Variable(name) => {
-            if let Some((w_var, w_val)) = &parsed.where_clause {
-                if w_var == name {
-                    s_criteria = db.resolve_id(w_val)?;
-                    if s_criteria.is_none() {
-                        return Ok(vec![]);
-                    } // Constrained value not found
-                }
+            if let Some((w_var, w_val)) = &parsed.where_clause
+                && w_var == name
+            {
+                s_criteria = db.resolve_id(w_val)?;
+                if s_criteria.is_none() {
+                    return Ok(vec![]);
+                } // Constrained value not found
             }
         }
         QueryPart::Anonymous => {}
@@ -483,12 +483,12 @@ pub fn execute(db: &Database, query: &str) -> Result<Vec<Triple>> {
             }
         }
         QueryPart::Variable(name) => {
-            if let Some((w_var, w_val)) = &parsed.where_clause {
-                if w_var == name {
-                    p_criteria = db.resolve_id(w_val)?;
-                    if p_criteria.is_none() {
-                        return Ok(vec![]);
-                    }
+            if let Some((w_var, w_val)) = &parsed.where_clause
+                && w_var == name
+            {
+                p_criteria = db.resolve_id(w_val)?;
+                if p_criteria.is_none() {
+                    return Ok(vec![]);
                 }
             }
         }
@@ -504,12 +504,12 @@ pub fn execute(db: &Database, query: &str) -> Result<Vec<Triple>> {
             }
         }
         QueryPart::Variable(name) => {
-            if let Some((w_var, w_val)) = &parsed.where_clause {
-                if w_var == name {
-                    o_criteria = db.resolve_id(w_val)?;
-                    if o_criteria.is_none() {
-                        return Ok(vec![]);
-                    }
+            if let Some((w_var, w_val)) = &parsed.where_clause
+                && w_var == name
+            {
+                o_criteria = db.resolve_id(w_val)?;
+                if o_criteria.is_none() {
+                    return Ok(vec![]);
                 }
             }
         }
@@ -571,9 +571,7 @@ fn execute_variable_path(
             for triple in triples {
                 let target = triple.object_id;
                 if depth >= path_len.min
-                    && criteria
-                        .object_id
-                        .map_or(true, |expected| expected == target)
+                    && criteria.object_id.is_none_or(|expected| expected == target)
                 {
                     results.push(triple);
                 }

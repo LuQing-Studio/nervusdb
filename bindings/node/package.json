@@ -24,7 +24,7 @@
     "dev": "tsx watch src/index.ts",
     "docs:tree": "node scripts/update-dir-tree.mjs",
     "lint": "eslint \"{src,tests}/**/*.{ts,tsx}\"",
-    "lint:core": "eslint \"src/{index.ts,synapseDb.ts,query/**/*.ts,storage/**/*.ts}\" --max-warnings=0",
+    "lint:core": "eslint \"src/{index.ts,nervusDb.ts,query/**/*.ts,storage/**/*.ts}\" --max-warnings=0",
     "lint:fix": "eslint \"{src,tests}/**/*.{ts,tsx}\" --fix",
     "lint:full:strict": "pnpm run lint:core",
     "format:check": "prettier -c \"../README.md\" \"../docs/**/*.md\" \"../.agents/**/*.md\" \"../.github/**/*.yml\" package.json",

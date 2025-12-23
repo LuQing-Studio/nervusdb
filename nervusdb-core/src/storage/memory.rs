@@ -16,6 +16,12 @@ pub struct MemoryHexastore {
     next_id: Arc<RwLock<u64>>,
 }
 
+impl Default for MemoryHexastore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemoryHexastore {
     pub fn new() -> Self {
         Self {

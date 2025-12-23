@@ -115,7 +115,7 @@ mod tests {
         let deserialized = deserialize_properties(&serialized).unwrap();
         assert_eq!(deserialized.get("name").unwrap().as_str().unwrap(), "Alice");
         assert_eq!(deserialized.get("age").unwrap().as_i64().unwrap(), 30);
-        assert_eq!(deserialized.get("active").unwrap().as_bool().unwrap(), true);
+        assert!(deserialized.get("active").unwrap().as_bool().unwrap());
     }
 
     #[test]

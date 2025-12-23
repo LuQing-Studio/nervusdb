@@ -14,3 +14,5 @@
 | T12 | 1.0 封版准备（ABI 冻结 + 文档清洗 + Crash Gate 复跑） | L2 | P0 | Done | release/T12-1.0-prep | README/CHANGELOG/项目结构去谎言化；明确 ABI 冻结规则；本地 crash-gate 1000x 通过 |
 | T13 | Node Statement API（对标 T10）+ 避免 V8 对象爆炸 | L3 | P0 | Done | feat/T13-node-statement | 新增 `prepareV2/step/column_* /finalize`；TS 提供流式消费路径；保留 `executeQuery` 兼容但不再是大结果集默认路径 |
 | T14 | v1.0.0 封版（ABI 法律化 + Cypher 白名单 + Crash Gate） | L3 | P0 | Done | release/T14-v1.0.0 | 冻结 `nervusdb.h`；明确 Cypher 子集与 NotImplemented 行为；发布前必须通过 crash-gate 1000x |
+| T15 | 真流式 Cypher 执行器（替换伪流式 Vec 预加载） | L3 | P0 | Done | - | Phase 1+2 完成：延迟执行 + StreamingQueryIterator；所有 warnings 已清理 |
+| T16 | 代码清理：删除 _archive + 统一命名 | L1 | P1 | Done | - | 删除 `_archive/`；`synapseDb.ts` → `nervusDb.ts`；删除冗余 `lock.ts` |

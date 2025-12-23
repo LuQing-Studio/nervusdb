@@ -3,7 +3,7 @@
  * 调试工具：打印某节点的出/入边邻接概览
  * 用法：node scripts/dump-graph.mjs <db.synapsedb> <nodeValue>
  */
-import { SynapseDB } from '../dist/synapseDb.js';
+import { NervusDB } from '../dist/nervusDb.js';
 
 async function main() {
   const [dbPath, value] = process.argv.slice(2);
@@ -11,7 +11,7 @@ async function main() {
     console.error('用法: node scripts/dump-graph.mjs <db.synapsedb> <nodeValue>');
     process.exit(1);
   }
-  const db = await SynapseDB.open(dbPath);
+  const db = await NervusDB.open(dbPath);
   const out = db.find({ subject: value }).all();
   const inc = db.find({ object: value }).all();
   console.log(`# 出边(${out.length})`);

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { __setNativeCoreForTesting } from '../../../src/native/core.js';
-import { NervusDB } from '../../../src/synapseDb.js';
+import { NervusDB } from '../../../src/nervusDb.js';
 
 const describeNative =
   process.env.NERVUSDB_EXPECT_NATIVE === '1' ? describe : describe.skip;

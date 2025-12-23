@@ -3,7 +3,6 @@
 // =======================
 // 架构说明：这是 Rust Core 的薄包装层
 // 所有复杂逻辑（算法、索引、解析器）都在 nervusdb-core 实现
-// 参考已归档的 TS 实现：_archive/ 目录
 
 // =======================
 // 核心层导出
@@ -13,7 +12,7 @@ export * as Core from './core/index.js';
 // =======================
 // 主入口
 // =======================
-export { NervusDB } from './synapseDb.js';
+export { NervusDB } from './nervusDb.js';
 export type {
   FactRecord,
   FactInput,
@@ -33,11 +32,11 @@ export type {
   TemporalStoredEntity,
   TemporalStoredFact,
   TemporalTimelineQuery,
-} from './synapseDb.js';
+} from './nervusDb.js';
 
 // 向后兼容别名
-export { NervusDB as CoreNervusDB } from './synapseDb.js';
-export { NervusDB as ExtendedNervusDB } from './synapseDb.js';
+export { NervusDB as CoreNervusDB } from './nervusDb.js';
+export { NervusDB as ExtendedNervusDB } from './nervusDb.js';
 
 // =======================
 // 存储层
@@ -61,8 +60,8 @@ export type {
 // 已移除的功能（v2.0）
 // =======================
 // 以下功能已从 TypeScript 移除，将在 Rust Core 重新实现：
-// - 图算法（PageRank, Dijkstra, Louvain）-> 参考 _archive/ts-algorithms/
-// - 全文检索（TF-IDF, BM25）-> 参考 _archive/ts-fulltext/
-// - 空间索引（R-Tree）-> 参考 _archive/ts-spatial/
+// - 图算法（PageRank, Dijkstra, Louvain）
+// - 全文检索（TF-IDF, BM25）
+// - 空间索引（R-Tree）
 // - QueryBuilder, LazyQueryBuilder -> 使用 cypher() 方法
 // - TypedNervusDB, TypedQueryBuilder -> 使用 cypher() 方法

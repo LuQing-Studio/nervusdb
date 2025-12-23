@@ -8,7 +8,7 @@
  */
 
 import { readFile } from 'node:fs/promises';
-import { NervusDB } from '../synapseDb.js';
+import { NervusDB } from '../nervusDb.js';
 
 interface Args {
   dbPath: string;

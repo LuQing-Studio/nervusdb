@@ -125,10 +125,10 @@ impl DiskHexastore {
         let r#gen = self.generation.load(Ordering::Relaxed);
         {
             let guard = self.read_cache.read().expect("read cache poisoned");
-            if let Some((cached_gen, handles)) = guard.as_ref() {
-                if *cached_gen == r#gen {
-                    return Ok(handles.clone());
-                }
+            if let Some((cached_gen, handles)) = guard.as_ref()
+                && *cached_gen == r#gen
+            {
+                return Ok(handles.clone());
             }
         }
 
@@ -657,15 +657,11 @@ impl<'txn> WriteTableHandles<'txn> {
             return Ok(id);
         }
 
-        let existing_id = if let Some(id_guard) = self
+        let existing_id = self
             .str_to_id
             .get(value)
             .map_err(|e| Error::Other(e.to_string()))?
-        {
-            Some(id_guard.value())
-        } else {
-            None
-        };
+            .map(|id_guard| id_guard.value());
         if let Some(id) = existing_id {
             self.string_cache.put(value.to_owned(), id);
             return Ok(id);
@@ -715,7 +711,7 @@ impl<'txn> WriteTableHandles<'txn> {
         Ok(triple)
     }
 
-    pub fn intern_bulk<'a>(&mut self, values: &[&'a str]) -> Result<Vec<u64>> {
+    pub fn intern_bulk(&mut self, values: &[&str]) -> Result<Vec<u64>> {
         let mut out = Vec::with_capacity(values.len());
         for v in values {
             out.push(self.intern(v)?);
@@ -805,11 +801,9 @@ impl Iterator for CachedCursor {
     fn next(&mut self) -> Option<Self::Item> {
         let index = *self.borrow_index();
         self.with_iter_mut(|iter| {
-            while let Some(entry) = iter.next() {
-                if let Ok((key, _)) = entry {
-                    let raw = key.value();
-                    return Some(index.decode(raw));
-                }
+            if let Some((key, _)) = iter.by_ref().flatten().next() {
+                let raw = key.value();
+                return Some(index.decode(raw));
             }
             None
         })

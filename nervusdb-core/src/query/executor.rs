@@ -68,9 +68,32 @@ impl Record {
     }
 }
 
+impl Default for Record {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct ExecutionContext<'a> {
     pub db: &'a Database,
     pub params: &'a HashMap<String, Value>,
+}
+
+/// Owned execution context for FFI - uses raw pointer to avoid lifetime issues
+/// SAFETY: The caller must ensure db_ptr remains valid for the lifetime of this context
+pub struct OwnedExecutionContext {
+    pub db_ptr: *const Database,
+    pub params: HashMap<String, Value>,
+}
+
+impl OwnedExecutionContext {
+    /// Returns a reference to the database.
+    ///
+    /// # Safety
+    /// The caller must ensure `db_ptr` is valid and points to a live `Database` instance.
+    pub unsafe fn db(&self) -> &Database {
+        unsafe { &*self.db_ptr }
+    }
 }
 
 /// 节点扫描统计信息
@@ -515,8 +538,7 @@ impl ExecutionPlan for ExpandNode {
 
                         Box::new(triples.map(move |triple| {
                             let mut new_record = record.clone();
-                            new_record
-                                .insert(rel_alias.clone(), Value::Relationship(triple.clone()));
+                            new_record.insert(rel_alias.clone(), Value::Relationship(triple));
 
                             let end_id = if direction == RelationshipDirection::RightToLeft {
                                 triple.subject_id
@@ -617,22 +639,18 @@ pub fn evaluate_expression_value(
         Expression::Variable(name) => record.get(name).cloned().unwrap_or(Value::Null),
         Expression::Parameter(name) => ctx.params.get(name).cloned().unwrap_or(Value::Null),
         Expression::PropertyAccess(pa) => {
-            if let Some(Value::Node(node_id)) = record.get(&pa.variable) {
-                if let Ok(Some(binary)) = ctx.db.get_node_property_binary(*node_id) {
-                    if let Ok(props) = crate::storage::property::deserialize_properties(&binary) {
-                        if let Some(value) = props.get(&pa.property) {
-                            return match value {
-                                serde_json::Value::String(s) => Value::String(s.clone()),
-                                serde_json::Value::Number(n) => {
-                                    Value::Float(n.as_f64().unwrap_or(0.0))
-                                }
-                                serde_json::Value::Bool(b) => Value::Boolean(*b),
-                                serde_json::Value::Null => Value::Null,
-                                _ => Value::Null,
-                            };
-                        }
-                    }
-                }
+            if let Some(Value::Node(node_id)) = record.get(&pa.variable)
+                && let Ok(Some(binary)) = ctx.db.get_node_property_binary(*node_id)
+                && let Ok(props) = crate::storage::property::deserialize_properties(&binary)
+                && let Some(value) = props.get(&pa.property)
+            {
+                return match value {
+                    serde_json::Value::String(s) => Value::String(s.clone()),
+                    serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
+                    serde_json::Value::Bool(b) => Value::Boolean(*b),
+                    serde_json::Value::Null => Value::Null,
+                    _ => Value::Null,
+                };
             }
             Value::Null
         }

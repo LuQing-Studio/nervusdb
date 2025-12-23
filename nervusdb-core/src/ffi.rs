@@ -627,7 +627,7 @@ pub unsafe extern "C" fn nervusdb_exec_cypher(
 }
 
 // ---------------------------------------------------------------------------
-// Statement API (SQLite-style row iterator)
+// Statement API (SQLite-style row iterator) - TRUE STREAMING
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
@@ -640,11 +640,71 @@ enum StmtValue {
     Relationship(Triple),
 }
 
+/// Streaming query iterator that owns all its data
+/// SAFETY: db_ptr must remain valid for the lifetime of this iterator
+struct StreamingQueryIterator {
+    db_ptr: *const Database,
+    params: std::collections::HashMap<String, crate::query::executor::Value>,
+    plan: crate::query::planner::PhysicalPlan,
+    // Materialized results (collected on first iteration due to lifetime constraints)
+    results: Option<std::vec::IntoIter<Result<crate::query::executor::Record, Error>>>,
+}
+
+// SAFETY: The iterator only accesses db through immutable references
+// and the caller ensures db_ptr validity
+unsafe impl Send for StreamingQueryIterator {}
+
+impl StreamingQueryIterator {
+    fn new(
+        db_ptr: *const Database,
+        params: std::collections::HashMap<String, crate::query::executor::Value>,
+        plan: crate::query::planner::PhysicalPlan,
+    ) -> Self {
+        Self {
+            db_ptr,
+            params,
+            plan,
+            results: None,
+        }
+    }
+
+    fn ensure_executed(&mut self) {
+        if self.results.is_some() {
+            return;
+        }
+        // SAFETY: Caller guarantees db_ptr is valid
+        let db = unsafe { &*self.db_ptr };
+        let ctx = crate::query::executor::ExecutionContext {
+            db,
+            params: &self.params,
+        };
+        match crate::query::executor::ExecutionPlan::execute(&self.plan, &ctx) {
+            Ok(iter) => {
+                let collected: Vec<_> = iter.collect();
+                self.results = Some(collected.into_iter());
+            }
+            Err(e) => {
+                self.results = Some(vec![Err(e)].into_iter());
+            }
+        }
+    }
+}
+
+impl Iterator for StreamingQueryIterator {
+    type Item = Result<crate::query::executor::Record, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.ensure_executed();
+        self.results.as_mut()?.next()
+    }
+}
+
+/// True streaming statement - iterator is lazily evaluated
 struct CypherStatement {
-    columns: Vec<CString>, // stable until finalize
-    rows: Vec<Vec<StmtValue>>,
-    next_row: usize,
-    current_row: Option<usize>,
+    columns: Vec<CString>,
+    column_names: Vec<String>,
+    iterator: Option<StreamingQueryIterator>,
+    current_row: Option<Vec<StmtValue>>,
 }
 
 fn stmt_from_ptr<'a>(
@@ -709,10 +769,9 @@ fn convert_stmt_value(value: crate::query::executor::Value) -> StmtValue {
     }
 }
 
-fn stmt_cell<'a>(stmt: &'a CypherStatement, column: i32) -> Option<&'a StmtValue> {
+fn stmt_cell(stmt: &CypherStatement, column: i32) -> Option<&StmtValue> {
     let idx = usize::try_from(column).ok()?;
-    let row_idx = stmt.current_row?;
-    stmt.rows.get(row_idx)?.get(idx)
+    stmt.current_row.as_ref()?.get(idx)
 }
 
 #[unsafe(no_mangle)]
@@ -736,7 +795,7 @@ pub unsafe extern "C" fn nervusdb_prepare_v2(
         *out_stmt = ptr::null_mut();
     }
 
-    let db = match db_from_ptr(db, out_error) {
+    let db_ref = match db_from_ptr(db, out_error) {
         Ok(db) => db,
         Err(code) => return code,
     };
@@ -751,29 +810,31 @@ pub unsafe extern "C" fn nervusdb_prepare_v2(
         Err(code) => return code,
     };
 
-    // Derive column order from RETURN clause (if any).
-    let mut projection_names: Vec<String> = Vec::new();
-    match crate::query::parser::Parser::parse(query_str.as_str()) {
-        Ok(ast) => {
-            for clause in ast.clauses {
-                if let crate::query::ast::Clause::Return(r) = clause {
-                    projection_names = r
-                        .items
-                        .into_iter()
-                        .map(|item| {
-                            item.alias
-                                .unwrap_or_else(|| infer_projection_alias(&item.expression))
-                        })
-                        .collect();
-                }
-            }
-        }
+    // Parse query and extract column names from RETURN clause
+    let ast = match crate::query::parser::Parser::parse(query_str.as_str()) {
+        Ok(ast) => ast,
         Err(err) => {
             set_error(out_error, NERVUSDB_ERR_INVALID_ARGUMENT, &err.to_string());
             return NERVUSDB_ERR_INVALID_ARGUMENT;
         }
+    };
+
+    let mut projection_names: Vec<String> = Vec::new();
+    for clause in &ast.clauses {
+        if let crate::query::ast::Clause::Return(r) = clause {
+            projection_names = r
+                .items
+                .iter()
+                .map(|item| {
+                    item.alias
+                        .clone()
+                        .unwrap_or_else(|| infer_projection_alias(&item.expression))
+                })
+                .collect();
+        }
     }
 
+    // Check for duplicate column names
     if !projection_names.is_empty() {
         let mut seen = std::collections::HashSet::new();
         for name in &projection_names {
@@ -788,8 +849,10 @@ pub unsafe extern "C" fn nervusdb_prepare_v2(
         }
     }
 
-    let results = match db.execute_query_with_params(query_str.as_str(), params) {
-        Ok(r) => r,
+    // Generate execution plan (but don't execute yet!)
+    let planner = crate::query::planner::QueryPlanner::new();
+    let plan = match planner.plan(ast) {
+        Ok(p) => p,
         Err(err) => {
             let message = err.to_string();
             let code = status_from_error(&err);
@@ -798,21 +861,16 @@ pub unsafe extern "C" fn nervusdb_prepare_v2(
         }
     };
 
-    // If there is no RETURN clause, define a deterministic column order from result keys.
-    let columns: Vec<String> = if !projection_names.is_empty() {
-        projection_names
-    } else if results.is_empty() {
-        Vec::new()
-    } else {
-        let mut keys: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-        for row in &results {
-            keys.extend(row.keys().cloned());
-        }
-        keys.into_iter().collect()
-    };
+    // Convert params
+    let param_values: HashMap<String, crate::query::executor::Value> = params
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(k, v)| (k, Database::serde_value_to_executor_value(v)))
+        .collect();
 
-    let mut c_columns = Vec::with_capacity(columns.len());
-    for name in &columns {
+    // Build CString columns
+    let mut c_columns = Vec::with_capacity(projection_names.len());
+    for name in &projection_names {
         match CString::new(name.as_str()) {
             Ok(c) => c_columns.push(c),
             Err(_) => {
@@ -826,23 +884,13 @@ pub unsafe extern "C" fn nervusdb_prepare_v2(
         }
     }
 
-    let mut rows = Vec::with_capacity(results.len());
-    for row in results {
-        let mut out_row = Vec::with_capacity(columns.len());
-        for col in &columns {
-            let value = row
-                .get(col)
-                .cloned()
-                .unwrap_or(crate::query::executor::Value::Null);
-            out_row.push(convert_stmt_value(value));
-        }
-        rows.push(out_row);
-    }
+    // Create statement with deferred execution
+    let iterator = StreamingQueryIterator::new(db_ref as *const Database, param_values, plan);
 
     let stmt = Box::new(CypherStatement {
         columns: c_columns,
-        rows,
-        next_row: 0,
+        column_names: projection_names,
+        iterator: Some(iterator),
         current_row: None,
     });
 
@@ -865,13 +913,37 @@ pub unsafe extern "C" fn nervusdb_step(
     };
 
     stmt.current_row = None;
-    if stmt.next_row >= stmt.rows.len() {
-        return NERVUSDB_DONE;
+
+    // Get next row from iterator (lazy execution happens inside)
+    if let Some(ref mut iter) = stmt.iterator {
+        match iter.next() {
+            Some(Ok(record)) => {
+                // Convert record to StmtValue row
+                let mut row = Vec::with_capacity(stmt.column_names.len());
+                for col in &stmt.column_names {
+                    let value = record
+                        .values
+                        .get(col)
+                        .cloned()
+                        .unwrap_or(crate::query::executor::Value::Null);
+                    row.push(convert_stmt_value(value));
+                }
+                stmt.current_row = Some(row);
+                return NERVUSDB_ROW;
+            }
+            Some(Err(err)) => {
+                let message = err.to_string();
+                let code = status_from_error(&err);
+                set_error(out_error, code, &message);
+                return code;
+            }
+            None => {
+                return NERVUSDB_DONE;
+            }
+        }
     }
 
-    stmt.current_row = Some(stmt.next_row);
-    stmt.next_row += 1;
-    NERVUSDB_ROW
+    NERVUSDB_DONE
 }
 
 #[unsafe(no_mangle)]

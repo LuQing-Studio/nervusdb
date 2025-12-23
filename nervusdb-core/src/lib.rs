@@ -367,11 +367,11 @@ impl Database {
             .any(|clause| matches!(clause, Clause::Delete(_)));
 
         // Handle CREATE queries directly (simplified: only standalone CREATE for MVP)
-        if query.clauses.len() == 1 {
-            if let Clause::Create(create_clause) = &query.clauses[0] {
-                // Execute CREATE immediately
-                return self.execute_create_pattern(&create_clause.pattern);
-            }
+        if query.clauses.len() == 1
+            && let Clause::Create(create_clause) = &query.clauses[0]
+        {
+            // Execute CREATE immediately
+            return self.execute_create_pattern(&create_clause.pattern);
         }
 
         // Handle SET queries specially (needs mutation)
@@ -402,7 +402,8 @@ impl Database {
         Ok(results)
     }
 
-    fn serde_value_to_executor_value(value: serde_json::Value) -> query::executor::Value {
+    /// Convert serde_json::Value to executor::Value (public for FFI)
+    pub fn serde_value_to_executor_value(value: serde_json::Value) -> query::executor::Value {
         use query::executor::Value as ExecValue;
 
         match value {
@@ -623,7 +624,7 @@ impl Database {
                     // Evaluate the new value expression
                     let new_value = {
                         let ctx = ExecutionContext { db: &*self, params };
-                        evaluate_expression_value(&set_item.value, &record, &ctx)
+                        evaluate_expression_value(&set_item.value, record, &ctx)
                     };
 
                     // Read existing properties
@@ -806,7 +807,7 @@ impl Database {
             for expr in &delete_node.expressions {
                 let value = {
                     let ctx = ExecutionContext { db: &*self, params };
-                    evaluate_expression_value(expr, &record, &ctx)
+                    evaluate_expression_value(expr, record, &ctx)
                 };
                 if let Value::Node(node_id) = value {
                     node_ids_to_delete.push(node_id);
