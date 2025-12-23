@@ -12,12 +12,53 @@ use redb::{
 use std::num::NonZeroUsize;
 
 use crate::error::{Error, Result};
+#[cfg(not(feature = "varint-keys"))]
 use crate::storage::schema::{
     TABLE_EDGE_PROPS, TABLE_EDGE_PROPS_BINARY, TABLE_ID_TO_STR, TABLE_META, TABLE_NODE_PROPS,
     TABLE_NODE_PROPS_BINARY, TABLE_OSP, TABLE_POS, TABLE_SPO, TABLE_STR_TO_ID,
 };
+#[cfg(feature = "varint-keys")]
+use crate::storage::schema::{
+    TABLE_EDGE_PROPS, TABLE_EDGE_PROPS_BINARY, TABLE_ID_TO_STR, TABLE_META, TABLE_NODE_PROPS,
+    TABLE_NODE_PROPS_BINARY, TABLE_OSP_V2 as TABLE_OSP, TABLE_POS_V2 as TABLE_POS,
+    TABLE_SPO_V2 as TABLE_SPO, TABLE_STR_TO_ID,
+};
+#[cfg(feature = "varint-keys")]
+use crate::storage::varint_key::VarintTripleKey;
 use crate::storage::{Hexastore, HexastoreIter};
 use crate::triple::{Fact, Triple};
+
+// Type alias for triple key based on feature
+#[cfg(feature = "varint-keys")]
+type TripleKey = VarintTripleKey;
+#[cfg(not(feature = "varint-keys"))]
+type TripleKey = (u64, u64, u64);
+
+// Helper to create key from (a, b, c)
+#[inline]
+fn make_key(a: u64, b: u64, c: u64) -> TripleKey {
+    #[cfg(feature = "varint-keys")]
+    {
+        VarintTripleKey::new(a, b, c)
+    }
+    #[cfg(not(feature = "varint-keys"))]
+    {
+        (a, b, c)
+    }
+}
+
+// Helper to decode key to (a, b, c)
+#[inline]
+fn decode_key(key: TripleKey) -> (u64, u64, u64) {
+    #[cfg(feature = "varint-keys")]
+    {
+        key.decode()
+    }
+    #[cfg(not(feature = "varint-keys"))]
+    {
+        key
+    }
+}
 #[derive(Debug)]
 pub struct DiskHexastore {
     db: Arc<Database>,
@@ -142,7 +183,11 @@ impl DiskHexastore {
         let handles = self.read_handles()?;
         handles
             .spo
-            .get((triple.subject_id, triple.predicate_id, triple.object_id))
+            .get(make_key(
+                triple.subject_id,
+                triple.predicate_id,
+                triple.object_id,
+            ))
             .map_err(|e| Error::Other(e.to_string()))
             .map(|opt| opt.is_some())
     }
@@ -601,9 +646,9 @@ impl Hexastore for DiskHexastore {
 /// Cached table handles for write operations
 /// Opens all tables once and reuses handles for maximum performance
 pub(crate) struct WriteTableHandles<'txn> {
-    pub spo: Table<'txn, (u64, u64, u64), ()>,
-    pub pos: Table<'txn, (u64, u64, u64), ()>,
-    pub osp: Table<'txn, (u64, u64, u64), ()>,
+    pub spo: Table<'txn, TripleKey, ()>,
+    pub pos: Table<'txn, TripleKey, ()>,
+    pub osp: Table<'txn, TripleKey, ()>,
     pub str_to_id: Table<'txn, &'static str, u64>,
     pub id_to_str: Table<'txn, u64, &'static str>,
     string_cache: LruCache<String, u64>,
@@ -685,17 +730,17 @@ impl<'txn> WriteTableHandles<'txn> {
         let p = triple.predicate_id;
         let o = triple.object_id;
 
-        match self.spo.insert((s, p, o), ()) {
+        match self.spo.insert(make_key(s, p, o), ()) {
             Ok(Some(_)) => return Ok(false),
             Ok(None) => {}
             Err(e) => return Err(Error::Other(e.to_string())),
         }
 
         self.pos
-            .insert((p, o, s), ())
+            .insert(make_key(p, o, s), ())
             .map_err(|e| Error::Other(e.to_string()))?;
         self.osp
-            .insert((o, s, p), ())
+            .insert(make_key(o, s, p), ())
             .map_err(|e| Error::Other(e.to_string()))?;
 
         Ok(true)
@@ -723,9 +768,9 @@ impl<'txn> WriteTableHandles<'txn> {
 #[derive(Debug)]
 struct ReadHandles {
     _txn: ReadTransaction,
-    spo: redb::ReadOnlyTable<(u64, u64, u64), ()>,
-    pos: redb::ReadOnlyTable<(u64, u64, u64), ()>,
-    osp: redb::ReadOnlyTable<(u64, u64, u64), ()>,
+    spo: redb::ReadOnlyTable<TripleKey, ()>,
+    pos: redb::ReadOnlyTable<TripleKey, ()>,
+    osp: redb::ReadOnlyTable<TripleKey, ()>,
     id_to_str: redb::ReadOnlyTable<u64, &'static str>,
     str_to_id: redb::ReadOnlyTable<&'static str, u64>,
 }
@@ -764,18 +809,20 @@ impl ReadHandles {
 struct CachedCursor {
     handles: Arc<ReadHandles>,
     index: IndexKind,
-    start: (u64, u64, u64),
-    end: (u64, u64, u64),
+    start: TripleKey,
+    end: TripleKey,
     #[borrows(handles)]
     #[covariant]
-    iter: Range<'this, (u64, u64, u64), ()>,
+    iter: Range<'this, TripleKey, ()>,
 }
 
 impl CachedCursor {
     fn create(handles: Arc<ReadHandles>, range: QueryRange) -> Result<Self> {
         let QueryRange { index, start, end } = range;
-        let start_bounds = start;
-        let end_bounds = end;
+        #[cfg(feature = "varint-keys")]
+        let (start_bounds, end_bounds) = (start.clone(), end.clone());
+        #[cfg(not(feature = "varint-keys"))]
+        let (start_bounds, end_bounds) = (start, end);
         CachedCursorTryBuilder {
             handles,
             index,
@@ -802,7 +849,7 @@ impl Iterator for CachedCursor {
         let index = *self.borrow_index();
         self.with_iter_mut(|iter| {
             if let Some((key, _)) = iter.by_ref().flatten().next() {
-                let raw = key.value();
+                let raw = decode_key(key.value());
                 return Some(index.decode(raw));
             }
             None
@@ -848,7 +895,7 @@ pub(crate) fn insert_triple(txn: &mut redb::WriteTransaction, triple: &Triple) -
         .open_table(TABLE_SPO)
         .map_err(|e| Error::Other(e.to_string()))?;
 
-    match spo.insert((s, p, o), ()) {
+    match spo.insert(make_key(s, p, o), ()) {
         Ok(Some(_)) => return Ok(false),
         Ok(None) => {}
         Err(e) => return Err(Error::Other(e.to_string())),
@@ -857,13 +904,13 @@ pub(crate) fn insert_triple(txn: &mut redb::WriteTransaction, triple: &Triple) -
     let mut pos = txn
         .open_table(TABLE_POS)
         .map_err(|e| Error::Other(e.to_string()))?;
-    pos.insert((p, o, s), ())
+    pos.insert(make_key(p, o, s), ())
         .map_err(|e| Error::Other(e.to_string()))?;
 
     let mut osp = txn
         .open_table(TABLE_OSP)
         .map_err(|e| Error::Other(e.to_string()))?;
-    osp.insert((o, s, p), ())
+    osp.insert(make_key(o, s, p), ())
         .map_err(|e| Error::Other(e.to_string()))?;
 
     Ok(true)
@@ -888,8 +935,8 @@ impl IndexKind {
 
 struct QueryRange {
     index: IndexKind,
-    start: (u64, u64, u64),
-    end: (u64, u64, u64),
+    start: TripleKey,
+    end: TripleKey,
 }
 
 enum QuerySpec {
@@ -899,7 +946,11 @@ enum QuerySpec {
 
 impl QuerySpec {
     fn range(index: IndexKind, start: (u64, u64, u64), end: (u64, u64, u64)) -> Self {
-        QuerySpec::Range(QueryRange { index, start, end })
+        QuerySpec::Range(QueryRange {
+            index,
+            start: make_key(start.0, start.1, start.2),
+            end: make_key(end.0, end.1, end.2),
+        })
     }
 }
 
@@ -913,26 +964,26 @@ pub(crate) fn delete_triple(txn: &mut redb::WriteTransaction, triple: &Triple) -
         .map_err(|e| Error::Other(e.to_string()))?;
 
     if spo
-        .get((s, p, o))
+        .get(make_key(s, p, o))
         .map_err(|e| Error::Other(e.to_string()))?
         .is_none()
     {
         return Ok(false);
     }
 
-    spo.remove((s, p, o))
+    spo.remove(make_key(s, p, o))
         .map_err(|e| Error::Other(e.to_string()))?;
 
     let mut pos = txn
         .open_table(TABLE_POS)
         .map_err(|e| Error::Other(e.to_string()))?;
-    pos.remove((p, o, s))
+    pos.remove(make_key(p, o, s))
         .map_err(|e| Error::Other(e.to_string()))?;
 
     let mut osp = txn
         .open_table(TABLE_OSP)
         .map_err(|e| Error::Other(e.to_string()))?;
-    osp.remove((o, s, p))
+    osp.remove(make_key(o, s, p))
         .map_err(|e| Error::Other(e.to_string()))?;
 
     Ok(true)
