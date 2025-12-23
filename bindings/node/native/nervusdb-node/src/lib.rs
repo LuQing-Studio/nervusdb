@@ -415,6 +415,7 @@ fn parse_payload_json(raw: &str) -> NapiResult<Value> {
     })
 }
 
+#[cfg(feature = "temporal")]
 #[napi]
 impl DatabaseHandle {
     #[cfg(feature = "temporal")]
@@ -586,7 +587,10 @@ impl DatabaseHandle {
 
         Ok(facts.into_iter().map(fact_to_output).collect())
     }
+}
 
+#[napi]
+impl DatabaseHandle {
     #[napi]
     pub fn add_fact(
         &self,
@@ -911,8 +915,11 @@ impl DatabaseHandle {
         }
         Ok(out)
     }
+}
 
-    #[cfg(feature = "temporal")]
+#[cfg(feature = "temporal")]
+#[napi]
+impl DatabaseHandle {
     #[napi]
     pub fn timeline_query(&self, input: TimelineQueryInput) -> NapiResult<Vec<TimelineFactOutput>> {
         let guard = self
@@ -948,7 +955,6 @@ impl DatabaseHandle {
         Ok(facts.into_iter().map(fact_to_output).collect())
     }
 
-    #[cfg(feature = "temporal")]
     #[napi(js_name = "timelineTrace")]
     pub fn timeline_trace(&self, fact_id: String) -> NapiResult<Vec<TimelineEpisodeOutput>> {
         let guard = self
@@ -962,7 +968,10 @@ impl DatabaseHandle {
         let episodes = db.timeline_trace(fact_id);
         Ok(episodes.into_iter().map(episode_to_output).collect())
     }
+}
 
+#[napi]
+impl DatabaseHandle {
     #[napi]
     pub fn hydrate(&self, dictionary: Vec<String>, triples: Vec<TripleInput>) -> NapiResult<()> {
         let mut guard = self
