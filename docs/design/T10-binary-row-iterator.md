@@ -37,23 +37,23 @@
 
 最小集合（SQLite 风格，但不搞 bind/prepare 分家，先务实）：
 
-1. `nervusdb_prepare_cypher(db, query, params_json, out_stmt, out_error)`
-2. `nervusdb_stmt_step(stmt, out_has_row, out_error)`
-3. `nervusdb_stmt_column_count(stmt, out_count, out_error)`
-4. `nervusdb_stmt_column_name(stmt, index, out_name, out_error)`（返回 `const char*`，NUL 结尾）
-5. `nervusdb_stmt_column_type(stmt, index, out_type, out_error)`
-6. `nervusdb_stmt_column_*`（按类型取值）
-   - `..._string(stmt, index, out_ptr, out_len, out_error)`（返回 `const char*` + length；指针生命周期见下）
-   - `..._float(stmt, index, out_value, out_error)`
-   - `..._bool(stmt, index, out_value, out_error)`
-   - `..._node_id(stmt, index, out_id, out_error)`
-   - `..._relationship(stmt, index, out_rel, out_error)`
-7. `nervusdb_stmt_finalize(stmt)`
+1. `nervusdb_prepare_v2(db, query, params_json, out_stmt, out_error)`
+2. `nervusdb_step(stmt, out_error)`：返回 `NERVUSDB_ROW / NERVUSDB_DONE / error`
+3. `nervusdb_column_count(stmt)`
+4. `nervusdb_column_name(stmt, index)`（`const char*`，NUL 结尾，直到 `finalize`）
+5. `nervusdb_column_type(stmt, index)`（`NULL/TEXT/FLOAT/BOOL/NODE/RELATIONSHIP`）
+6. `nervusdb_column_*`（按类型取值，SQLite 味道）
+   - `nervusdb_column_text(stmt, index)` + `nervusdb_column_bytes(stmt, index)`
+   - `nervusdb_column_double(stmt, index)`
+   - `nervusdb_column_bool(stmt, index)`
+   - `nervusdb_column_node_id(stmt, index)`
+   - `nervusdb_column_relationship(stmt, index)`
+7. `nervusdb_finalize(stmt)`
 
 ### 3.3 指针生命周期（关键契约）
 
-- `column_name()` 返回的指针：**有效期直到 `finalize()`**。
-- `column_string()` 返回的指针：**有效期直到下一次 `step()` 或 `finalize()`**。
+- `nervusdb_column_name()`：**有效期直到 `nervusdb_finalize()`**。
+- `nervusdb_column_text()`：**有效期直到下一次 `nervusdb_step()` 或 `nervusdb_finalize()`**。
 - 调用方 **不得** 对上述指针调用 `nervusdb_free_string()`（避免 double-free）。
 
 ### 3.4 Rust 实现策略（先“蠢”，再“快”）
@@ -72,7 +72,7 @@
 - `nervusdb.h`：
   - 1.0 起 **三个月内不改任何既有声明**。
   - 新能力只允许“追加新函数/新枚举值”，不允许改/删/重排结构体字段。
-- 增加 `NERVUSDB_ABI_VERSION`（或 `nervusdb_abi_version()`）用于绑定层 capability 探测。
+- 增加 `NERVUSDB_ABI_VERSION` + `nervusdb_abi_version()` 用于绑定层 capability 探测。
 
 ## 4. Testing Strategy
 
