@@ -82,7 +82,7 @@ impl redb::Key for VarintTripleKey {
 
 ## 5. Status
 
-**WIP** - 核心实现完成，待完整集成
+**Done** - 完整实现，通过 feature flag 启用
 
 ### 已完成
 - [x] `VarintTripleKey` 结构体 + LEB128 编码/解码
@@ -90,7 +90,15 @@ impl redb::Key for VarintTripleKey {
 - [x] 压缩表定义 (`TABLE_SPO_V2`, `TABLE_POS_V2`, `TABLE_OSP_V2`)
 - [x] 基准测试验证 ~2.7x 压缩比
 - [x] `varint-keys` feature flag
+- [x] 完整集成到 `disk.rs`（`WriteTableHandles`, `ReadHandles`, `CachedCursor`）
 
-### 待完成
-- [ ] 完整集成到 `disk.rs`（需要修改 `WriteTableHandles`, `ReadHandles`, `CachedCursor`）
-- [ ] 数据迁移工具（可选）
+### 使用方法
+```toml
+[dependencies]
+nervusdb-core = { version = "1.0", features = ["varint-keys"] }
+```
+
+### 注意事项
+- 启用 `varint-keys` 后，数据库文件格式不兼容旧版本
+- 新数据库会使用 `spo_v2`, `pos_v2`, `osp_v2` 表
+- 如需迁移旧数据，需要手动导出/导入
