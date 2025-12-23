@@ -35,6 +35,7 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 default = []
 migration-cli = ["clap", "indicatif"]
 temporal = ["dep:nervusdb-temporal"]
+varint-keys = []  # Use compressed varint keys for triple storage (experimental)
 
 [[bin]]
 name = "nervus-migrate"

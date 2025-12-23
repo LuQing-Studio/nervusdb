@@ -13,6 +13,8 @@ pub mod memory;
 pub mod property;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod schema;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod varint_key;
 
 pub type HexastoreIter = Box<dyn Iterator<Item = Triple>>;
 
