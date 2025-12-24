@@ -70,11 +70,11 @@ RETURN fof
 ### Node.js
 
 ```bash
-npm install nervusdb
+npm install @nervusdb/core
 ```
 
 ```javascript
-import { NervusDB } from 'nervusdb';
+import { NervusDB } from '@nervusdb/core';
 
 // 打开数据库（文件不存在会自动创建）
 const db = await NervusDB.open('my-graph.redb');
@@ -258,7 +258,7 @@ UNION
 聚合函数 (COUNT, SUM, AVG)
 ```
 
-完整支持列表见 [docs/cypher_support.md](docs/cypher_support.md)
+完整支持列表见 [docs/reference/cypher_support.md](docs/reference/cypher_support.md)
 
 ### C API（SQLite 风格）
 

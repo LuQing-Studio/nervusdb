@@ -1,6 +1,6 @@
 [package]
 name = "nervusdb-temporal"
-version = "1.0.1"
+version = "1.0.3"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "Temporal Store for NervusDB - AI Memory / Episode management"

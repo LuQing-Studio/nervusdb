@@ -2,7 +2,7 @@
 
 ## 1. Context
 
-当前 `docs/PERFORMANCE_ANALYSIS.md` 的数字已经过时，且 `redb (raw)` 基线基准存在明显方法论问题：
+当前 `docs/perf/PERFORMANCE_ANALYSIS.md` 的数字已经过时，且 `redb (raw)` 基线基准存在明显方法论问题：
 
 - `bench_compare.rs` 的 `bench_redb()` 在插入循环内大量 `format!()` 拼接字符串键值，测到的是**字符串分配/格式化**，不是 `redb` 的写入能力。
 - 结果出现“封装层（NervusDB）比 raw redb 更快”的反直觉现象，报告可信度为 0。
@@ -12,7 +12,7 @@
 
 ## 2. Goals
 
-- 刷新 `docs/PERFORMANCE_ANALYSIS.md`：更新到最新实现（含 LRU interning、T10 stmt API）的数据。
+- 刷新 `docs/perf/PERFORMANCE_ANALYSIS.md`：更新到最新实现（含 LRU interning、T10 stmt API）的数据。
 - 修正 `bench_compare.rs` 的 `redb (raw)` 方法论：去掉插入热路径的 `format!/to_string` 噪音，改为用与 NervusDB 相同的数据结构（`(u64,u64,u64)->()` 三索引表 + range 扫描）。
 - 补充 T10 的性能对比：至少给出 `exec_cypher(JSON)` vs `stmt(step/column)` 的同形查询对比，明确当前实现仍是 eager（非 streaming）但避免 JSON 文本序列化/解析。
 
@@ -49,7 +49,7 @@
 
 ### 4.3 报告写法（防止再次变成垃圾）
 
-`docs/PERFORMANCE_ANALYSIS.md` 必须包含：
+`docs/perf/PERFORMANCE_ANALYSIS.md` 必须包含：
 
 - Last updated（日期）
 - 运行环境（CPU/OS/磁盘，至少写“本机/CI 不同会波动”）
@@ -66,4 +66,3 @@
 
 - 基准仍可能出现“比谁更会写 benchmark”的伪结论：需要在报告中写清楚测量边界，避免过度解读。
 - 数据分布单一（每个 subject/object 只命中 1 行）会夸大点查性能：报告必须注明这是点查基准，不代表图遍历/聚合。
-

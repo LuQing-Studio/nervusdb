@@ -4,7 +4,7 @@
 
 当前代码已经接近“能发布”的状态，但用户可见层面还存在硬伤：
 
-- `README.md` 与 `docs/project-structure.md` 描述与当前实现不一致（六序索引/Fact properties/Temporal 默认开启/目录结构等）。
+- `README.md` 与 `docs/reference/project-structure.md` 描述与当前实现不一致（六序索引/Fact properties/Temporal 默认开启/目录结构等）。
 - `CHANGELOG.md` 仍保留旧时代的内容（旧存储术语/插件系统/不存在的特性），属于误导。
 - `bindings/node/package.json` 的描述仍在吹旧世界的能力清单，和当前仓库方向冲突。
 - 1.0 的底线是“契约稳定”：`nervusdb.h` 必须视为法律，发布后至少三个月不改签名。
@@ -18,7 +18,7 @@
 2. **文档“去谎言化”**
    - `README.md` 首页改为 C/Rust 接入与单文件语义
    - 纠正索引结构（`SPO/POS/OSP`）与 feature gate（Temporal 默认关闭、Cypher 实验性）
-   - 修正/精简 `docs/project-structure.md`，不再指向不存在的目录
+   - 修正/精简 `docs/reference/project-structure.md`，不再指向不存在的目录
 3. **变更日志清洗**
    - 主 `CHANGELOG.md` 保持短、可验证、与现状一致
    - 旧内容迁移到 `_archive/`（Git 历史不丢，但主线不污染）

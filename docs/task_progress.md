@@ -34,3 +34,4 @@
 | T33 | Vector Index + Full-Text Search（usearch + tantivy） | L3 | P0 | Done | #26 | MVP 落地：feature gate + sidecar + 重建；`vec_similarity`/`txt_score`；后续：FTS 下推见 T34，Vector Top-K 见 T35 |
 | T34 | FTS 下推：`txt_score` 谓词走索引候选集 | L3 | P0 | Done | #27 | planner 重写 Scan→FtsCandidateScan；限制：`txt_score(n.prop, $q) > 0` / `>= 正数`；Vector TopK 下推见 T35 |
 | T35 | Vector Top-K 下推：`ORDER BY vec_similarity(...) DESC LIMIT k` | L3 | P0 | Done | #28 | 仅做 Sort+Limit 模式；不碰 WHERE/range；`usearch.search(query, k)` 候选集回表 |
+| T36 | 发布准备 v1.0.3（版本统一 + docs 归档 + 发布前构建验证） | L3 | P0 | Done | release/T36-v1.0.3 | 版本统一到 1.0.3（Rust+Node 发布，Python 仅同步）；docs/ 根目录只保留 task_progress；Rust `cargo test` 通过；`cargo publish --dry-run -p nervusdb-temporal` 通过（发布需先 temporal 再 core）；Node CI 等价构建/测试通过；`npm publish --dry-run` 通过 |

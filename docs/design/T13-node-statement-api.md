@@ -48,7 +48,7 @@ Node 绑定当前的 `executeQuery()` 会把查询结果一次性返回为 `Vec<
 ### 4.3 README：去“实验性”与支持说明下沉
 
 - README 首页移除“实验性”字眼
-- 改为“Cypher 查询支持（子集）”，并链接到 `docs/cypher_support.md`（写清支持范围与限制）
+- 改为“Cypher 查询支持（子集）”，并链接到 `docs/reference/cypher_support.md`（写清支持范围与限制）
 
 ## 5. Testing Strategy
 
@@ -63,4 +63,3 @@ Node 绑定当前的 `executeQuery()` 会把查询结果一次性返回为 `Vec<
 - **内存占用转移**：Materialize 把内存压力从 JS 堆转移到 Rust 堆（但仍显著更紧凑/可控）。
 - **列顺序/命名**：必须与 `RETURN` 顺序一致，否则上层会踩坑；需要稳定推导规则与测试覆盖。
 - **API 扩展**：新增方法必须避免与现有命名冲突；保留旧 API，默认不破坏用户。
-

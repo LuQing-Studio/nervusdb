@@ -6,6 +6,21 @@
 
 - （占位）下一次改动从这里开始写。
 
+## [1.0.3] - 2025-12-24
+
+### 新增 / 性能
+
+- **FTS 下推**：`txt_score(n.prop, $q) > 0` 在 planner 中下推为 FTS 候选集扫描，避免全表扫再算分（tantivy）。
+- **Vector Top-K 下推**：`ORDER BY vec_similarity(n.prop, $q) DESC LIMIT k` 重写为向量 Top-K 扫描，索引可用时走 HNSW 候选集回表。
+
+### 修复
+
+- **排序一致性**：`ORDER BY ... DESC` 仍保持 `NULL` 排在最后，避免缺失排序键的行污染 Top-K。
+
+### 文档
+
+- docs 目录分层整理：根目录只保留 `docs/task_progress.md`，其余归档到 `docs/{release,reference,perf}/` 并修复链接。
+
 ## [1.0.1] - 2025-12-23
 
 ### 修复

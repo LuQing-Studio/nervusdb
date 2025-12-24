@@ -1,6 +1,6 @@
 [package]
 name = "nervusdb-core"
-version = "1.0.1"
+version = "1.0.3"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "Embeddable Graph Database Core (Rust)"
@@ -21,7 +21,7 @@ time = { version = "0.3", features = ["formatting", "parsing"] }
 flexbuffers = "2.0"  # Zero-copy property serialization (10x faster than JSON)
 clap = { version = "4.5", features = ["derive"], optional = true }  # CLI for migration tool
 indicatif = { version = "0.17", optional = true }  # Progress bars for migration
-nervusdb-temporal = { path = "../nervusdb-temporal", optional = true }
+nervusdb-temporal = { version = "1.0.3", path = "../nervusdb-temporal", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 redb = "3.1.0"
