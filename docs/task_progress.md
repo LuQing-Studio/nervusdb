@@ -30,4 +30,4 @@
 | T29 | Cypher CASE WHEN | L2 | P0 | Done | #18 | Case 表达式求值 |
 | T30 | EXISTS/CALL 子查询 | L3 | P0 | Done | #19 | EXISTS 模式/子查询；CALL 仅支持独立子查询 |
 | T31 | 列表字面量与推导式 | L2 | P0 | Done | #20 | List literal/comprehension；用于 IN/RETURN |
-| T32 | Cypher 基础补全：UNWIND + DISTINCT + COLLECT 测试覆盖 | L3 | P0 | WIP | feat/T32-cypher-unwind-distinct | UNWIND 行生成；DISTINCT 去重；补 COLLECT 行为测试 |
+| T32 | Cypher 基础补全：UNWIND + DISTINCT + COLLECT 测试覆盖 | L3 | P0 | Done | #21 | UNWIND 行生成；DISTINCT 去重；补 COLLECT 行为测试 |
