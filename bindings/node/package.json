@@ -38,6 +38,7 @@
     "coverage:check-per-file": "node scripts/check-coverage-per-file.mjs",
     "test:perf": "vitest run --reporter=dot --include 'tests/**/*performance*.test.ts'",
     "typecheck": "tsc --noEmit",
+    "check:contract": "node scripts/check-contract.mjs",
     "ci": "pnpm typecheck && pnpm lint && pnpm test:coverage && pnpm coverage:check-per-file && pnpm build && pnpm bench:baseline",
     "test:ci-seq": "NERVUSDB_DISABLE_NATIVE=1 VITEST_COVERAGE=1 vitest run --coverage --reporter=dot --exclude 'tests/**/*performance*.test.ts' tests/unit && NERVUSDB_DISABLE_NATIVE=1 VITEST_COVERAGE=1 vitest run --coverage --reporter=dot --exclude 'tests/**/*performance*.test.ts' tests/integration && NERVUSDB_DISABLE_NATIVE=1 VITEST_COVERAGE=1 vitest run --coverage --reporter=dot --exclude 'tests/**/*performance*.test.ts' tests/system",
     "test:ci-seq-no-cov": "NERVUSDB_DISABLE_NATIVE=1 node scripts/run-vitest-seq.mjs",
