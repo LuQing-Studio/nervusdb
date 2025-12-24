@@ -93,6 +93,9 @@ jobs:
       - name: Typecheck
         run: pnpm -C bindings/node typecheck
 
+      - name: Contract check
+        run: pnpm -C bindings/node check:contract
+
       - name: Build native addon
         run: pnpm -C bindings/node build:native
 

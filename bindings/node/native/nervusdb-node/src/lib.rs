@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use napi::bindgen_prelude::{BigInt, *};
 use napi::Result as NapiResult;
@@ -34,9 +34,35 @@ pub struct OpenOptions {
     pub data_path: String,
 }
 
+struct SharedDb {
+    db: Option<Arc<Database>>,
+}
+
+impl SharedDb {
+    fn db_arc(&self) -> NapiResult<Arc<Database>> {
+        self.db
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))
+    }
+
+    fn db_mut(&mut self) -> NapiResult<&mut Database> {
+        let Some(db) = self.db.as_ref() else {
+            return Err(napi::Error::new(
+                Status::GenericFailure,
+                "database already closed",
+            ));
+        };
+
+        // SAFETY: All access to `Database` must be serialized by the same mutex that
+        // guards `SharedDb` (i.e. the one held by the caller).
+        Ok(unsafe { &mut *(Arc::as_ptr(db) as *mut Database) })
+    }
+}
+
 #[napi]
 pub struct DatabaseHandle {
-    inner: Mutex<Option<Database>>,
+    inner: Arc<Mutex<SharedDb>>,
 }
 
 #[napi(object)]
@@ -103,9 +129,16 @@ const VALUE_RELATIONSHIP: i32 = 5;
 
 struct StatementInner {
     columns: Vec<String>,
-    rows: Vec<Vec<CoreValue>>,
-    next_row: usize,
-    current_row: Option<usize>,
+    iter: Box<
+        dyn Iterator<
+                Item = std::result::Result<
+                    nervusdb_core::query::executor::Record,
+                    nervusdb_core::Error,
+                >,
+            > + 'static,
+    >,
+    current_row: Option<Vec<CoreValue>>,
+    db_guard: Arc<Mutex<SharedDb>>,
 }
 
 #[napi]
@@ -132,11 +165,7 @@ impl StatementHandle {
             Ok(v) => v,
             Err(_) => return Ok(None),
         };
-        let row_idx = match stmt.current_row {
-            Some(v) => v,
-            None => return Ok(None),
-        };
-        Ok(stmt.rows.get(row_idx).and_then(|row| row.get(idx)))
+        Ok(stmt.current_row.as_ref().and_then(|row| row.get(idx)))
     }
 }
 
@@ -146,12 +175,26 @@ impl StatementHandle {
     pub fn step(&mut self) -> NapiResult<bool> {
         let stmt = self.inner_mut()?;
         stmt.current_row = None;
-        if stmt.next_row >= stmt.rows.len() {
-            return Ok(false);
+
+        // Serialize all DB access through the shared mutex. The core database is mutated
+        // via Arc::as_ptr casts elsewhere, so concurrent access is unsound.
+        let _guard = stmt
+            .db_guard
+            .lock()
+            .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
+
+        match stmt.iter.next() {
+            None => Ok(false),
+            Some(Ok(record)) => {
+                let mut row: Vec<CoreValue> = Vec::with_capacity(stmt.columns.len());
+                for col in &stmt.columns {
+                    row.push(record.values.get(col).cloned().unwrap_or(CoreValue::Null));
+                }
+                stmt.current_row = Some(row);
+                Ok(true)
+            }
+            Some(Err(err)) => Err(map_error(err)),
         }
-        stmt.current_row = Some(stmt.next_row);
-        stmt.next_row += 1;
-        Ok(true)
     }
 
     #[napi(js_name = "columnCount")]
@@ -580,13 +623,11 @@ impl DatabaseHandle {
         &self,
         input: TemporalEpisodeInput,
     ) -> NapiResult<TimelineEpisodeOutput> {
-        let mut guard = self
+        let guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
 
         let payload = parse_payload_json(&input.payload_json)?;
         let episode = db
@@ -607,13 +648,11 @@ impl DatabaseHandle {
         &self,
         input: TemporalEnsureEntityInput,
     ) -> NapiResult<TemporalEntityOutput> {
-        let mut guard = self
+        let guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
 
         let options = CoreEnsureEntityOptions {
             alias: input.alias,
@@ -635,13 +674,11 @@ impl DatabaseHandle {
         &self,
         input: TemporalFactWriteInput,
     ) -> NapiResult<TimelineFactOutput> {
-        let mut guard = self
+        let guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
 
         let subject_entity_id = parse_id(&input.subject_entity_id, "subject entity")?;
         let object_entity_id = parse_optional_id(input.object_entity_id, "object entity")?;
@@ -674,9 +711,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
 
         let episode_id = parse_id(&input.episode_id, "episode")?;
         let entity_id = parse_optional_id(input.entity_id, "entity")?;
@@ -699,13 +734,11 @@ impl DatabaseHandle {
     #[cfg(feature = "temporal")]
     #[napi(js_name = "temporalListEntities")]
     pub fn temporal_list_entities(&self) -> NapiResult<Vec<TemporalEntityOutput>> {
-        let guard = self
+        let mut guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_ref()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
 
         let entities = db.temporal_store().get_entities().map_err(map_error)?;
 
@@ -715,13 +748,11 @@ impl DatabaseHandle {
     #[cfg(feature = "temporal")]
     #[napi(js_name = "temporalListEpisodes")]
     pub fn temporal_list_episodes(&self) -> NapiResult<Vec<TimelineEpisodeOutput>> {
-        let guard = self
+        let mut guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_ref()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
 
         let episodes = db.temporal_store().get_episodes().map_err(map_error)?;
 
@@ -731,13 +762,11 @@ impl DatabaseHandle {
     #[cfg(feature = "temporal")]
     #[napi(js_name = "temporalListFacts")]
     pub fn temporal_list_facts(&self) -> NapiResult<Vec<TimelineFactOutput>> {
-        let guard = self
+        let mut guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_ref()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
 
         let facts = db.temporal_store().get_facts().map_err(map_error)?;
 
@@ -758,9 +787,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let triple = db
             .add_fact(Fact::new(
                 subject.as_str(),
@@ -782,9 +809,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         db.delete_fact(Fact::new(
             subject.as_str(),
             predicate.as_str(),
@@ -799,9 +824,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         if triples.is_empty() {
             return Ok(BigInt::from(0u64));
         }
@@ -816,9 +839,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         if triples.is_empty() {
             return Ok(BigInt::from(0u64));
         }
@@ -833,48 +854,40 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let id = db.intern(&value).map_err(map_error)?;
         Ok(BigInt::from(id))
     }
 
     #[napi]
     pub fn resolve_id(&self, value: String) -> NapiResult<Option<BigInt>> {
-        let guard = self
+        let mut guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_ref()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let id = db.resolve_id(&value).map_err(map_error)?;
         Ok(id.map(BigInt::from))
     }
 
     #[napi]
     pub fn resolve_str(&self, id: BigInt) -> NapiResult<Option<String>> {
-        let guard = self
+        let mut guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_ref()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let (_, val, _) = id.get_u64();
         db.resolve_str(val).map_err(map_error)
     }
 
     #[napi(js_name = "getDictionarySize")]
     pub fn dictionary_size(&self) -> NapiResult<BigInt> {
-        let guard = self
+        let mut guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_ref()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let size = db.dictionary_size().map_err(map_error)?;
         Ok(BigInt::from(size))
     }
@@ -889,9 +902,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
 
         let params_map: Option<HashMap<String, serde_json::Value>> = match params {
             Some(obj) => {
@@ -976,14 +987,13 @@ impl DatabaseHandle {
         use nervusdb_core::query::ast::Clause;
         use nervusdb_core::query::ast::Expression;
         use nervusdb_core::query::parser::Parser;
+        use nervusdb_core::query::planner::QueryPlanner;
 
-        let mut guard = self
+        let guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db_arc = guard.db_arc()?;
 
         let params_map: Option<HashMap<String, serde_json::Value>> = match params {
             Some(obj) => {
@@ -1014,10 +1024,6 @@ impl DatabaseHandle {
             ));
         }
 
-        let results = db
-            .execute_query_with_params(&query, params_map)
-            .map_err(map_error)?;
-
         fn infer_projection_alias(expr: &Expression) -> String {
             match expr {
                 Expression::Variable(name) => name.clone(),
@@ -1027,23 +1033,24 @@ impl DatabaseHandle {
         }
 
         let mut projection_names: Vec<String> = Vec::new();
-        match Parser::parse(query.as_str()) {
-            Ok(ast) => {
-                for clause in ast.clauses {
-                    if let Clause::Return(r) = clause {
-                        projection_names = r
-                            .items
-                            .into_iter()
-                            .map(|item| {
-                                item.alias
-                                    .unwrap_or_else(|| infer_projection_alias(&item.expression))
-                            })
-                            .collect();
-                        break;
-                    }
-                }
-            }
+        let ast = match Parser::parse(query.as_str()) {
+            Ok(ast) => ast,
             Err(err) => return Err(napi::Error::new(Status::InvalidArg, err.to_string())),
+        };
+
+        for clause in &ast.clauses {
+            if let Clause::Return(r) = clause {
+                projection_names = r
+                    .items
+                    .iter()
+                    .map(|item| {
+                        item.alias
+                            .clone()
+                            .unwrap_or_else(|| infer_projection_alias(&item.expression))
+                    })
+                    .collect();
+                break;
+            }
         }
 
         if !projection_names.is_empty() {
@@ -1058,33 +1065,30 @@ impl DatabaseHandle {
             }
         }
 
-        let columns: Vec<String> = if !projection_names.is_empty() {
-            projection_names
-        } else if results.is_empty() {
-            Vec::new()
-        } else {
-            let mut keys: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-            for row in &results {
-                keys.extend(row.keys().cloned());
-            }
-            keys.into_iter().collect()
-        };
+        let columns: Vec<String> = projection_names;
 
-        let mut rows: Vec<Vec<CoreValue>> = Vec::with_capacity(results.len());
-        for row in results {
-            let mut out_row = Vec::with_capacity(columns.len());
-            for col in &columns {
-                out_row.push(row.get(col).cloned().unwrap_or(CoreValue::Null));
-            }
-            rows.push(out_row);
-        }
+        let param_values: HashMap<String, CoreValue> = params_map
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(k, v)| (k, Database::serde_value_to_executor_value(v)))
+            .collect();
+
+        let planner = QueryPlanner::new();
+        let plan = planner.plan(ast).map_err(map_error)?;
+
+        #[allow(clippy::arc_with_non_send_sync)]
+        let ctx = Arc::new(nervusdb_core::query::executor::ArcExecutionContext::new(
+            Arc::clone(&db_arc),
+            param_values,
+        ));
+        let iter = plan.execute_streaming(ctx).map_err(map_error)?;
 
         Ok(StatementHandle {
             inner: Some(StatementInner {
                 columns,
-                rows,
-                next_row: 0,
                 current_row: None,
+                iter,
+                db_guard: Arc::clone(&self.inner),
             }),
         })
     }
@@ -1095,9 +1099,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let (_, id, _) = node_id.get_u64();
         db.set_node_property(id, &json).map_err(map_error)
     }
@@ -1113,9 +1115,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let (_, id, _) = node_id.get_u64();
 
         // Convert serde_json::Value to HashMap and serialize to FlexBuffers
@@ -1135,13 +1135,11 @@ impl DatabaseHandle {
 
     #[napi(js_name = "getNodeProperty")]
     pub fn get_node_property(&self, node_id: BigInt) -> NapiResult<Option<String>> {
-        let guard = self
+        let mut guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_ref()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let (_, id, _) = node_id.get_u64();
         db.get_node_property(id).map_err(map_error)
     }
@@ -1152,13 +1150,11 @@ impl DatabaseHandle {
         &self,
         node_id: BigInt,
     ) -> NapiResult<Option<serde_json::Value>> {
-        let guard = self
+        let mut guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_ref()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let (_, id, _) = node_id.get_u64();
 
         if let Some(binary) = db.get_node_property_binary(id).map_err(map_error)? {
@@ -1182,9 +1178,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let (_, s, _) = subject_id.get_u64();
         let (_, p, _) = predicate_id.get_u64();
         let (_, o, _) = object_id.get_u64();
@@ -1204,9 +1198,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let (_, s, _) = subject_id.get_u64();
         let (_, p, _) = predicate_id.get_u64();
         let (_, o, _) = object_id.get_u64();
@@ -1233,13 +1225,11 @@ impl DatabaseHandle {
         predicate_id: BigInt,
         object_id: BigInt,
     ) -> NapiResult<Option<String>> {
-        let guard = self
+        let mut guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_ref()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let (_, s, _) = subject_id.get_u64();
         let (_, p, _) = predicate_id.get_u64();
         let (_, o, _) = object_id.get_u64();
@@ -1254,13 +1244,11 @@ impl DatabaseHandle {
         predicate_id: BigInt,
         object_id: BigInt,
     ) -> NapiResult<Option<serde_json::Value>> {
-        let guard = self
+        let mut guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_ref()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let (_, s, _) = subject_id.get_u64();
         let (_, p, _) = predicate_id.get_u64();
         let (_, o, _) = object_id.get_u64();
@@ -1276,13 +1264,11 @@ impl DatabaseHandle {
 
     #[napi]
     pub fn query(&self, criteria: Option<QueryCriteriaInput>) -> NapiResult<Vec<TripleOutput>> {
-        let guard = self
+        let mut guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_ref()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let criteria = criteria.unwrap_or_default();
         let query = QueryCriteria {
             subject_id: convert_string_id(criteria.subject_id),
@@ -1295,13 +1281,11 @@ impl DatabaseHandle {
 
     #[napi(js_name = "queryFacts")]
     pub fn query_facts(&self, criteria: Option<QueryCriteriaInput>) -> NapiResult<Vec<FactOutput>> {
-        let guard = self
+        let mut guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_ref()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
 
         let criteria = criteria.unwrap_or_default();
         let query = QueryCriteria {
@@ -1381,9 +1365,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let triples = triples
             .into_iter()
             .map(|t| {
@@ -1402,9 +1384,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let criteria = criteria.unwrap_or_default();
         let query = QueryCriteria {
             subject_id: convert_string_id(criteria.subject_id),
@@ -1423,9 +1403,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let (_, id, _) = cursor_id.get_u64();
         let (triples, done) = db.cursor_next(id, batch_size as usize).map_err(map_error)?;
         let mapped = triples.into_iter().map(triple_to_output).collect();
@@ -1445,9 +1423,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let (_, id, _) = cursor_id.get_u64();
         let (triples, done) = db.cursor_next(id, batch_size as usize).map_err(map_error)?;
 
@@ -1466,9 +1442,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         let (_, id, _) = cursor_id.get_u64();
         db.close_cursor(id).map_err(map_error)
     }
@@ -1479,9 +1453,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         db.begin_transaction().map_err(map_error)
     }
 
@@ -1491,9 +1463,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         db.commit_transaction().map_err(map_error)
     }
 
@@ -1503,9 +1473,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_mut()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
         db.abort_transaction().map_err(map_error)
     }
 
@@ -1515,7 +1483,7 @@ impl DatabaseHandle {
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        guard.take();
+        guard.db = None;
         Ok(())
     }
 
@@ -1533,13 +1501,11 @@ impl DatabaseHandle {
         max_hops: Option<u32>,
         bidirectional: Option<bool>,
     ) -> NapiResult<Option<PathResultOutput>> {
-        let guard = self
+        let mut guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_ref()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
 
         let (_, start, _) = start_id.get_u64();
         let (_, end, _) = end_id.get_u64();
@@ -1570,13 +1536,11 @@ impl DatabaseHandle {
         predicate_id: Option<BigInt>,
         max_hops: Option<u32>,
     ) -> NapiResult<Option<PathResultOutput>> {
-        let guard = self
+        let mut guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_ref()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
 
         let (_, start, _) = start_id.get_u64();
         let (_, end, _) = end_id.get_u64();
@@ -1608,13 +1572,11 @@ impl DatabaseHandle {
         max_iterations: Option<u32>,
         tolerance: Option<f64>,
     ) -> NapiResult<PageRankResultOutput> {
-        let guard = self
+        let mut guard = self
             .inner
             .lock()
             .map_err(|_| napi::Error::new(Status::GenericFailure, "database mutex poisoned"))?;
-        let db = guard
-            .as_ref()
-            .ok_or_else(|| napi::Error::new(Status::GenericFailure, "database already closed"))?;
+        let db = guard.db_mut()?;
 
         let pred = predicate_id.map(|p| {
             let (_, val, _) = p.get_u64();
@@ -1650,8 +1612,10 @@ impl DatabaseHandle {
 #[napi]
 pub fn open(options: OpenOptions) -> NapiResult<DatabaseHandle> {
     let path = PathBuf::from(options.data_path);
-    let db = Database::open(Options::new(path)).map_err(map_error)?;
+    #[allow(clippy::arc_with_non_send_sync)]
+    let db = Arc::new(Database::open(Options::new(path)).map_err(map_error)?);
     Ok(DatabaseHandle {
-        inner: Mutex::new(Some(db)),
+        #[allow(clippy::arc_with_non_send_sync)]
+        inner: Arc::new(Mutex::new(SharedDb { db: Some(db) })),
     })
 }
