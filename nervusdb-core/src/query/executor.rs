@@ -2101,7 +2101,7 @@ impl ExecutionPlan for VectorTopKScanNode {
         }
         #[cfg(not(all(feature = "vector", not(target_arch = "wasm32"))))]
         {
-            return fallback(self, ctx, limit);
+            fallback(self, ctx, limit)
         }
     }
 
