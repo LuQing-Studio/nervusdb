@@ -35,4 +35,6 @@
 | T34 | FTS 下推：`txt_score` 谓词走索引候选集 | L3 | P0 | Done | #27 | planner 重写 Scan→FtsCandidateScan；限制：`txt_score(n.prop, $q) > 0` / `>= 正数`；Vector TopK 下推见 T35 |
 | T35 | Vector Top-K 下推：`ORDER BY vec_similarity(...) DESC LIMIT k` | L3 | P0 | Done | #28 | 仅做 Sort+Limit 模式；不碰 WHERE/range；`usearch.search(query, k)` 候选集回表 |
 | T36 | 发布准备 v1.0.3（版本统一 + docs 归档 + 发布前构建验证） | L3 | P0 | Done | release/T36-v1.0.3 | 版本统一到 1.0.3（Rust+Node 发布，Python 仅同步）；docs/ 根目录只保留 task_progress；Rust `cargo test` 通过；`cargo publish --dry-run -p nervusdb-temporal` 通过（发布需先 temporal 再 core）；Node CI 等价构建/测试通过；`npm publish --dry-run` 通过 |
-| T37 | UniFFI 多语言绑定：以 C ABI Statement 为唯一硬契约（Python 重做、扩展 Swift/Kotlin/Ruby） | L3 | P0 | Plan | - | 设计：`docs/design/T37-uniffi-bindings.md`；核心不改 ABI；Python 改为同步真流式；Node 保持 napi-rs 并加一致性门禁 |
+| T37 | UniFFI 多语言绑定：以 C ABI Statement 为唯一硬契约（Python 重做、扩展 Swift/Kotlin/Ruby） | L3 | P0 | Done | #31 | Python 重做已落地（同步真流式）；Node 门禁与真流式修复拆到 T38；`nervusdb.h` 不改 ABI |
+| T38 | Node 真流式 Statement + 契约门禁（对齐 `nervusdb.h`） | L3 | P0 | Plan | - | 现状：Node `prepareV2` 仍在 Rust 侧预加载 `Vec<Vec<Value>>`，是伪流式；目标：改为 `PhysicalPlan::execute_streaming` 真流式并加 CI 契约检查 |
+| T39 | Rust CLI（查询/流式输出） | L2 | P1 | Plan | - | 新增 `nervusdb` CLI：以流式方式执行 Cypher 并输出 NDJSON；保持不破坏现有库/ABI |
