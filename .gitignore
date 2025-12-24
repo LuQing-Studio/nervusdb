@@ -25,9 +25,7 @@ bindings/python/nervusdb-py/target/
 .DS_Store
 Thumbs.db
 .agents/rules/base.md
-AGENTS.md
-CLAUDE.md
-GEMINI.md
+
 
 # IDE
 .vscode/
