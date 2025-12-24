@@ -17,8 +17,8 @@
 - 版本号统一到 `1.0.3`（Rust + Node 为发布目标；Python 仅同步版本号，不执行发布）。
 - `docs/` 根目录只保留 `docs/task_progress.md`，其余文档移动到合理子目录，并修复引用链接。
 - 发布前验证：
-  - Rust：`cargo test` + `cargo publish --dry-run`
-  - Node：`pnpm -C bindings/node ci:prepush` + `npm publish --dry-run`
+  - Rust：`cargo test` + `cargo publish --dry-run`（按 crates 发布顺序验证）
+  - Node：按 CI 等价步骤构建/测试 + `npm publish --dry-run`
 
 ## 3. Non-Goals
 
@@ -42,4 +42,4 @@
 
 - docs 移动会打断旧链接：必须全局搜索并修复引用。
 - crates.io/npm 不允许覆盖同版本：版本号必须前进到未占用的新版本（本次为 `1.0.3`）。
-
+- `nervusdb-core` 发布依赖 `nervusdb-temporal`：在 crates.io 未存在 `nervusdb-temporal@1.0.3` 前，`cargo publish --dry-run -p nervusdb-core` 会失败；发布顺序必须先 `nervusdb-temporal` 再 `nervusdb-core`。
