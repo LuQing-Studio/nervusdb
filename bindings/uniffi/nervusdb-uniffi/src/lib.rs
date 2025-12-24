@@ -1,3 +1,5 @@
+#![allow(clippy::empty_line_after_doc_comments)]
+
 use nervusdb_core::query::executor::{Record, Value as ExecValue};
 use nervusdb_core::query::planner::QueryPlanner;
 use nervusdb_core::{Database as CoreDatabase, Error as CoreError, Fact, Options, Triple};
