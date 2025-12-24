@@ -6,6 +6,7 @@ license = "AGPL-3.0-only"
 description = "UniFFI bindings for NervusDB (C ABI Statement contract mirrored)"
 
 [lib]
+name = "nervusdb_uniffi"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
