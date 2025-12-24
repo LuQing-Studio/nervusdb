@@ -978,6 +978,30 @@ fn evaluate_expression_value_streaming(
                 };
                 Value::Float(sim as f64)
             }
+            "txt_score" => {
+                #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+                {
+                    let Some(Expression::PropertyAccess(pa)) = func.arguments.first() else {
+                        return Value::Null;
+                    };
+                    let Some(Value::Node(node_id)) = record.get(&pa.variable) else {
+                        return Value::Null;
+                    };
+                    let Some(query_expr) = func.arguments.get(1) else {
+                        return Value::Null;
+                    };
+                    let Value::String(query) =
+                        evaluate_expression_value_streaming(query_expr, record, ctx)
+                    else {
+                        return Value::Null;
+                    };
+                    Value::Float(ctx.db.fts_txt_score(*node_id, &pa.property, &query))
+                }
+                #[cfg(not(all(feature = "fts", not(target_arch = "wasm32"))))]
+                {
+                    Value::Float(0.0)
+                }
+            }
             "id" => match func
                 .arguments
                 .first()
@@ -2928,6 +2952,29 @@ pub fn evaluate_expression_value(
                     return Value::Null;
                 };
                 Value::Float(sim as f64)
+            }
+            "txt_score" => {
+                #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+                {
+                    let Some(Expression::PropertyAccess(pa)) = func.arguments.first() else {
+                        return Value::Null;
+                    };
+                    let Some(Value::Node(node_id)) = record.get(&pa.variable) else {
+                        return Value::Null;
+                    };
+                    let Some(query_expr) = func.arguments.get(1) else {
+                        return Value::Null;
+                    };
+                    let Value::String(query) = evaluate_expression_value(query_expr, record, ctx)
+                    else {
+                        return Value::Null;
+                    };
+                    Value::Float(ctx.db.fts_txt_score(*node_id, &pa.property, &query))
+                }
+                #[cfg(not(all(feature = "fts", not(target_arch = "wasm32"))))]
+                {
+                    Value::Float(0.0)
+                }
             }
             "id" => match func
                 .arguments

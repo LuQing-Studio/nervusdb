@@ -4,12 +4,16 @@ pub mod algorithms;
 mod error;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod ffi;
+#[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+mod fts_index;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod migration;
 pub mod parser;
 pub mod query;
 pub mod storage;
 pub mod triple;
+#[cfg(all(feature = "vector", not(target_arch = "wasm32")))]
+mod vector_index;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -50,12 +54,29 @@ pub struct Database {
     store: Box<dyn Hexastore + Send>,
     #[cfg(not(target_arch = "wasm32"))]
     redb: Arc<RedbDatabase>,
+    #[cfg(all(any(feature = "vector", feature = "fts"), not(target_arch = "wasm32")))]
+    redb_path: PathBuf,
     #[cfg(not(target_arch = "wasm32"))]
     active_write: Option<WriteTransaction>,
+    #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+    fts_index: Option<fts_index::FtsIndex>,
+    #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+    fts_write_log: HashMap<u64, Vec<u8>>,
+    #[cfg(all(feature = "vector", not(target_arch = "wasm32")))]
+    vector_index: Option<vector_index::VectorIndex>,
+    #[cfg(all(feature = "vector", not(target_arch = "wasm32")))]
+    vector_undo_log: Vec<VectorUndoEntry>,
     #[cfg(all(feature = "temporal", not(target_arch = "wasm32")))]
     temporal: TemporalStore,
     cursors: HashMap<u64, QueryCursor>,
     next_cursor_id: u64,
+}
+
+#[cfg(all(feature = "vector", not(target_arch = "wasm32")))]
+#[derive(Debug, Clone)]
+struct VectorUndoEntry {
+    node_id: u64,
+    old: Option<Vec<f32>>,
 }
 
 struct QueryCursor {
@@ -121,8 +142,10 @@ impl Database {
         }
 
         #[cfg(not(target_arch = "wasm32"))]
+        let redb_path = path.with_extension("redb");
+        #[cfg(not(target_arch = "wasm32"))]
         let redb = Arc::new(
-            RedbDatabase::create(path.with_extension("redb"))
+            RedbDatabase::create(redb_path.clone())
                 .map_err(|e| Error::Other(format!("failed to open redb: {e}")))?,
         );
 
@@ -134,17 +157,43 @@ impl Database {
         #[cfg(all(feature = "temporal", not(target_arch = "wasm32")))]
         let temporal = TemporalStore::open(redb.clone())?;
 
-        Ok(Self {
+        #[cfg_attr(
+            not(all(any(feature = "vector", feature = "fts"), not(target_arch = "wasm32"))),
+            allow(unused_mut)
+        )]
+        let mut db = Self {
             store,
             #[cfg(not(target_arch = "wasm32"))]
             redb,
+            #[cfg(all(any(feature = "vector", feature = "fts"), not(target_arch = "wasm32")))]
+            redb_path: redb_path.clone(),
             #[cfg(not(target_arch = "wasm32"))]
             active_write: None,
+            #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+            fts_index: None,
+            #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+            fts_write_log: HashMap::new(),
+            #[cfg(all(feature = "vector", not(target_arch = "wasm32")))]
+            vector_index: None,
+            #[cfg(all(feature = "vector", not(target_arch = "wasm32")))]
+            vector_undo_log: Vec::new(),
             #[cfg(all(feature = "temporal", not(target_arch = "wasm32")))]
             temporal,
             cursors: HashMap::new(),
             next_cursor_id: 1,
-        })
+        };
+
+        #[cfg(all(feature = "vector", not(target_arch = "wasm32")))]
+        {
+            db.vector_index = vector_index::VectorIndex::open_or_rebuild(&db, &db.redb_path)?;
+        }
+
+        #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+        {
+            db.fts_index = fts_index::FtsIndex::open_or_rebuild(&db, &db.redb_path)?;
+        }
+
+        Ok(db)
     }
 
     pub fn hydrate(
@@ -229,7 +278,50 @@ impl Database {
     // Binary property methods (v2.0, FlexBuffers for 10x performance)
 
     pub fn set_node_property_binary(&mut self, id: u64, value: &[u8]) -> Result<()> {
-        self.store.set_node_property_binary(id, value)
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(txn) = self.active_write.as_mut() {
+            {
+                let mut table = txn
+                    .open_table(crate::storage::schema::TABLE_NODE_PROPS_BINARY)
+                    .map_err(|e| Error::Other(e.to_string()))?;
+                table
+                    .insert(id, value)
+                    .map_err(|e| Error::Other(e.to_string()))?;
+            }
+
+            #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+            fts_index::bump_committed_writes_in_txn(txn, 1)?;
+        } else {
+            let tx = self
+                .redb
+                .begin_write()
+                .map_err(|e| Error::Other(e.to_string()))?;
+            {
+                let mut table = tx
+                    .open_table(crate::storage::schema::TABLE_NODE_PROPS_BINARY)
+                    .map_err(|e| Error::Other(e.to_string()))?;
+                table
+                    .insert(id, value)
+                    .map_err(|e| Error::Other(e.to_string()))?;
+            }
+
+            #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+            fts_index::bump_committed_writes_in_txn(&tx, 1)?;
+
+            tx.commit().map_err(|e| Error::Other(e.to_string()))?;
+            self.store.after_write_commit();
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        self.store.set_node_property_binary(id, value)?;
+
+        #[cfg(all(feature = "vector", not(target_arch = "wasm32")))]
+        self.update_vector_index_from_node_props(id, value);
+
+        #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+        self.update_fts_index_from_node_props(id, value);
+
+        Ok(())
     }
 
     pub fn get_node_property_binary(&self, id: u64) -> Result<Option<Vec<u8>>> {
@@ -237,11 +329,189 @@ impl Database {
     }
 
     pub fn set_edge_property_binary(&mut self, s: u64, p: u64, o: u64, value: &[u8]) -> Result<()> {
-        self.store.set_edge_property_binary(s, p, o, value)
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(txn) = self.active_write.as_mut() {
+            let mut table = txn
+                .open_table(crate::storage::schema::TABLE_EDGE_PROPS_BINARY)
+                .map_err(|e| Error::Other(e.to_string()))?;
+            table
+                .insert((s, p, o), value)
+                .map_err(|e| Error::Other(e.to_string()))?;
+        } else {
+            self.store.set_edge_property_binary(s, p, o, value)?;
+        }
+
+        Ok(())
     }
 
     pub fn get_edge_property_binary(&self, s: u64, p: u64, o: u64) -> Result<Option<Vec<u8>>> {
         self.store.get_edge_property_binary(s, p, o)
+    }
+
+    #[cfg(all(feature = "vector", not(target_arch = "wasm32")))]
+    fn update_vector_index_from_node_props(&mut self, node_id: u64, value: &[u8]) {
+        let Some(index) = self.vector_index.as_mut() else {
+            return;
+        };
+
+        let Ok(props) = crate::storage::property::deserialize_properties(value) else {
+            return;
+        };
+
+        if self.active_write.is_some() {
+            let old = index.get_vector(node_id).ok().flatten();
+            self.vector_undo_log.push(VectorUndoEntry { node_id, old });
+        }
+
+        if index.upsert_from_props(node_id, &props).is_err() {
+            self.vector_index = None;
+            self.vector_undo_log.clear();
+        }
+    }
+
+    #[cfg(all(feature = "vector", not(target_arch = "wasm32")))]
+    fn rollback_vector_index(&mut self) {
+        let Some(index) = self.vector_index.as_mut() else {
+            self.vector_undo_log.clear();
+            return;
+        };
+
+        for entry in self.vector_undo_log.drain(..).rev() {
+            let _ = index.upsert(entry.node_id, entry.old.as_deref());
+        }
+    }
+
+    #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+    fn update_fts_index_from_node_props(&mut self, node_id: u64, value: &[u8]) {
+        let Some(index) = self.fts_index.as_mut() else {
+            return;
+        };
+
+        if self.active_write.is_some() {
+            self.fts_write_log.insert(node_id, value.to_vec());
+            return;
+        }
+
+        let Ok(props) = crate::storage::property::deserialize_properties(value) else {
+            return;
+        };
+        if index.upsert_from_props(node_id, &props).is_err() {
+            self.fts_index = None;
+            self.fts_write_log.clear();
+        }
+    }
+
+    #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+    pub(crate) fn fts_txt_score(&self, node_id: u64, property: &str, query: &str) -> f64 {
+        let Some(index) = self.fts_index.as_ref() else {
+            return 0.0;
+        };
+        index.txt_score(node_id, property, query).unwrap_or(0.0) as f64
+    }
+
+    #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+    pub fn configure_fts_index(&mut self, mode: &str) -> Result<()> {
+        if self.active_write.is_some() {
+            return Err(Error::Other(
+                "cannot configure fts index during active transaction".to_string(),
+            ));
+        }
+
+        let config = fts_index::FtsIndexConfig {
+            mode: if mode.is_empty() {
+                "all_string_props".to_string()
+            } else {
+                mode.to_string()
+            },
+        };
+        fts_index::write_config(self, &config)?;
+        self.fts_index = fts_index::FtsIndex::open_or_rebuild(self, &self.redb_path)?;
+        self.fts_write_log.clear();
+        Ok(())
+    }
+
+    #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+    pub fn disable_fts_index(&mut self) -> Result<()> {
+        if self.active_write.is_some() {
+            return Err(Error::Other(
+                "cannot disable fts index during active transaction".to_string(),
+            ));
+        }
+        fts_index::clear_config(self)?;
+        self.fts_index = None;
+        self.fts_write_log.clear();
+        Ok(())
+    }
+
+    #[cfg(all(feature = "vector", not(target_arch = "wasm32")))]
+    pub fn configure_vector_index(
+        &mut self,
+        dim: usize,
+        property: &str,
+        metric: &str,
+    ) -> Result<()> {
+        if self.active_write.is_some() {
+            return Err(Error::Other(
+                "cannot configure vector index during active transaction".to_string(),
+            ));
+        }
+        if dim == 0 {
+            return Err(Error::Other("vector dim must be > 0".to_string()));
+        }
+
+        let config = vector_index::VectorIndexConfig {
+            dim,
+            property: property.to_string(),
+            metric: metric.to_string(),
+        };
+        vector_index::write_config(self, &config)?;
+        self.vector_index = vector_index::VectorIndex::open_or_rebuild(self, &self.redb_path)?;
+        Ok(())
+    }
+
+    #[cfg(all(feature = "vector", not(target_arch = "wasm32")))]
+    pub fn disable_vector_index(&mut self) -> Result<()> {
+        if self.active_write.is_some() {
+            return Err(Error::Other(
+                "cannot disable vector index during active transaction".to_string(),
+            ));
+        }
+        vector_index::clear_config(self)?;
+        self.vector_index = None;
+        self.vector_undo_log.clear();
+        Ok(())
+    }
+
+    #[cfg(all(feature = "vector", not(target_arch = "wasm32")))]
+    pub fn vector_search(&self, query: &[f32], limit: usize) -> Result<Vec<(u64, f32)>> {
+        let Some(index) = self.vector_index.as_ref() else {
+            return Err(Error::Other("vector index not configured".to_string()));
+        };
+        index.search(query, limit)
+    }
+
+    pub fn flush_indexes(&mut self) -> Result<()> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.active_write.is_some() {
+            return Err(Error::Other(
+                "cannot flush indexes during active transaction".to_string(),
+            ));
+        }
+
+        #[cfg(all(feature = "vector", not(target_arch = "wasm32")))]
+        if let Some(index) = self.vector_index.as_mut() {
+            index.flush()?;
+        }
+
+        #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+        {
+            let committed_writes = fts_index::read_committed_writes(self)?;
+            if let Some(index) = self.fts_index.as_mut() {
+                index.flush(committed_writes)?;
+            }
+        }
+
+        Ok(())
     }
 
     // Batch operations (v2.0, for migration and bulk operations)
@@ -1264,7 +1534,70 @@ impl Database {
         }
 
         // Delete node properties
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(txn) = self.active_write.as_mut() {
+            {
+                // Delete from binary table (v2.0)
+                let mut binary_table = txn
+                    .open_table(crate::storage::schema::TABLE_NODE_PROPS_BINARY)
+                    .map_err(|e| Error::Other(e.to_string()))?;
+                binary_table
+                    .remove(node_id)
+                    .map_err(|e| Error::Other(e.to_string()))?;
+
+                // Delete from legacy string table (v1.x)
+                let mut string_table = txn
+                    .open_table(crate::storage::schema::TABLE_NODE_PROPS)
+                    .map_err(|e| Error::Other(e.to_string()))?;
+                string_table
+                    .remove(node_id)
+                    .map_err(|e| Error::Other(e.to_string()))?;
+            }
+
+            #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+            fts_index::bump_committed_writes_in_txn(txn, 1)?;
+        } else {
+            let tx = self
+                .redb
+                .begin_write()
+                .map_err(|e| Error::Other(e.to_string()))?;
+            {
+                // Delete from binary table (v2.0)
+                let mut binary_table = tx
+                    .open_table(crate::storage::schema::TABLE_NODE_PROPS_BINARY)
+                    .map_err(|e| Error::Other(e.to_string()))?;
+                binary_table
+                    .remove(node_id)
+                    .map_err(|e| Error::Other(e.to_string()))?;
+
+                // Delete from legacy string table (v1.x)
+                let mut string_table = tx
+                    .open_table(crate::storage::schema::TABLE_NODE_PROPS)
+                    .map_err(|e| Error::Other(e.to_string()))?;
+                string_table
+                    .remove(node_id)
+                    .map_err(|e| Error::Other(e.to_string()))?;
+            }
+
+            #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+            fts_index::bump_committed_writes_in_txn(&tx, 1)?;
+
+            tx.commit().map_err(|e| Error::Other(e.to_string()))?;
+            self.store.after_write_commit();
+        }
+
+        #[cfg(target_arch = "wasm32")]
         self.store.delete_node_properties(node_id)?;
+
+        #[cfg(all(feature = "vector", not(target_arch = "wasm32")))]
+        if let Some(index) = self.vector_index.as_mut() {
+            let _ = index.remove(node_id);
+        }
+
+        #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+        if let Some(index) = self.fts_index.as_mut() {
+            let _ = index.delete_node(node_id);
+        }
 
         Ok(())
     }
@@ -1435,6 +1768,19 @@ impl Database {
             .take()
             .ok_or_else(|| Error::Other("no active transaction".to_string()))?;
         tx.commit().map_err(|e| Error::Other(e.to_string()))?;
+        #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+        {
+            let staged = std::mem::take(&mut self.fts_write_log);
+            if let Some(index) = self.fts_index.as_mut() {
+                for (node_id, value) in staged {
+                    if let Ok(props) = crate::storage::property::deserialize_properties(&value) {
+                        let _ = index.upsert_from_props(node_id, &props);
+                    }
+                }
+            }
+        }
+        #[cfg(all(feature = "vector", not(target_arch = "wasm32")))]
+        self.vector_undo_log.clear();
         self.store.after_write_commit();
         Ok(())
     }
@@ -1442,6 +1788,10 @@ impl Database {
     /// Abort the active transaction, discarding all changes
     #[cfg(not(target_arch = "wasm32"))]
     pub fn abort_transaction(&mut self) -> Result<()> {
+        #[cfg(all(feature = "fts", not(target_arch = "wasm32")))]
+        self.fts_write_log.clear();
+        #[cfg(all(feature = "vector", not(target_arch = "wasm32")))]
+        self.rollback_vector_index();
         self.active_write = None;
         Ok(())
     }

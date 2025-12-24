@@ -97,13 +97,16 @@ NervusDB 已具备接近完整的 Cypher 读写能力与可靠持久化（redb +
    - `vector.index.config`（JSON：metric/dim/label/property/…）
    - `fts.index.version`
    - `fts.index.config`（JSON：schema/fields/label/property/…）
+   - `fts.index.committed_writes`（u64 计数器：每次“影响 FTS 的节点属性写入/删除”提交后递增）
 2. Sidecar 内也保存一份同样的 `meta.json`（或 usearch/tantivy 自带元数据 + 我们的额外校验）。
+   - FTS sidecar meta 额外记录 `flushed_writes`（上次 `flush_indexes()`/重建落盘时看到的 committed 值）
 
 `Database::open` 时进行三层校验：
 
 - meta key 存在且可解析
 - Sidecar 存在且可打开
 - Sidecar meta 与 redb meta 完全一致
+  - 若 `committed_writes != flushed_writes`：认为 sidecar 过期 → **重建**（保证 crash 后不会长期落后）
 
 任何失败 → **降级为重建**（scan redb → rebuild sidecar）。
 
@@ -132,10 +135,10 @@ NervusDB 已具备接近完整的 Cypher 读写能力与可靠持久化（redb +
 
 为避免“每行都跑一次索引查询”的灾难，必须做 per-query cache：
 
-- 对同一个 `(label?, property, query_string)`，只向 tantivy 发起一次搜索，拿到 topN 结果并建立 `node_id -> score` map。
+- 对同一个 `(label?, property, query_string)`，只向 tantivy 发起一次搜索，拿到 **TopK（默认 10_000）** 结果并建立 `node_id -> score` map。
 - 行级求值时 O(1) 查 map：
   - 命中 → 返回 score
-  - 未命中 → 返回 0（或 `Null`，MVP 需要固定语义）
+  - 未命中/TopK 之外 → 返回 **0.0**（MVP 固定语义）
 
 > 约束：函数参数必须是 `PropertyAccess`（例如 `txt_score(n.content, $q)`），否则无法定位到 node_id，返回 `Null`。
 
@@ -143,6 +146,10 @@ NervusDB 已具备接近完整的 Cypher 读写能力与可靠持久化（redb +
 
 （名称待实现阶段确认，避免破坏现有 API）
 
+- `Database::configure_vector_index(dim, property, metric) -> Result<()>`
+- `Database::disable_vector_index() -> Result<()>`
+- `Database::configure_fts_index(mode) -> Result<()>`
+- `Database::disable_fts_index() -> Result<()>`
 - `Database::flush_indexes() -> Result<()>`
   - Vector：将内存索引快照写入 `.usearch`
   - FTS：commit tantivy IndexWriter（落盘）
@@ -167,9 +174,11 @@ NervusDB 已具备接近完整的 Cypher 读写能力与可靠持久化（redb +
 ### 6.2 FTS：最终一致（NRT）
 
 - 属性写入只保证 redb 持久化。
-- FTS 索引允许落后；在 `flush_indexes()` 或后台 commit 后可见。
+- FTS 索引允许落后；在 `flush_indexes()` 后可见（MVP 不做后台 commit）。
 - 事务回滚：
   - 建议将“写入 tantivy writer”延后到 `commit_transaction()` 之后，避免 rollback 清理成本。
+ - crash/reopen：
+   - 通过 `committed_writes/flushed_writes` 检测 sidecar 过期；过期则重建，确保不会长期落后于 redb（代价是下次 open 可能变慢）。
 
 ## 7. Failure Modes / Fallback
 
@@ -204,4 +213,3 @@ Sidecar 不是 Source of Truth：即使 crash 导致 sidecar 不完整，也必�
 2. 再评估“无改语法的索引加速”：
    - planner 识别 `txt_score(...) > t` / `vec_similarity(...) > t` 的可优化模式
    - 或新增 row-generator 函数配合 `UNWIND`（不改 MATCH 语法也能用索引做候选集）。
-
