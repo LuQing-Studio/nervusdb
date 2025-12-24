@@ -51,7 +51,7 @@
 - 单元测试：
   - 插入/查询/属性读写/事务语义（已有测试覆盖）。
 - 基准回归：
-  - 以 `docs/PERFORMANCE_ANALYSIS.md` 记录的数字为基线，要求“无回退”。
+  - 以 `docs/perf/PERFORMANCE_ANALYSIS.md` 记录的数字为基线，要求“无回退”。
 
 ## 6. Risks
 

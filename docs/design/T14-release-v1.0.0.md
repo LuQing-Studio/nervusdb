@@ -17,7 +17,7 @@ v1.0.0 的意义不是“全功能”，而是 **契约已定、语义可预期�
    - 不支持的语法必须 **fail-fast**：返回 `Error::NotImplemented`（禁止“跑错”）。
 3. **诚实文档**
    - README 首页第一句话：`NervusDB: An Embedded, Crash-Safe Graph Database (Subset of Cypher, Powered by Rust)`.
-   - `docs/cypher_support.md` 写清白名单与限制（以测试为准）。
+   - `docs/reference/cypher_support.md` 写清白名单与限制（以测试为准）。
 4. **Crash Gate**
    - 发布前本地复跑 `nervus-crash-test` 1000 次并通过（参数与 CI gate 一致）。
 
@@ -48,4 +48,3 @@ v1.0.0 的意义不是“全功能”，而是 **契约已定、语义可预期�
 
 - 白名单策略若没 fail-fast，会导致“看似能跑、实际上跑错”的灾难性信任崩塌。
 - LIMIT 的实现必须确保不会吞掉执行期错误（只允许在 stop 后不再触发后续迭代）。
-

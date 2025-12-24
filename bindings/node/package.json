@@ -1,6 +1,6 @@
 {
   "name": "@nervusdb/core",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "NervusDB Node 绑定：Rust Core 驱动的嵌入式三元组图数据库（单文件 redb）",
   "main": "dist/index.mjs",
   "types": "dist/index.d.ts",

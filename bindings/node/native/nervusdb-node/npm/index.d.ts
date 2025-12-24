@@ -67,9 +67,17 @@ export declare class DatabaseHandle {
   executeQuery(query: string, params?: object | undefined | null): NapiResult
   prepareV2(query: string, params?: object | undefined | null): NapiResult
   setNodeProperty(nodeId: bigint, json: string): NapiResult
+  /** Set node properties directly from JS object (v1.1 - bypasses JSON string) */
+  setNodePropertyDirect(nodeId: bigint, properties: any): NapiResult
   getNodeProperty(nodeId: bigint): NapiResult
+  /** Get node properties directly as JS object (v1.1 - bypasses JSON string) */
+  getNodePropertyDirect(nodeId: bigint): NapiResult
   setEdgeProperty(subjectId: bigint, predicateId: bigint, objectId: bigint, json: string): NapiResult
+  /** Set edge properties directly from JS object (v1.1 - bypasses JSON string) */
+  setEdgePropertyDirect(subjectId: bigint, predicateId: bigint, objectId: bigint, properties: any): NapiResult
   getEdgeProperty(subjectId: bigint, predicateId: bigint, objectId: bigint): NapiResult
+  /** Get edge properties directly as JS object (v1.1 - bypasses JSON string) */
+  getEdgePropertyDirect(subjectId: bigint, predicateId: bigint, objectId: bigint): NapiResult
   query(criteria?: QueryCriteriaInput | undefined | null): NapiResult
   queryFacts(criteria?: QueryCriteriaInput | undefined | null): NapiResult
   hydrate(dictionary: Array<string>, triples: Array<TripleInput>): NapiResult
