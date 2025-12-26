@@ -29,6 +29,9 @@ struct Meta {
     page_size: u64,
     bitmap_page_id: u64,
     next_page_id: u64,
+    i2e_start_page_id: u64,
+    i2e_len: u64,
+    next_internal_id: u64,
 }
 
 impl Meta {
@@ -39,6 +42,9 @@ impl Meta {
             page_size: PAGE_SIZE as u64,
             bitmap_page_id: BITMAP_PAGE_ID.as_u64(),
             next_page_id: FIRST_DATA_PAGE_ID.as_u64(),
+            i2e_start_page_id: 0,
+            i2e_len: 0,
+            next_internal_id: 0,
         }
     }
 
@@ -50,6 +56,9 @@ impl Meta {
         page[24..32].copy_from_slice(&self.page_size.to_le_bytes());
         page[32..40].copy_from_slice(&self.bitmap_page_id.to_le_bytes());
         page[40..48].copy_from_slice(&self.next_page_id.to_le_bytes());
+        page[48..56].copy_from_slice(&self.i2e_start_page_id.to_le_bytes());
+        page[56..64].copy_from_slice(&self.i2e_len.to_le_bytes());
+        page[64..72].copy_from_slice(&self.next_internal_id.to_le_bytes());
         page
     }
 
@@ -63,10 +72,19 @@ impl Meta {
         let page_size = u64::from_le_bytes(page[24..32].try_into().unwrap());
         let bitmap_page_id = u64::from_le_bytes(page[32..40].try_into().unwrap());
         let next_page_id = u64::from_le_bytes(page[40..48].try_into().unwrap());
+        let i2e_start_page_id = u64::from_le_bytes(page[48..56].try_into().unwrap());
+        let i2e_len = u64::from_le_bytes(page[56..64].try_into().unwrap());
+        let next_internal_id = u64::from_le_bytes(page[64..72].try_into().unwrap());
 
         if page_size != PAGE_SIZE as u64 {
             return Err(Error::UnsupportedPageSize(page_size));
         }
+
+        let next_internal_id = if next_internal_id == 0 && i2e_len > 0 {
+            i2e_len
+        } else {
+            next_internal_id
+        };
 
         Ok(Self {
             version_major,
@@ -74,6 +92,9 @@ impl Meta {
             page_size,
             bitmap_page_id,
             next_page_id,
+            i2e_start_page_id,
+            i2e_len,
+            next_internal_id,
         })
     }
 }
@@ -185,6 +206,40 @@ impl Pager {
         &self.path
     }
 
+    #[inline]
+    pub fn i2e_start_page(&self) -> Option<PageId> {
+        if self.meta.i2e_start_page_id == 0 {
+            None
+        } else {
+            Some(PageId::new(self.meta.i2e_start_page_id))
+        }
+    }
+
+    #[inline]
+    pub fn i2e_len(&self) -> u64 {
+        self.meta.i2e_len
+    }
+
+    #[inline]
+    pub fn next_internal_id(&self) -> u32 {
+        u32::try_from(self.meta.next_internal_id).unwrap_or(u32::MAX)
+    }
+
+    pub fn set_i2e_start_page(&mut self, start: Option<PageId>) -> Result<()> {
+        self.meta.i2e_start_page_id = start.map(|p| p.as_u64()).unwrap_or(0);
+        self.flush_meta_and_bitmap()
+    }
+
+    pub fn set_i2e_len(&mut self, len: u64) -> Result<()> {
+        self.meta.i2e_len = len;
+        self.flush_meta_and_bitmap()
+    }
+
+    pub fn set_next_internal_id(&mut self, next: u32) -> Result<()> {
+        self.meta.next_internal_id = next as u64;
+        self.flush_meta_and_bitmap()
+    }
+
     pub fn allocate_page(&mut self) -> Result<PageId> {
         let max_pages = BITMAP_BITS;
         let candidate = self
@@ -258,8 +313,7 @@ impl Pager {
             self.file.set_len(required_bytes)?;
         }
 
-        self.flush_meta_and_bitmap()?;
-        Ok(())
+        self.flush_meta_and_bitmap()
     }
 
     fn validate_data_page_id(&self, page_id: PageId) -> Result<()> {
