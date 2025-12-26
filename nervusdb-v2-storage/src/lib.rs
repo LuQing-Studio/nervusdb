@@ -1,5 +1,9 @@
+pub mod engine;
 mod error;
+pub mod idmap;
+pub mod memtable;
 pub mod pager;
+pub mod snapshot;
 pub mod wal;
 
 pub use crate::error::{Error, Result};

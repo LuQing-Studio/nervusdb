@@ -20,6 +20,24 @@ pub enum WalRecord {
     PageFree {
         page_id: u64,
     },
+    CreateNode {
+        external_id: u64,
+        label_id: u32,
+        internal_id: u32,
+    },
+    CreateEdge {
+        src: u32,
+        rel: u32,
+        dst: u32,
+    },
+    TombstoneNode {
+        node: u32,
+    },
+    TombstoneEdge {
+        src: u32,
+        rel: u32,
+        dst: u32,
+    },
 }
 
 impl WalRecord {
@@ -29,6 +47,10 @@ impl WalRecord {
             WalRecord::CommitTx { .. } => 2,
             WalRecord::PageWrite { .. } => 3,
             WalRecord::PageFree { .. } => 4,
+            WalRecord::CreateNode { .. } => 5,
+            WalRecord::CreateEdge { .. } => 6,
+            WalRecord::TombstoneNode { .. } => 7,
+            WalRecord::TombstoneEdge { .. } => 8,
         }
     }
 
@@ -45,6 +67,24 @@ impl WalRecord {
             }
             WalRecord::PageFree { page_id } => {
                 out.extend_from_slice(&page_id.to_le_bytes());
+            }
+            WalRecord::CreateNode {
+                external_id,
+                label_id,
+                internal_id,
+            } => {
+                out.extend_from_slice(&external_id.to_le_bytes());
+                out.extend_from_slice(&label_id.to_le_bytes());
+                out.extend_from_slice(&internal_id.to_le_bytes());
+            }
+            WalRecord::CreateEdge { src, rel, dst }
+            | WalRecord::TombstoneEdge { src, rel, dst } => {
+                out.extend_from_slice(&src.to_le_bytes());
+                out.extend_from_slice(&rel.to_le_bytes());
+                out.extend_from_slice(&dst.to_le_bytes());
+            }
+            WalRecord::TombstoneNode { node } => {
+                out.extend_from_slice(&node.to_le_bytes());
             }
         }
         out
@@ -78,6 +118,44 @@ impl WalRecord {
             4 => {
                 let page_id = read_u64(payload)?;
                 Ok(WalRecord::PageFree { page_id })
+            }
+            5 => {
+                if payload.len() != 8 + 4 + 4 {
+                    return Err(Error::WalProtocol("invalid CreateNode payload length"));
+                }
+                let external_id = u64::from_le_bytes(payload[0..8].try_into().unwrap());
+                let label_id = u32::from_le_bytes(payload[8..12].try_into().unwrap());
+                let internal_id = u32::from_le_bytes(payload[12..16].try_into().unwrap());
+                Ok(WalRecord::CreateNode {
+                    external_id,
+                    label_id,
+                    internal_id,
+                })
+            }
+            6 => {
+                if payload.len() != 12 {
+                    return Err(Error::WalProtocol("invalid CreateEdge payload length"));
+                }
+                let src = u32::from_le_bytes(payload[0..4].try_into().unwrap());
+                let rel = u32::from_le_bytes(payload[4..8].try_into().unwrap());
+                let dst = u32::from_le_bytes(payload[8..12].try_into().unwrap());
+                Ok(WalRecord::CreateEdge { src, rel, dst })
+            }
+            7 => {
+                if payload.len() != 4 {
+                    return Err(Error::WalProtocol("invalid TombstoneNode payload length"));
+                }
+                let node = u32::from_le_bytes(payload[0..4].try_into().unwrap());
+                Ok(WalRecord::TombstoneNode { node })
+            }
+            8 => {
+                if payload.len() != 12 {
+                    return Err(Error::WalProtocol("invalid TombstoneEdge payload length"));
+                }
+                let src = u32::from_le_bytes(payload[0..4].try_into().unwrap());
+                let rel = u32::from_le_bytes(payload[4..8].try_into().unwrap());
+                let dst = u32::from_le_bytes(payload[8..12].try_into().unwrap());
+                Ok(WalRecord::TombstoneEdge { src, rel, dst })
             }
             _ => Err(Error::WalProtocol("unknown record type")),
         }
@@ -162,6 +240,7 @@ impl Wal {
                     }
                     pending.push(record);
                 }
+                _ => return Err(Error::WalProtocol("non-page wal record in replay_into")),
             }
 
             stats.last_offset = offset;
@@ -169,6 +248,50 @@ impl Wal {
 
         Ok(stats)
     }
+
+    pub fn replay_committed(&self) -> Result<Vec<CommittedTx>> {
+        let mut reader = WalReader::open(&self.path)?;
+        let mut out: Vec<CommittedTx> = Vec::new();
+
+        let mut current_txid: Option<u64> = None;
+        let mut pending: Vec<WalRecord> = Vec::new();
+
+        while let Some((_offset, record)) = reader.next_record()? {
+            match record {
+                WalRecord::BeginTx { txid } => {
+                    if current_txid.is_some() {
+                        return Err(Error::WalProtocol("nested BeginTx"));
+                    }
+                    current_txid = Some(txid);
+                    pending.clear();
+                }
+                WalRecord::CommitTx { txid } => {
+                    if current_txid != Some(txid) {
+                        return Err(Error::WalProtocol("CommitTx without matching BeginTx"));
+                    }
+                    out.push(CommittedTx {
+                        txid,
+                        ops: std::mem::take(&mut pending),
+                    });
+                    current_txid = None;
+                }
+                other => {
+                    if current_txid.is_none() {
+                        return Err(Error::WalProtocol("op outside tx"));
+                    }
+                    pending.push(other);
+                }
+            }
+        }
+
+        Ok(out)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CommittedTx {
+    pub txid: u64,
+    pub ops: Vec<WalRecord>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -190,6 +313,7 @@ fn apply_op(pager: &mut Pager, op: WalRecord) -> Result<()> {
         WalRecord::BeginTx { .. } | WalRecord::CommitTx { .. } => {
             Err(Error::WalProtocol("unexpected tx marker inside apply_op"))
         }
+        _ => Err(Error::WalProtocol("unexpected wal record in apply_op")),
     }
 }
 
