@@ -1196,6 +1196,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nervusdb-v2-storage"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "tempfile",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "nom"
 version = "7.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
