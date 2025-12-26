@@ -41,3 +41,4 @@
 | T40 | NervusDB v2 Kernel Spec（Property Graph + LSM Segments） | L3 | P0 | Done | feat/T40-v2-kernel-spec | v2 不兼容 v1：新 crate/新磁盘格式；Single-Writer+Snapshot Readers；.ndb+.wal；MemTable 冻结为 L0 runs；多 CSR segments + 显式 compaction；MVP: 单 label、属性仅在 WAL/MemTable、tombstone 删除、WASM 仅 in-memory |
 | T41 | v2 Workspace / Crate 结构与边界 | L2 | P0 | Done | docs/T41-v2-workspace-structure | 定义 v2 新 crates（v2-storage/v2-query/v2 facade/v2-cli）与边界；明确 feature gate（WASM in-memory、显式 compaction、durability）；v1 不重构不被打断；M1 先复制 parser/planner，避免早期抽共享 crate |
 | T42 | v2 M0：Pager + WAL Replay（Kernel 可验证内核） | L3 | P0 | Done | feat/T42-v2-m0-pager-wal | 新增 `nervusdb-v2-storage`：实现 page store（8KB）+ bitmap 分配 + redo WAL（len+crc）+ replay；提供最小集成测试（崩溃/尾部损坏 WAL 可恢复） |
+| T43 | v2 M1：IDMap + MemTable + Snapshot（Log-Structured Graph） | L3 | P0 | Plan | feat/T43-v2-m1-idmap-memtable-snapshot | 实现 I2E 持久化（E2I 启动重建）、邻接 MemTable + tombstone、commit 冻结 L0Run、Snapshot 读隔离、WAL 扩展为图语义事件与 replay |
