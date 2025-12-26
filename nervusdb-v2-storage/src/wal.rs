@@ -278,9 +278,6 @@ impl Wal {
 
             match record {
                 WalRecord::BeginTx { txid } => {
-                    if current_txid.is_some() {
-                        return Err(Error::WalProtocol("nested BeginTx"));
-                    }
                     current_txid = Some(txid);
                     pending.clear();
                 }
@@ -321,9 +318,6 @@ impl Wal {
         while let Some((_offset, record)) = reader.next_record()? {
             match record {
                 WalRecord::BeginTx { txid } => {
-                    if current_txid.is_some() {
-                        return Err(Error::WalProtocol("nested BeginTx"));
-                    }
                     current_txid = Some(txid);
                     pending.clear();
                 }
@@ -551,5 +545,48 @@ mod tests {
 
         let page = pager.read_page(PageId::new(2)).unwrap();
         assert_eq!(page[0], 0x7F);
+    }
+
+    #[test]
+    fn replay_committed_tolerates_aborted_tx_followed_by_new_begin() {
+        let dir = tempdir().unwrap();
+        let wal_path = dir.path().join("test.wal");
+
+        {
+            let mut wal = Wal::open(&wal_path).unwrap();
+
+            wal.append(&WalRecord::BeginTx { txid: 1 }).unwrap();
+            wal.append(&WalRecord::CreateEdge {
+                src: 1,
+                rel: 1,
+                dst: 2,
+            })
+            .unwrap();
+            wal.fsync().unwrap();
+
+            // Simulate a crash: txid=1 never commits, but later we see a new BeginTx.
+            wal.append(&WalRecord::BeginTx { txid: 2 }).unwrap();
+            wal.append(&WalRecord::CreateEdge {
+                src: 2,
+                rel: 1,
+                dst: 3,
+            })
+            .unwrap();
+            wal.append(&WalRecord::CommitTx { txid: 2 }).unwrap();
+            wal.fsync().unwrap();
+        }
+
+        let wal = Wal::open(&wal_path).unwrap();
+        let txs = wal.replay_committed().unwrap();
+        assert_eq!(txs.len(), 1);
+        assert_eq!(txs[0].txid, 2);
+        assert!(txs[0].ops.iter().any(|op| matches!(
+            op,
+            WalRecord::CreateEdge {
+                src: 2,
+                rel: 1,
+                dst: 3
+            }
+        )));
     }
 }
