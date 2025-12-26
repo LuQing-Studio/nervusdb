@@ -1,0 +1,10 @@
+mod error;
+pub mod pager;
+pub mod wal;
+
+pub use crate::error::{Error, Result};
+
+pub const PAGE_SIZE: usize = 8192;
+pub const FILE_MAGIC: [u8; 16] = *b"NERVUSDBv2\x00\x00\x00\x00\x00\x00";
+pub const VERSION_MAJOR: u32 = 2;
+pub const VERSION_MINOR: u32 = 0;
