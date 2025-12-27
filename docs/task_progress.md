@@ -51,3 +51,4 @@
 | T50 | v2 M3：Query Crate（复用 Parser/Planner 的落地） | L3 | P0 | Plan | docs/T50-v2-m3-query-crate | 新增 `nervusdb-v2-query`（独立于 v1）；务实策略：复制 v1 `query/{ast,lexer,parser,planner}`，先保证可编译与最小语法子集 |
 | T51 | v2 M3：Executor MVP（基于 GraphSnapshot 的流式算子） | L3 | P0 | Plan | docs/T51-v2-m3-executor-mvp | 定义最小算子集（Scan/Expand/Filter/Project/Limit），Pull-based streaming；必要时扩展 `nervusdb-v2-api` 的 snapshot 能力（node scan / id resolve） |
 | T52 | v2 M3：Query API（prepare/execute_streaming + 参数） | L3 | P0 | Plan | docs/T52-v2-m3-query-api | 对外提供稳定入口：执行 Cypher 最小子集并流式返回行；参数/错误/结果列类型明确，供 CLI/绑定复用 |
+| T53 | v2 M3：Query Tests + CLI 验收路径 | L2 | P0 | Plan | docs/T53-v2-m3-query-tests | 建立最小“用户视角”验收：集成测试锁行为；CLI（或示例）能跑通并输出 NDJSON（对齐 v1 流式形态） |
