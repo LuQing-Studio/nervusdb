@@ -1,11 +1,37 @@
 use std::collections::BTreeMap;
 
+/// External identifier for a node, assigned by the user.
+///
+/// This is a stable ID that users can use to reference nodes across transactions.
+/// Maps to an internal `InternalNodeId` for storage efficiency.
 pub type ExternalId = u64;
+
+/// Internal node identifier used for storage and lookups.
+///
+/// This is an auto-incremented ID used internally. Users typically work with
+/// `ExternalId` through the ID map.
 pub type InternalNodeId = u32;
+
+/// Label identifier for node classification.
+///
+/// Used to identify node types/labels in the graph.
 pub type LabelId = u32;
+
+/// Relationship type identifier.
+///
+/// Used to identify relationship types (e.g., `:KNOWS`, `:1`).
 pub type RelTypeId = u32;
 
 /// Property value types for nodes and edges.
+///
+/// Supports basic types needed for Cypher property expressions:
+/// - Null: NULL values
+/// - Bool: true/false
+/// - Int: 64-bit signed integers
+/// - Float: 64-bit floating point
+/// - String: UTF-8 strings
+///
+/// Note: MVP does not support nested structures (maps/lists) as property values.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PropertyValue {
     Null,
@@ -15,6 +41,9 @@ pub enum PropertyValue {
     String(String),
 }
 
+/// A directed edge from a source node to a destination node with a relationship type.
+///
+/// Used as the key type for neighbor lookups and edge operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EdgeKey {
     pub src: InternalNodeId,
@@ -22,31 +51,62 @@ pub struct EdgeKey {
     pub dst: InternalNodeId,
 }
 
+/// Provides access to a snapshot of the graph at a point in time.
+///
+/// Implementors must ensure that the returned snapshot is immutable and
+/// reflects a consistent state of the graph.
 pub trait GraphStore {
     type Snapshot: GraphSnapshot;
 
+    /// Creates a snapshot of the current graph state.
+    ///
+    /// The snapshot is independent of any writes that occur after creation.
     fn snapshot(&self) -> Self::Snapshot;
 }
 
+/// A read-only snapshot of the graph state.
+///
+/// Snapshots are immutable and provide consistent views of the graph
+/// at the time of creation. Multiple snapshots can coexist.
 pub trait GraphSnapshot {
+    /// Iterator type for neighbors of a node.
     type Neighbors<'a>: Iterator<Item = EdgeKey> + 'a
     where
         Self: 'a;
 
+    /// Get outgoing neighbors of a node, optionally filtered by relationship type.
+    ///
+    /// Returns an iterator over `EdgeKey`s representing outgoing edges.
+    /// If `rel` is `Some`, only edges of that type are returned.
+    /// If `rel` is `None`, all outgoing edges are returned.
     fn neighbors(&self, src: InternalNodeId, rel: Option<RelTypeId>) -> Self::Neighbors<'_>;
 
+    /// Get an iterator over all non-tombstoned nodes.
+    ///
+    /// Returns an iterator over all internal node IDs that are not tombstoned.
+    /// The default implementation returns an empty iterator.
     fn nodes(&self) -> Box<dyn Iterator<Item = InternalNodeId> + '_> {
         Box::new(std::iter::empty())
     }
 
+    /// Resolve an internal node ID to its external ID.
+    ///
+    /// Returns `Some(external_id)` if the node exists and has an external ID,
+    /// or `None` if the node doesn't exist or has no external ID.
     fn resolve_external(&self, _iid: InternalNodeId) -> Option<ExternalId> {
         None
     }
 
+    /// Get the label ID for a node.
+    ///
+    /// Returns `Some(label_id)` if the node exists, `None` otherwise.
     fn node_label(&self, _iid: InternalNodeId) -> Option<LabelId> {
         None
     }
 
+    /// Check if a node is tombstoned (soft-deleted).
+    ///
+    /// Tombstoned nodes are not returned by `neighbors()` or `nodes()`.
     fn is_tombstoned_node(&self, _iid: InternalNodeId) -> bool {
         false
     }

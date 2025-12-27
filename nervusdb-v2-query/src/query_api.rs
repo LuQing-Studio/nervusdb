@@ -4,31 +4,64 @@ use crate::executor::{Plan, Row, Value, execute_plan, execute_write, parse_u32_i
 use nervusdb_v2_api::{GraphSnapshot, RelTypeId};
 use std::collections::BTreeMap;
 
+/// Query parameters for parameterized Cypher queries.
+///
+/// # Example
+///
+/// ```ignore
+/// let mut params = Params::new();
+/// params.insert("name", Value::String("Alice".to_string()));
+/// let results: Vec<_> = query.execute_streaming(&snapshot, &params).collect();
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct Params {
     inner: BTreeMap<String, Value>,
 }
 
 impl Params {
+    /// Creates a new empty parameters map.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Inserts a parameter value.
+    ///
+    /// Parameters are referenced in Cypher queries using `$name` syntax.
     pub fn insert(&mut self, name: impl Into<String>, value: Value) {
         self.inner.insert(name.into(), value);
     }
 
+    /// Gets a parameter value by name.
     pub fn get(&self, name: &str) -> Option<&Value> {
         self.inner.get(name)
     }
 }
 
+/// A compiled Cypher query ready for execution.
+///
+/// Created by [`prepare()`]. The query plan is optimized once
+/// and can be executed multiple times with different parameters.
 #[derive(Debug, Clone)]
 pub struct PreparedQuery {
     plan: Plan,
 }
 
 impl PreparedQuery {
+    /// Executes a read query and returns a streaming iterator.
+    ///
+    /// The returned iterator yields `Result<Row>`, where each row
+    /// represents a result record. Errors can occur during execution
+    /// (e.g., type mismatches, missing variables).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let query = prepare("MATCH (n)-[:1]->(m) RETURN n, m LIMIT 10").unwrap();
+    /// let rows: Vec<_> = query
+    ///     .execute_streaming(&snapshot, &Params::new())
+    ///     .collect::<Result<_>>()
+    ///     .unwrap();
+    /// ```
     pub fn execute_streaming<'a, S: GraphSnapshot + 'a>(
         &'a self,
         snapshot: &'a S,
@@ -37,7 +70,18 @@ impl PreparedQuery {
         execute_plan(snapshot, &self.plan, params)
     }
 
-    /// Execute a write plan (CREATE/DELETE) with a write transaction
+    /// Executes a write query (CREATE/DELETE) with a write transaction.
+    ///
+    /// Returns the number of entities created/deleted.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let query = prepare("CREATE (n)").unwrap();
+    /// let mut txn = db.begin_write();
+    /// let count = query.execute_write(&snapshot, &mut txn, &Params::new()).unwrap();
+    /// txn.commit().unwrap();
+    /// ```
     pub fn execute_write<S: GraphSnapshot>(
         &self,
         snapshot: &S,
@@ -48,6 +92,18 @@ impl PreparedQuery {
     }
 }
 
+/// Parses and prepares a Cypher query for execution.
+///
+/// # Supported Cypher (v2 M3)
+///
+/// - `RETURN 1` - Constant return
+/// - `MATCH (n)-[:<u32>]->(m) RETURN n, m LIMIT k` - Single-hop pattern match
+/// - `MATCH (n)-[:<u32>]->(m) WHERE n.prop = 'value' RETURN n, m` - With WHERE filter
+/// - `CREATE (n)` / `CREATE (n {k: v})` - Create nodes
+/// - `CREATE (a)-[:1]->(b)` - Create edges
+/// - `MATCH (n)-[:1]->(m) DELETE n` / `DETACH DELETE n` - Delete nodes/edges
+///
+/// Returns an error for unsupported Cypher constructs.
 pub fn prepare(cypher: &str) -> Result<PreparedQuery> {
     let query = crate::parser::Parser::parse(cypher)?;
     let plan = compile_m3_plan(query)?;
