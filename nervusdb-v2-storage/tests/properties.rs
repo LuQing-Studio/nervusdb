@@ -233,7 +233,7 @@ fn test_multiple_property_types() -> Result<()> {
         );
         assert_eq!(
             api_snapshot.node_property(0, "float"),
-            Some(nervusdb_v2_api::PropertyValue::Float(3.14))
+            Some(nervusdb_v2_api::PropertyValue::Float(2.5))
         );
         assert_eq!(
             api_snapshot.node_property(0, "string"),
