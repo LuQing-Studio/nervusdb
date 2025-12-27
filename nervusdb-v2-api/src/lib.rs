@@ -23,7 +23,19 @@ pub trait GraphSnapshot {
 
     fn neighbors(&self, src: InternalNodeId, rel: Option<RelTypeId>) -> Self::Neighbors<'_>;
 
+    fn nodes(&self) -> Box<dyn Iterator<Item = InternalNodeId> + '_> {
+        Box::new(std::iter::empty())
+    }
+
     fn resolve_external(&self, _iid: InternalNodeId) -> Option<ExternalId> {
         None
+    }
+
+    fn node_label(&self, _iid: InternalNodeId) -> Option<LabelId> {
+        None
+    }
+
+    fn is_tombstoned_node(&self, _iid: InternalNodeId) -> bool {
+        false
     }
 }
