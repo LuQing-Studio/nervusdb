@@ -1,5 +1,5 @@
 use crate::csr::{CsrSegment, EdgeRecord, SegmentId};
-use crate::idmap::{ExternalId, IdMap, InternalNodeId, LabelId};
+use crate::idmap::{ExternalId, I2eRecord, IdMap, InternalNodeId, LabelId};
 use crate::memtable::MemTable;
 use crate::pager::Pager;
 use crate::snapshot::{L0Run, RelTypeId, Snapshot};
@@ -110,6 +110,12 @@ impl GraphEngine {
     pub fn lookup_internal_id(&self, external_id: ExternalId) -> Option<InternalNodeId> {
         let idmap = self.idmap.lock().unwrap();
         idmap.lookup(external_id)
+    }
+
+    pub fn scan_i2e_records(&self) -> Result<Vec<I2eRecord>> {
+        let mut pager = self.pager.lock().unwrap();
+        let idmap = self.idmap.lock().unwrap();
+        idmap.scan_i2e(&mut pager)
     }
 
     fn publish_run(&self, run: Arc<L0Run>) {

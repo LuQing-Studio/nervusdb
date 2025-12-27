@@ -79,6 +79,10 @@ impl Snapshot {
     pub fn neighbors(&self, src: InternalNodeId, rel: Option<RelTypeId>) -> NeighborsIter {
         NeighborsIter::new(self.runs.clone(), self.segments.clone(), src, rel)
     }
+
+    pub(crate) fn runs(&self) -> &Arc<Vec<Arc<L0Run>>> {
+        &self.runs
+    }
 }
 
 pub struct NeighborsIter {

@@ -1211,6 +1211,7 @@ version = "0.1.0"
 name = "nervusdb-v2-query"
 version = "0.1.0"
 dependencies = [
+ "nervusdb-v2-api",
  "serde",
 ]
 
