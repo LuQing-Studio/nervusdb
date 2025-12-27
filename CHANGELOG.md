@@ -4,7 +4,11 @@
 
 ## 未发布
 
-- （占位）下一次改动从这里开始写。
+- **v2 CREATE 语句**：实现 `CREATE (n)` / `CREATE (n {props})` / `CREATE (a)-[:1]->(b)`，新增 `WriteableGraph` trait 和 `execute_write` API。
+- **v2 DELETE / DETACH DELETE**：实现 `MATCH ... DELETE n` 和 `DETACH DELETE`，两阶段执行（MATCH → 写入）。
+- **v2 WHERE 过滤**：属性比较、逻辑运算 (`AND`/`OR`) 完整支持。
+- **v2 CLI write 子命令**：`nervusdb v2 write --db <path> --cypher "..."` 支持写入操作。
+- **v2 测试覆盖**：新增 6 个 CREATE/DELETE 测试，10 个 v2-query 测试全部通过。
 
 ## [1.0.3] - 2025-12-24
 

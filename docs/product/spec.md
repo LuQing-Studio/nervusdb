@@ -21,6 +21,7 @@
 ### 2.1 MVP（Must Do）
 
 **存储与事务**
+
 - [x] `.ndb + .wal` 两文件：page store + redo WAL（不强求单文件）
 - [x] 事务模型：Single Writer + Snapshot Readers（读快照并发，写全局串行）
 - [x] 崩溃恢复：WAL replay + manifest/checkpoint（可通过 crash gate）
@@ -28,11 +29,13 @@
 - [x] 读取能力：`neighbors(src, rel)` + `nodes()`（全表扫描）+ `resolve_external()` + `node_label()`
 
 **查询（v2 M3 最小子集）**
+
 - [x] `RETURN 1`
 - [x] 单跳匹配：`MATCH (n)-[:<u32>]->(m) RETURN n, m LIMIT k`
 - [x] 结果必须是 streaming（iterator），禁止 `collect()` 成全量 Vec
 
 **CLI 验收路径**
+
 - [x] `nervusdb v2 query --db <path> --cypher/--file ...` 输出 NDJSON（每行一条记录）
 
 ### 2.2 v2.x（Optional / Post-MVP）
@@ -86,11 +89,20 @@
 
 只要满足以下条件，就可以宣布 **alpha1 完结**（不再加功能，转入稳定性修正）：
 
-- [ ] CI 全绿（含 crash-gate-v2）
-- [ ] CLI：`nervusdb v2 query` 能在空库/小库上稳定输出 NDJSON
-- [ ] 查询结果 streaming：大结果集不会爆内存（不允许隐式 collect）
-- [ ] 明确并冻结 v2 的“最小 Cypher 子集”清单（超出即 NotSupported）
-- [ ] 文档：README/CHANGELOG 明确 v2 现状与限制（不吹牛）
+- [x] CI 全绿（含 crash-gate-v2）
+- [x] CLI：`nervusdb v2 query` 能在空库/小库上稳定输出 NDJSON
+- [x] CLI：`nervusdb v2 write` 支持 CREATE/DELETE 操作
+- [x] 查询结果 streaming：大结果集不会爆内存（不允许隐式 collect）
+- [x] 明确并冻结 v2 的“最小 Cypher 子集”清单（超出即 NotSupported）→ 见 `docs/reference/cypher_support.md`
+- [x] 文档：README/CHANGELOG 明确 v2 现状与限制（不吹牛）
+
+**alpha1 已完成功能**：
+
+- `RETURN 1`（常量返回）
+- 单跳匹配：`MATCH (n)-[:<u32>]->(m) RETURN n, m LIMIT k`
+- WHERE 过滤：`MATCH (a)-[:1]->(b) WHERE a.name = 'Alice' RETURN a, b`
+- CREATE：`CREATE (n)` / `CREATE (n {k: v})` / `CREATE (a)-[:1]->(b)`
+- DELETE / DETACH DELETE：`MATCH (a)-[:1]->(b) DELETE a` / `DETACH DELETE a`
 
 ### 6.3 v2.0.0（正式版的最低门槛，先写死）
 
