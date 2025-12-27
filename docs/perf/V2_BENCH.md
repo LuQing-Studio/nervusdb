@@ -32,3 +32,45 @@ bash scripts/v2_bench.sh --nodes 50000 --degree 8 --iters 2000
 - `neighbors_hot_m2_edges_per_sec` 不应比上一次基线差超过 ~10%
 - M2 相对 M1 的 `neighbors_hot` 至少应有明显提升（目标：数量级）
 
+## 基准方法论
+
+### 测试场景
+
+| 场景 | 指标 | 含义 |
+|-----|------|-----|
+| `insert` | edges/sec | 批量创建节点和边的吞吐量 |
+| `neighbors_hot` | edges/sec | 热点节点的遍历（数据常驻 CPU cache） |
+| `neighbors_cold` | edges/sec | 冷节点遍历（模拟真实随机访问模式） |
+| `compact` | seconds | 显式 compaction 的延迟 |
+
+### 预期性能（参考值，macOS M2 Pro）
+
+```json
+{
+  "nodes": 50000,
+  "degree": 8,
+  "edges": 400000,
+  "insert_edges_per_sec": 50000-80000,
+  "neighbors_hot_m2_edges_per_sec": 20000000-40000000,
+  "neighbors_cold_m2_edges_per_sec": 5000000-10000000
+}
+```
+
+### 对比方法
+
+1. **同环境对比**：确保硬件、操作系统、编译器版本一致
+2. **多次取中位数**：排除瞬时抖动
+3. **关注趋势**：单次结果波动 5-10% 是正常的
+
+## 示例：对比 M1 和 M2
+
+```bash
+# 运行基准
+cargo run --example bench_v2 -p nervusdb-v2-storage --release -- \
+  --nodes 50000 --degree 8 --iters 2000
+
+# 输出示例：
+# neighbors_hot: M1 15000000 edges/sec, M2 30000000 edges/sec
+# M2 相对 M1 提升 ~2x
+```
+
