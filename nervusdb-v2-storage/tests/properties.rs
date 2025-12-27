@@ -208,7 +208,7 @@ fn test_multiple_property_types() -> Result<()> {
         txn.set_node_property(node_id, "null".to_string(), PropertyValue::Null);
         txn.set_node_property(node_id, "bool".to_string(), PropertyValue::Bool(true));
         txn.set_node_property(node_id, "int".to_string(), PropertyValue::Int(42));
-        txn.set_node_property(node_id, "float".to_string(), PropertyValue::Float(3.14));
+        txn.set_node_property(node_id, "float".to_string(), PropertyValue::Float(2.5));
         txn.set_node_property(
             node_id,
             "string".to_string(),
