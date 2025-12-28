@@ -64,3 +64,33 @@ fn test_where_clause_with_property_filter() {
         assert_eq!(results.len(), 2);
     }
 }
+
+#[test]
+fn test_where_clause_with_edge_property_filter() {
+    let dir = tempdir().unwrap();
+    let ndb = dir.path().join("test.ndb");
+    let wal = dir.path().join("test.wal");
+
+    let engine = GraphEngine::open(&ndb, &wal).unwrap();
+
+    // Create a->b with edge property.
+    {
+        let mut txn = engine.begin_write();
+        let a = txn.create_node(1, 0).unwrap();
+        let b = txn.create_node(2, 0).unwrap();
+        txn.create_edge(a, 1, b);
+        txn.set_edge_property(a, 1, b, "w".to_string(), PropertyValue::Int(10));
+        txn.commit().unwrap();
+    }
+
+    // WHERE r.w > 5 should match the edge.
+    let query = prepare("MATCH (a)-[r:1]->(b) WHERE r.w > 5 RETURN b").unwrap();
+    let snapshot = engine.snapshot();
+    let params = Params::new();
+    let results: Vec<_> = query
+        .execute_streaming(&snapshot, &params)
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+}

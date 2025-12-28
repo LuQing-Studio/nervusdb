@@ -14,7 +14,7 @@ v2 M3 是新一代查询引擎，支持通过 `nervusdb-v2-query` crate 或 CLI 
 - 单节点扫描：`MATCH (n) RETURN n`
 - 单跳模式：`MATCH (a)-[:<u32>]->(b) RETURN a, b`
 - 单跳可变长度：`MATCH (a)-[:<u32>*1..5]->(b) RETURN a, b`
-- `WHERE` 属性过滤：`MATCH (a)-[:1]->(b) WHERE a.name = 'Alice' RETURN a, b`
+- `WHERE` 属性过滤（节点/边）：`MATCH (a)-[r:1]->(b) WHERE a.name = 'Alice' AND r.weight > 1.0 RETURN a, b`
 - `ORDER BY <var> [ASC|DESC]`（限制：M3 仅支持对变量排序）
 - `SKIP n`
 - `RETURN DISTINCT`
@@ -29,10 +29,11 @@ v2 M3 是新一代查询引擎，支持通过 `nervusdb-v2-query` crate 或 CLI 
   - `MATCH (n) DELETE n`（删除节点）
   - `MATCH (a)-[:1]->(b) DELETE a`（删除节点）
   - `MATCH (a)-[:1]->(b) DETACH DELETE a`（先删除边，再删除节点）
+  - 单次语句删除目标数量上限：`100_000`（超过会 fail-fast；请分批删除）
 
 ### 已知限制
 
-- 仅支持单跳模式（3 个 pattern elements）；可变长度仍然必须是这一个关系上的 `*min..max`
+- 仅支持单节点或单跳模式（pattern elements 为 1 或 3）；可变长度仍然必须是这一个关系上的 `*min..max`
 - 关系类型必须是数字（`:1`, `:2` 等）
 - 不支持标签（`:Label`）
 - 不支持在 `MATCH` pattern 内写属性：`MATCH (a {name:'Alice'})-[:1]->(b)` 会 fail-fast（请用 WHERE）
@@ -59,7 +60,7 @@ v2 M3 是新一代查询引擎，支持通过 `nervusdb-v2-query` crate 或 CLI 
 - `bool`
 - `number`（整数/浮点）
 - `string`
-- `{"internal_node_id": <u32>}`（内部节点 ID）
+- `{"internal_node_id": <u32>, "external_id": <u64>?}`（节点 ID；外部 ID 存在时会一并输出）
 - `{"src": <u32>, "rel": <u32>, "dst": <u32>}`（边 key）
 
 ## fail-fast 规则

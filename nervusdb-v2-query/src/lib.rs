@@ -26,7 +26,6 @@
 //! # Architecture
 //!
 //! - `parser::Parser` - Parses Cypher syntax into AST
-//! - `planner::Plan` - Converts AST into execution plan
 //! - `executor::execute_plan` - Streams results from plan
 //! - `evaluator` - Evaluates expressions (WHERE, RETURN)
 
@@ -37,7 +36,6 @@ pub mod executor;
 pub mod facade;
 pub mod lexer;
 pub mod parser;
-pub mod planner;
 pub mod query_api;
 
 pub use error::{Error, Result};

@@ -30,7 +30,7 @@ pub fn evaluate_expression_value<S: GraphSnapshot>(
                 if n.fract() == 0.0 {
                     Value::Int(*n as i64)
                 } else {
-                    Value::String(n.to_string()) // MVP: treat as string for now
+                    Value::Float(*n)
                 }
             }
             Literal::Boolean(b) => Value::Bool(*b),
@@ -46,15 +46,22 @@ pub fn evaluate_expression_value<S: GraphSnapshot>(
         Expression::PropertyAccess(pa) => {
             // Get node/edge from row, then query property from snapshot
             if let Some(node_id) = row.get_node(&pa.variable) {
-                if let Some(prop_value) = snapshot.node_property(node_id, &pa.property) {
-                    convert_api_property_to_value(&prop_value)
-                } else {
-                    Value::Null
-                }
-            } else {
-                // TODO: Support edge properties
-                Value::Null
+                return snapshot
+                    .node_property(node_id, &pa.property)
+                    .as_ref()
+                    .map(convert_api_property_to_value)
+                    .unwrap_or(Value::Null);
             }
+
+            if let Some(edge) = row.get_edge(&pa.variable) {
+                return snapshot
+                    .edge_property(edge, &pa.property)
+                    .as_ref()
+                    .map(convert_api_property_to_value)
+                    .unwrap_or(Value::Null);
+            }
+
+            Value::Null
         }
         Expression::Parameter(name) => {
             // Get from params
@@ -91,6 +98,9 @@ where
     F: Fn(f64, f64) -> bool,
 {
     match (left, right) {
+        (Value::Float(l), Value::Float(r)) => Value::Bool(cmp(*l, *r)),
+        (Value::Int(l), Value::Float(r)) => Value::Bool(cmp(*l as f64, *r)),
+        (Value::Float(l), Value::Int(r)) => Value::Bool(cmp(*l, *r as f64)),
         (Value::Int(l), Value::Int(r)) => Value::Bool(cmp(*l as f64, *r as f64)),
         (Value::Int(l), Value::String(r)) => {
             if let Ok(r_num) = r.parse::<f64>() {
@@ -119,7 +129,7 @@ fn convert_api_property_to_value(api_value: &ApiPropertyValue) -> Value {
         ApiPropertyValue::Null => Value::Null,
         ApiPropertyValue::Bool(b) => Value::Bool(*b),
         ApiPropertyValue::Int(i) => Value::Int(*i),
-        ApiPropertyValue::Float(f) => Value::String(f.to_string()), // MVP: convert to string
+        ApiPropertyValue::Float(f) => Value::Float(*f),
         ApiPropertyValue::String(s) => Value::String(s.clone()),
     }
 }

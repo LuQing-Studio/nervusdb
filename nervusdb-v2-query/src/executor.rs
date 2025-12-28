@@ -67,6 +67,19 @@ impl Row {
         })
     }
 
+    pub fn get_edge(&self, name: &str) -> Option<EdgeKey> {
+        self.cols.iter().find_map(|(k, v)| {
+            if k == name {
+                match v {
+                    Value::EdgeKey(e) => Some(*e),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        })
+    }
+
     pub fn project(&self, names: &[&str]) -> Row {
         let mut out = Row::default();
         for &name in names {
@@ -589,30 +602,32 @@ fn execute_delete<S: GraphSnapshot>(
     expressions: &[Expression],
     params: &crate::query_api::Params,
 ) -> Result<u32> {
+    const MAX_DELETE_TARGETS: usize = 100_000;
+
     let mut deleted_count = 0u32;
     let mut nodes_to_delete: Vec<InternalNodeId> = Vec::new();
-    let mut edges_to_delete: Vec<EdgeKey> = Vec::new();
+    let mut seen_nodes: std::collections::HashSet<InternalNodeId> =
+        std::collections::HashSet::new();
 
-    // Execute the input plan (MATCH) to get rows with variable bindings
-    let rows: Vec<_> = execute_plan(snapshot, input, params)
-        .filter_map(|r| r.ok())
-        .collect();
-
-    // Collect nodes/edges to delete from the rows
-    for row in &rows {
+    // Stream input rows and collect delete targets without materializing all rows.
+    for row in execute_plan(snapshot, input, params) {
+        let row = row?;
         for expr in expressions {
             match expr {
                 Expression::Variable(var_name) => {
-                    // Try to get node ID from row
                     if let Some(node_id) = row.get_node(var_name)
-                        && !nodes_to_delete.contains(&node_id)
+                        && seen_nodes.insert(node_id)
                     {
                         nodes_to_delete.push(node_id);
+                        if nodes_to_delete.len() > MAX_DELETE_TARGETS {
+                            return Err(Error::Other(format!(
+                                "DELETE target limit exceeded ({MAX_DELETE_TARGETS}); batch your deletes"
+                            )));
+                        }
                     }
-                    // Note: edge variables would be handled similarly if we had get_edge method
+                    // TODO: Support deleting edges by variable once we expose edge bindings in Row API.
                 }
                 Expression::PropertyAccess(_pa) => {
-                    // DELETE n.property - set to null (not implemented)
                     return Err(Error::NotImplemented(
                         "DELETE property not implemented in v2 M3",
                     ));
@@ -630,18 +645,10 @@ fn execute_delete<S: GraphSnapshot>(
     if detach {
         for &node_id in &nodes_to_delete {
             // Get all edges connected to this node and delete them
-            let neighbors: Vec<_> = snapshot.neighbors(node_id, None).collect();
-            for edge in neighbors {
-                if !edges_to_delete.contains(&edge) {
-                    edges_to_delete.push(edge);
-                }
+            for edge in snapshot.neighbors(node_id, None) {
+                txn.tombstone_edge(edge.src, edge.rel, edge.dst)?;
+                deleted_count += 1;
             }
-        }
-
-        // Delete the edges
-        for edge in &edges_to_delete {
-            txn.tombstone_edge(edge.src, edge.rel, edge.dst)?;
-            deleted_count += 1;
         }
     }
 
