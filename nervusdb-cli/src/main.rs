@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use nervusdb_v2::Db;
-use nervusdb_v2_api::GraphStore;
+use nervusdb_v2_api::{GraphSnapshot, GraphStore};
 use nervusdb_v2_query::Value as V2Value;
 use nervusdb_v2_query::prepare;
 use nervusdb_v2_storage::engine::GraphEngine;
@@ -78,9 +78,15 @@ struct V2WriteArgs {
     params_json: Option<String>,
 }
 
-fn value_to_json_v2(value: &V2Value) -> serde_json::Value {
+fn value_to_json_v2<S: GraphSnapshot>(snapshot: &S, value: &V2Value) -> serde_json::Value {
     match value {
-        V2Value::NodeId(iid) => serde_json::json!({ "internal_node_id": iid }),
+        V2Value::NodeId(iid) => {
+            if let Some(external) = snapshot.resolve_external(*iid) {
+                serde_json::json!({ "internal_node_id": iid, "external_id": external })
+            } else {
+                serde_json::json!({ "internal_node_id": iid })
+            }
+        }
         V2Value::ExternalId(id) => serde_json::json!(id),
         V2Value::EdgeKey(e) => serde_json::json!({ "src": e.src, "rel": e.rel, "dst": e.dst }),
         V2Value::Int(i) => serde_json::json!(i),
@@ -148,7 +154,7 @@ fn run_v2_query(args: V2QueryArgs) -> Result<(), String> {
                 let row = row.map_err(|e| e.to_string())?;
                 let mut map = serde_json::Map::with_capacity(row.columns().len());
                 for (k, v) in row.columns() {
-                    map.insert(k.clone(), value_to_json_v2(v));
+                    map.insert(k.clone(), value_to_json_v2(&graph_snap, v));
                 }
                 serde_json::to_writer(&mut stdout, &serde_json::Value::Object(map))
                     .map_err(|e| e.to_string())?;
