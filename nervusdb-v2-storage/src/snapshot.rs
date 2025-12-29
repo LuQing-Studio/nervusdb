@@ -106,11 +106,23 @@ impl L0Run {
 pub struct Snapshot {
     runs: Arc<Vec<Arc<L0Run>>>,
     segments: Arc<Vec<Arc<CsrSegment>>>,
+    labels: Arc<crate::label_interner::LabelSnapshot>,
+    node_labels: Arc<Vec<crate::idmap::LabelId>>,
 }
 
 impl Snapshot {
-    pub fn new(runs: Arc<Vec<Arc<L0Run>>>, segments: Arc<Vec<Arc<CsrSegment>>>) -> Self {
-        Self { runs, segments }
+    pub fn new(
+        runs: Arc<Vec<Arc<L0Run>>>,
+        segments: Arc<Vec<Arc<CsrSegment>>>,
+        labels: Arc<crate::label_interner::LabelSnapshot>,
+        node_labels: Arc<Vec<crate::idmap::LabelId>>,
+    ) -> Self {
+        Self {
+            runs,
+            segments,
+            labels,
+            node_labels,
+        }
     }
 
     pub fn neighbors(&self, src: InternalNodeId, rel: Option<RelTypeId>) -> NeighborsIter {
@@ -119,6 +131,11 @@ impl Snapshot {
 
     pub(crate) fn runs(&self) -> &Arc<Vec<Arc<L0Run>>> {
         &self.runs
+    }
+
+    /// Get the label ID for a node.
+    pub fn node_label(&self, iid: InternalNodeId) -> Option<crate::idmap::LabelId> {
+        self.node_labels.get(iid as usize).copied()
     }
 
     /// Get node property from the most recent run that has it.
@@ -176,6 +193,22 @@ impl Snapshot {
         } else {
             Some(merged)
         }
+    }
+
+    pub fn resolve_label_id(&self, name: &str) -> Option<crate::idmap::LabelId> {
+        self.labels.get_id(name)
+    }
+
+    pub fn resolve_rel_type_id(&self, name: &str) -> Option<crate::snapshot::RelTypeId> {
+        self.labels.get_id(name)
+    }
+
+    pub fn resolve_label_name(&self, id: crate::idmap::LabelId) -> Option<String> {
+        self.labels.get_name(id).map(String::from)
+    }
+
+    pub fn resolve_rel_type_name(&self, id: crate::snapshot::RelTypeId) -> Option<String> {
+        self.labels.get_name(id).map(String::from)
     }
 }
 

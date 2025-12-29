@@ -348,4 +348,16 @@ impl nervusdb_v2_query::WriteableGraph for WriteTxn<'_> {
         self.inner.tombstone_edge(src, rel, dst);
         Ok(())
     }
+
+    fn get_or_create_label_id(&mut self, name: &str) -> nervusdb_v2_query::Result<LabelId> {
+        self.inner
+            .get_or_create_label(name)
+            .map_err(|e| nervusdb_v2_query::Error::Other(e.to_string()))
+    }
+
+    fn get_or_create_rel_type_id(&mut self, name: &str) -> nervusdb_v2_query::Result<RelTypeId> {
+        self.inner
+            .get_or_create_rel_type(name)
+            .map_err(|e| nervusdb_v2_query::Error::Other(e.to_string()))
+    }
 }
