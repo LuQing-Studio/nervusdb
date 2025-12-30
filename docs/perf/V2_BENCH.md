@@ -50,11 +50,23 @@ bash scripts/v2_bench.sh --nodes 50000 --degree 8 --iters 2000
   "nodes": 50000,
   "degree": 8,
   "edges": 400000,
-  "insert_edges_per_sec": 50000-80000,
-  "neighbors_hot_m2_edges_per_sec": 20000000-40000000,
-  "neighbors_cold_m2_edges_per_sec": 5000000-10000000
+  "insert_edges_per_sec": 200000-250000,
+  "neighbors_hot_edges_per_sec": 20000000-40000000,
+  "neighbors_cold_edges_per_sec": 10000000-20000000,
+  "compact_secs": < 0.1
 }
 ```
+
+### 2025-12-30 测试结果 (macOS)
+
+| 指标 | 值 |
+|------|-----|
+| insert | 227,206 edges/sec |
+| neighbors_hot (M1) | 28,887,384 edges/sec |
+| neighbors_hot (M2) | 21,551,231 edges/sec |
+| neighbors_cold (M1) | 13,700,096 edges/sec |
+| neighbors_cold (M2) | 15,880,231 edges/sec |
+| compact | 0.066s |
 
 ### 对比方法
 
