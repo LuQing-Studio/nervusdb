@@ -1089,6 +1089,9 @@ mod tests {
 
     #[test]
     fn t103_compaction_checkpoints_even_with_properties() {
+        use crate::api::StorageSnapshot;
+        use nervusdb_v2_api::GraphSnapshot;
+
         let dir = tempdir().unwrap();
         let ndb = dir.path().join("graph_props.ndb");
         let wal = dir.path().join("graph_props.wal");
@@ -1112,9 +1115,10 @@ mod tests {
         }
 
         let engine = GraphEngine::open(&ndb, &wal).unwrap();
-        let snap = engine.begin_read();
+        // Use API-level snapshot which supports reading from B-Tree
+        let snap: StorageSnapshot = engine.snapshot();
         let age = snap.node_property(internal_id, "age").unwrap();
-        assert_eq!(age, crate::property::PropertyValue::Int(30));
+        assert_eq!(age, nervusdb_v2_api::PropertyValue::Int(30));
         // And we must have NO runs after restart, because they were checkpointed.
         assert!(engine.published_runs.read().unwrap().is_empty());
     }

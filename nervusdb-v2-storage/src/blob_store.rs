@@ -11,7 +11,14 @@ const MAX_DATA_PER_PAGE: usize = crate::PAGE_SIZE - HEADER_SIZE;
 
 impl BlobStore {
     /// Writes a blob to the pager and returns the first page ID.
+    /// Requires a MutexGuard (for use through GraphEngine).
     pub fn write(pager: &mut MutexGuard<'_, Pager>, data: &[u8]) -> Result<u64> {
+        Self::write_direct(pager, data)
+    }
+
+    /// Writes a blob to the pager and returns the first page ID.
+    /// Direct pager access (for bulk loading).
+    pub fn write_direct(pager: &mut Pager, data: &[u8]) -> Result<u64> {
         // Write from last to first to build the chain
         if data.is_empty() {
             // Handle empty blob
@@ -20,12 +27,6 @@ impl BlobStore {
             // next_page = 0, data_len = 0
             pager.write_page(pid, &page)?;
             return Ok(pid.as_u64());
-        }
-
-        for _ in 0..(data.len() + MAX_DATA_PER_PAGE - 1) / MAX_DATA_PER_PAGE + 1 {
-            // Wait, logic is slightly complex. Let's do it simply.
-            // Actually, (data.len() + MAX_DATA_PER_PAGE - 1) / MAX_DATA_PER_PAGE
-            // for length 0 it should be 1.
         }
 
         // Re-implementing simply:
