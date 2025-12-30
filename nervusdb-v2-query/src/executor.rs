@@ -15,6 +15,7 @@ pub enum Value {
     String(String),
     Bool(bool),
     Null,
+    List(Vec<Value>),
 }
 
 // Custom Hash implementation for Value (since Float doesn't implement Hash)
@@ -32,6 +33,7 @@ impl Hash for Value {
             Value::String(s) => s.hash(state),
             Value::Bool(b) => b.hash(state),
             Value::Null => 0u8.hash(state),
+            Value::List(l) => l.hash(state),
         }
     }
 }
@@ -45,6 +47,10 @@ pub struct Row {
 }
 
 impl Row {
+    pub fn get(&self, name: &str) -> Option<&Value> {
+        self.cols.iter().find(|(k, _)| k == name).map(|(_, v)| v)
+    }
+
     pub fn with(mut self, name: impl Into<String>, value: Value) -> Self {
         let name = name.into();
         if let Some((_k, v)) = self.cols.iter_mut().find(|(k, _)| *k == name) {
@@ -109,6 +115,7 @@ pub enum Plan {
     },
     /// `MATCH (a)-[:rel]->(b) RETURN ...`
     MatchOut {
+        input: Option<Box<Plan>>,
         src_alias: String,
         rel: Option<String>,
         edge_alias: Option<String>,
@@ -118,9 +125,11 @@ pub enum Plan {
         // should happen after filtering (see Plan::Project)
         project: Vec<String>,
         project_external: bool,
+        optional: bool,
     },
     /// `MATCH (a)-[:rel*min..max]->(b) RETURN ...` (variable length)
     MatchOutVarLen {
+        input: Option<Box<Plan>>,
         src_alias: String,
         rel: Option<String>,
         edge_alias: Option<String>,
@@ -130,6 +139,7 @@ pub enum Plan {
         limit: Option<u32>,
         project: Vec<String>,
         project_external: bool,
+        optional: bool,
     },
     /// `MATCH ... WHERE ... RETURN ...` (with filter)
     Filter {
@@ -213,6 +223,7 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
             }))
         }
         Plan::MatchOut {
+            input,
             src_alias,
             rel,
             edge_alias,
@@ -220,6 +231,7 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
             limit,
             project: _,
             project_external: _,
+            optional,
         } => {
             let rel_id = if let Some(r) = rel {
                 match snapshot.resolve_rel_type_id(r) {
@@ -230,20 +242,42 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
                 None
             };
 
-            let base = MatchOutIter::new(
-                snapshot,
-                src_alias,
-                rel_id,
-                edge_alias.as_deref(),
-                dst_alias,
-            );
-            if let Some(n) = limit {
-                Box::new(base.take(*n as usize))
+            if let Some(input_plan) = input {
+                let input_iter = execute_plan(snapshot, input_plan, params);
+                let expand = ExpandIter {
+                    snapshot,
+                    input: input_iter,
+                    src_alias,
+                    rel: rel_id,
+                    edge_alias: edge_alias.as_deref(),
+                    dst_alias,
+                    optional: *optional,
+                    cur_row: None,
+                    cur_edges: None,
+                    yielded_any: false,
+                };
+                if let Some(n) = limit {
+                    Box::new(expand.take(*n as usize))
+                } else {
+                    Box::new(expand)
+                }
             } else {
-                Box::new(base)
+                let base = MatchOutIter::new(
+                    snapshot,
+                    src_alias,
+                    rel_id,
+                    edge_alias.as_deref(),
+                    dst_alias,
+                );
+                if let Some(n) = limit {
+                    Box::new(base.take(*n as usize))
+                } else {
+                    Box::new(base)
+                }
             }
         }
         Plan::MatchOutVarLen {
+            input,
             src_alias,
             rel,
             edge_alias,
@@ -253,7 +287,16 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
             limit,
             project: _,
             project_external: _,
+            optional,
         } => {
+            if input.is_some() || *optional {
+                // TODO: Implement chaining for VarLen
+                // For now, if input is present, we panic or ignore?
+                // Ignoring is dangerous. Panic for now as it's dev phase.
+                // Or return Error? execute_plan returns Iterator, can't easily error.
+                // We'll panic since T151 focuses on MatchOut.
+                todo!("OPTIONAL MATCH / VarLen Chaining not implemented yet");
+            }
             let rel_id = if let Some(r) = rel {
                 match snapshot.resolve_rel_type_id(r) {
                     Some(id) => Some(id),
@@ -301,7 +344,13 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
             aggregates,
         } => {
             let input_iter = execute_plan(snapshot, input, params);
-            execute_aggregate(input_iter, group_by.clone(), aggregates.clone())
+            execute_aggregate(
+                snapshot,
+                input_iter,
+                group_by.clone(),
+                aggregates.clone(),
+                params,
+            )
         }
         Plan::OrderBy { input, items } => {
             let input_iter = execute_plan(snapshot, input, params);
@@ -410,7 +459,7 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
                 Value::Float(f) => nervusdb_v2_api::PropertyValue::Float(f),
                 Value::String(s) => nervusdb_v2_api::PropertyValue::String(s),
                 _ => {
-                    // Index does not support NodeId/ExternalId/EdgeKey values
+                    // Index does not support NodeId/ExternalId/EdgeKey/List values
                     // Fallback to scan
                     return execute_plan(snapshot, fallback, params);
                 }
@@ -1004,9 +1053,11 @@ fn convert_executor_value_to_property(value: &Value) -> Result<PropertyValue> {
         Value::Int(i) => Ok(PropertyValue::Int(*i)),
         Value::String(s) => Ok(PropertyValue::String(s.clone())),
         Value::Float(f) => Ok(PropertyValue::Float(*f)),
-        Value::NodeId(_) | Value::ExternalId(_) | Value::EdgeKey(_) => Err(Error::NotImplemented(
-            "node/edge values in properties not supported in v2 M3".into(),
-        )),
+        Value::NodeId(_) | Value::ExternalId(_) | Value::EdgeKey(_) | Value::List(_) => {
+            Err(Error::NotImplemented(
+                "node/edge/list values in properties not supported in v2 M3".into(),
+            ))
+        }
     }
 }
 
@@ -1205,10 +1256,13 @@ impl<'a, S: GraphSnapshot + 'a> Iterator for MatchOutVarLenIter<'a, S> {
 }
 
 /// Simple aggregation executor that collects all input, groups, and computes aggregates
-fn execute_aggregate<'a>(
+/// Simple aggregation executor that collects all input, groups, and computes aggregates
+fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
+    snapshot: &'a S,
     input: Box<dyn Iterator<Item = Result<Row>> + 'a>,
     group_by: Vec<String>,
     aggregates: Vec<(AggregateFunction, String)>,
+    params: &'a crate::query_api::Params,
 ) -> Box<dyn Iterator<Item = Result<Row>> + 'a> {
     // Collect all rows and group them
     let mut groups: std::collections::HashMap<Vec<Value>, Vec<Row>> =
@@ -1256,7 +1310,12 @@ fn execute_aggregate<'a>(
                         // COUNT(expr) - count non-null values
                         let count = rows
                             .iter()
-                            .filter(|r| !matches!(evaluate_expression(expr, r), Value::Null))
+                            .filter(|r| {
+                                !matches!(
+                                    evaluate_expression_value(expr, r, snapshot, params),
+                                    Value::Null
+                                )
+                            })
                             .count();
                         Value::Float(count as f64)
                     }
@@ -1264,7 +1323,9 @@ fn execute_aggregate<'a>(
                         let sum: f64 = rows
                             .iter()
                             .filter_map(|r| {
-                                if let Value::Float(f) = evaluate_expression(expr, r) {
+                                if let Value::Float(f) =
+                                    evaluate_expression_value(expr, r, snapshot, params)
+                                {
                                     Some(f)
                                 } else {
                                     None
@@ -1277,7 +1338,9 @@ fn execute_aggregate<'a>(
                         let values: Vec<f64> = rows
                             .iter()
                             .filter_map(|r| {
-                                if let Value::Float(f) = evaluate_expression(expr, r) {
+                                if let Value::Float(f) =
+                                    evaluate_expression_value(expr, r, snapshot, params)
+                                {
                                     Some(f)
                                 } else {
                                     None
@@ -1290,6 +1353,34 @@ fn execute_aggregate<'a>(
                             Value::Float(values.iter().sum::<f64>() / values.len() as f64)
                         }
                     }
+                    AggregateFunction::Min(expr) => {
+                        let min_val = rows
+                            .iter()
+                            .filter_map(|r| {
+                                let v = evaluate_expression_value(expr, r, snapshot, params);
+                                if v == Value::Null { None } else { Some(v) }
+                            })
+                            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                        min_val.unwrap_or(Value::Null)
+                    }
+                    AggregateFunction::Max(expr) => {
+                        let max_val = rows
+                            .iter()
+                            .filter_map(|r| {
+                                let v = evaluate_expression_value(expr, r, snapshot, params);
+                                if v == Value::Null { None } else { Some(v) }
+                            })
+                            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                        max_val.unwrap_or(Value::Null)
+                    }
+                    AggregateFunction::Collect(expr) => {
+                        let values: Vec<Value> = rows
+                            .iter()
+                            .map(|r| evaluate_expression_value(expr, r, snapshot, params))
+                            .filter(|v| *v != Value::Null)
+                            .collect();
+                        Value::List(values)
+                    }
                 };
                 result = result.with(alias, value);
             }
@@ -1301,30 +1392,101 @@ fn execute_aggregate<'a>(
     Box::new(results.into_iter())
 }
 
-/// Simple expression evaluator for aggregate functions
-fn evaluate_expression(expr: &Expression, row: &Row) -> Value {
-    match expr {
-        Expression::Variable(name) => row
-            .cols
-            .iter()
-            .find(|(k, _)| k == name)
-            .map(|(_, v)| v.clone())
-            .unwrap_or(Value::Null),
-        Expression::PropertyAccess(prop) => {
-            // For now, just return the node value (property access not fully implemented)
-            row.cols
-                .iter()
-                .find(|(k, _)| k == &prop.variable)
-                .map(|(_, v)| v.clone())
-                .unwrap_or(Value::Null)
-        }
-        Expression::Literal(Literal::Number(n)) => Value::Float(*n),
-        Expression::Literal(Literal::String(s)) => Value::String(s.clone()),
-        _ => Value::Null,
-    }
-}
-
 pub fn parse_u32_identifier(name: &str) -> Result<u32> {
     name.parse::<u32>()
         .map_err(|_| Error::NotImplemented("non-numeric label/rel identifiers in M3"))
+}
+
+struct ExpandIter<'a, S: GraphSnapshot + 'a> {
+    snapshot: &'a S,
+    input: Box<dyn Iterator<Item = Result<Row>> + 'a>,
+    src_alias: &'a str,
+    rel: Option<RelTypeId>,
+    edge_alias: Option<&'a str>,
+    dst_alias: &'a str,
+    optional: bool,
+    cur_row: Option<Row>,
+    cur_edges: Option<S::Neighbors<'a>>,
+    yielded_any: bool,
+}
+
+impl<'a, S: GraphSnapshot + 'a> Iterator for ExpandIter<'a, S> {
+    type Item = Result<Row>;
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.cur_edges.is_none() {
+                match self.input.next() {
+                    Some(Ok(row)) => {
+                        self.cur_row = Some(row.clone());
+                        let src_val = row
+                            .cols
+                            .iter()
+                            .find(|(k, _)| k == self.src_alias)
+                            .map(|(_, v)| v);
+                        match src_val {
+                            Some(Value::NodeId(id)) => {
+                                self.cur_edges = Some(self.snapshot.neighbors(*id, self.rel));
+                                self.yielded_any = false;
+                            }
+                            Some(Value::Null) => {
+                                // Source is Null (e.g. from previous optional match)
+                                if self.optional {
+                                    // Propagate Nulls
+                                    let mut row = row.clone();
+                                    if let Some(ea) = self.edge_alias {
+                                        row = row.with(ea, Value::Null);
+                                    }
+                                    row = row.with(self.dst_alias, Value::Null);
+                                    self.cur_row = None; // Done with this row
+                                    return Some(Ok(row));
+                                } else {
+                                    // Not optional: Filter out this row
+                                    self.cur_row = None;
+                                    continue;
+                                }
+                            }
+                            Some(_) => {
+                                return Some(Err(Error::Other(format!(
+                                    "Variable {} is not a node",
+                                    self.src_alias
+                                ))));
+                            }
+                            None => {
+                                return Some(Err(Error::Other(format!(
+                                    "Variable {} not found",
+                                    self.src_alias
+                                ))));
+                            }
+                        }
+                    }
+                    Some(Err(e)) => return Some(Err(e)),
+                    None => return None,
+                }
+            }
+
+            let edges = self.cur_edges.as_mut().unwrap();
+            if let Some(edge) = edges.next() {
+                self.yielded_any = true;
+                let mut row = self.cur_row.as_ref().unwrap().clone();
+                if let Some(ea) = self.edge_alias {
+                    row = row.with(ea, Value::EdgeKey(edge));
+                }
+                row = row.with(self.dst_alias, Value::NodeId(edge.dst));
+                return Some(Ok(row));
+            } else {
+                if self.optional && !self.yielded_any {
+                    self.yielded_any = true;
+                    let mut row = self.cur_row.take().unwrap();
+                    if let Some(ea) = self.edge_alias {
+                        row = row.with(ea, Value::Null);
+                    }
+                    row = row.with(self.dst_alias, Value::Null);
+                    self.cur_edges = None;
+                    return Some(Ok(row));
+                }
+                self.cur_edges = None;
+                self.cur_row = None;
+            }
+        }
+    }
 }

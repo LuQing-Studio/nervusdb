@@ -196,6 +196,7 @@ fn render_plan(plan: &Plan) -> String {
                 let _ = writeln!(out, "{pad}NodeScan(alias={alias}, label={label:?})");
             }
             Plan::MatchOut {
+                input: _,
                 src_alias,
                 rel,
                 edge_alias,
@@ -203,13 +204,16 @@ fn render_plan(plan: &Plan) -> String {
                 limit,
                 project: _,
                 project_external: _,
+                optional,
             } => {
+                let opt_str = if *optional { " OPTIONAL" } else { "" };
                 let _ = writeln!(
                     out,
-                    "{pad}MatchOut(src={src_alias}, rel={rel:?}, edge={edge_alias:?}, dst={dst_alias}, limit={limit:?})"
+                    "{pad}MatchOut{opt_str}(src={src_alias}, rel={rel:?}, edge={edge_alias:?}, dst={dst_alias}, limit={limit:?})"
                 );
             }
             Plan::MatchOutVarLen {
+                input: _,
                 src_alias,
                 rel,
                 edge_alias,
@@ -219,10 +223,12 @@ fn render_plan(plan: &Plan) -> String {
                 limit,
                 project: _,
                 project_external: _,
+                optional,
             } => {
+                let opt_str = if *optional { " OPTIONAL" } else { "" };
                 let _ = writeln!(
                     out,
-                    "{pad}MatchOutVarLen(src={src_alias}, rel={rel:?}, edge={edge_alias:?}, dst={dst_alias}, min={min_hops}, max={max_hops:?}, limit={limit:?})"
+                    "{pad}MatchOutVarLen{opt_str}(src={src_alias}, rel={rel:?}, edge={edge_alias:?}, dst={dst_alias}, min={min_hops}, max={max_hops:?}, limit={limit:?})"
                 );
             }
             Plan::Filter { input, predicate } => {
@@ -305,20 +311,15 @@ struct CompiledQuery {
 }
 
 fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
-    // Supported shapes (M3):
-    // - RETURN 1
-    // - MATCH (n)-[:<u32>]->(m) [WHERE ...] RETURN n,m [LIMIT k]
-    // - MATCH (n)-[:<u32>]->(m) [WHERE ...] DELETE n [DETACH]
-    // - MATCH (n) [WHERE ...] SET n.prop = val
-    let mut match_clause = None;
+    let mut matches = Vec::new();
     let mut where_clause = None;
     let mut return_clause = None;
-    let mut delete_clause = None;
     let mut set_clause = None;
+    let mut delete_clause = None;
 
     for clause in query.clauses {
         match clause {
-            Clause::Match(m) => match_clause = Some(m),
+            Clause::Match(m) => matches.push(m),
             Clause::Where(w) => where_clause = Some(w),
             Clause::Return(r) => return_clause = Some(r),
             Clause::With(_) => return Err(Error::NotImplemented("WITH in v2 M3")),
@@ -344,227 +345,96 @@ fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
         }
     }
 
-    // Handle DELETE clause
     if let Some(delete) = delete_clause {
         if set_clause.is_some() {
             return Err(Error::NotImplemented("Mixing SET and DELETE in v2 M3"));
         }
-        let plan = compile_delete_plan(match_clause, where_clause, delete)?;
+        if matches.len() > 1 {
+            return Err(Error::NotImplemented("Multiple MATCH with DELETE in v2 M3"));
+        }
+        let m = matches.into_iter().next();
+        let plan = compile_delete_plan(m, where_clause, delete)?;
         return Ok(CompiledQuery {
             plan,
             write: WriteSemantics::Default,
         });
     }
 
-    // Handle SET clause
     if let Some(set) = set_clause {
-        let plan = compile_set_plan(match_clause, where_clause, set)?;
+        if matches.len() > 1 {
+            return Err(Error::NotImplemented("Multiple MATCH with SET in v2 M3"));
+        }
+        let m = matches.into_iter().next();
+        let plan = compile_set_plan(m, where_clause, set)?;
         return Ok(CompiledQuery {
             plan,
             write: WriteSemantics::Default,
         });
     }
+
+    // Build Match Chain
+    let mut plan: Option<Plan> = None;
+    for m in matches {
+        plan = Some(compile_match_plan(plan, m)?);
+    }
+
+    // Check if we have a plan, or handle RETURN 1
+    let mut plan = if let Some(p) = plan {
+        p
+    } else {
+        if let Some(ret) = &return_clause {
+            if ret.items.len() == 1 {
+                if let Expression::Literal(Literal::Number(n)) = &ret.items[0].expression {
+                    if (*n - 1.0).abs() < f64::EPSILON {
+                        return Ok(CompiledQuery {
+                            plan: Plan::ReturnOne,
+                            write: WriteSemantics::Default,
+                        });
+                    }
+                }
+            }
+        }
+        return Err(Error::NotImplemented(
+            "Query must have at least one MATCH (or be RETURN 1)",
+        ));
+    };
 
     let Some(ret) = return_clause else {
         return Err(Error::NotImplemented("query without RETURN"));
     };
 
-    if match_clause.is_none() {
-        if ret.items.len() == 1
-            && let Expression::Literal(Literal::Number(n)) = &ret.items[0].expression
-            && (*n - 1.0).abs() < f64::EPSILON
-        {
-            return Ok(CompiledQuery {
-                plan: Plan::ReturnOne,
-                write: WriteSemantics::Default,
-            });
-        }
-        return Err(Error::NotImplemented("RETURN-only query (except RETURN 1)"));
-    }
-
-    let m = match_clause.unwrap();
-    // Re-use logic for MATCH plan construction
-    // We need to extract this logic to a helper or just duplicate small part
-    // For now, let's keep it here but refactor slightly if needed.
-    // ... (rest of MATCH plan construction)
-
-    if m.optional {
-        return Err(Error::NotImplemented("OPTIONAL MATCH in v2 M3"));
-    }
-
-    let mut plan = match m.pattern.elements.len() {
-        1 => {
-            let node = match &m.pattern.elements[0] {
-                crate::ast::PathElement::Node(n) => n,
-                _ => return Err(Error::Other("pattern must be a node".into())),
-            };
-
-            if node.properties.is_some() {
-                return Err(Error::NotImplemented(
-                    "node pattern properties in v2 M3 (use WHERE)",
-                ));
-            }
-            let alias = node
-                .variable
-                .as_deref()
-                .ok_or(Error::NotImplemented("anonymous node"))?
-                .to_string();
-
-            Plan::NodeScan {
-                alias,
-                label: node.labels.first().cloned(),
-            }
-        }
-        3 => {
-            let src = match &m.pattern.elements[0] {
-                crate::ast::PathElement::Node(n) => n,
-                _ => return Err(Error::Other("pattern must start with node".into())),
-            };
-            let rel_pat = match &m.pattern.elements[1] {
-                crate::ast::PathElement::Relationship(r) => r,
-                _ => return Err(Error::Other("expected relationship in middle".into())),
-            };
-            let dst = match &m.pattern.elements[2] {
-                crate::ast::PathElement::Node(n) => n,
-                _ => return Err(Error::Other("pattern must end with node".into())),
-            };
-
-            if src.properties.is_some() || dst.properties.is_some() {
-                return Err(Error::NotImplemented(
-                    "node pattern properties in v2 M3 (use WHERE)",
-                ));
-            }
-            if rel_pat.properties.is_some() {
-                return Err(Error::NotImplemented(
-                    "relationship pattern properties in v2 M3 (use WHERE)",
-                ));
-            }
-
-            let src_alias = src
-                .variable
-                .as_deref()
-                .ok_or(Error::NotImplemented("anonymous node"))?
-                .to_string();
-            let dst_alias = dst
-                .variable
-                .as_deref()
-                .ok_or(Error::NotImplemented("anonymous node"))?
-                .to_string();
-
-            if !matches!(rel_pat.direction, RelationshipDirection::LeftToRight) {
-                return Err(Error::NotImplemented("only -> direction in v2 M3"));
-            }
-
-            let rel = rel_pat.types.first().cloned();
-
-            let edge_alias = rel_pat.variable.clone();
-
-            // Don't use embedded limit when we have RETURN limit - we'll use separate Limit node
-            let limit = if ret.limit.is_some() { None } else { ret.limit };
-
-            if let Some(var_len) = &rel_pat.variable_length {
-                let min_hops = var_len.min.unwrap_or(1);
-                let max_hops = var_len.max;
-                if min_hops == 0 {
-                    return Err(Error::NotImplemented(
-                        "0-length variable-length paths in v2 M3",
-                    ));
-                }
-                if let Some(max_hops) = max_hops
-                    && max_hops < min_hops
-                {
-                    return Err(Error::Other(
-                        "invalid variable-length range: max < min".into(),
-                    ));
-                }
-                Plan::MatchOutVarLen {
-                    src_alias,
-                    rel,
-                    edge_alias,
-                    dst_alias,
-                    min_hops,
-                    max_hops,
-                    limit,
-                    project: Vec::new(),
-                    project_external: false,
-                }
-            } else {
-                Plan::MatchOut {
-                    src_alias,
-                    rel,
-                    edge_alias,
-                    dst_alias,
-                    limit,
-                    project: Vec::new(),
-                    project_external: false,
-                }
-            }
-        }
-        _ => {
-            return Err(Error::NotImplemented(
-                "only single-node or single-hop patterns in v2 M3",
-            ));
-        }
-    };
-
+    // Calculate projection
+    // Calculate projection or aggregation
+    let mut group_by: Vec<String> = Vec::new();
+    let mut aggregates: Vec<(crate::ast::AggregateFunction, String)> = Vec::new(); // (Func, Alias)
     let mut project: Vec<String> = Vec::new();
-    for item in &ret.items {
-        if item.alias.is_some() {
-            return Err(Error::NotImplemented("RETURN aliases in v2 M3"));
-        }
-        let Expression::Variable(name) = &item.expression else {
-            return Err(Error::NotImplemented(
-                "only variable projections in v2 M3 (use RETURN 1 or RETURN <var>...)",
-            ));
-        };
-        project.push(name.clone());
-    }
+    let mut is_aggregation = false;
 
-    match &mut plan {
-        Plan::MatchOut { project: p, .. } | Plan::MatchOutVarLen { project: p, .. } => {
-            *p = project.clone();
-        }
-        Plan::NodeScan { .. } => {}
-        Plan::ReturnOne
-        | Plan::Filter { .. }
-        | Plan::Project { .. }
-        | Plan::Aggregate { .. }
-        | Plan::OrderBy { .. }
-        | Plan::Skip { .. }
-        | Plan::Limit { .. }
-        | Plan::Distinct { .. }
-        | Plan::Create { .. }
-        | Plan::Delete { .. }
-        | Plan::SetProperty { .. }
-        | Plan::IndexSeek { .. } => {}
-    }
-
-    // Fail-fast: RETURN variables must exist in the row shape produced by the base plan.
-    let available: Vec<&str> = match &plan {
-        Plan::NodeScan { alias, .. } => vec![alias.as_str()],
-        Plan::MatchOut {
-            src_alias,
-            edge_alias,
-            dst_alias,
-            ..
-        }
-        | Plan::MatchOutVarLen {
-            src_alias,
-            edge_alias,
-            dst_alias,
-            ..
-        } => {
-            let mut out = vec![src_alias.as_str(), dst_alias.as_str()];
-            if let Some(edge_alias) = edge_alias.as_deref() {
-                out.push(edge_alias);
+    for (i, item) in ret.items.iter().enumerate() {
+        match &item.expression {
+            Expression::Variable(name) => {
+                group_by.push(name.clone());
+                project.push(name.clone());
             }
-            out
-        }
-        _ => Vec::new(),
-    };
-    for col in &project {
-        if !available.iter().any(|v| v == &col.as_str()) {
-            return Err(Error::Other(format!("unknown variable in RETURN: {col}")));
+            Expression::FunctionCall(call) => {
+                // Check if it is an aggregate function
+                if let Some(agg) = parse_aggregate_function(call)? {
+                    is_aggregation = true;
+                    // Generate alias if missing
+                    let alias = item.alias.clone().unwrap_or_else(|| format!("agg_{}", i));
+                    aggregates.push((agg, alias.clone()));
+                    project.push(alias);
+                } else {
+                    return Err(Error::NotImplemented(
+                        "non-aggregate function calls in RETURN",
+                    ));
+                }
+            }
+            _ => {
+                return Err(Error::NotImplemented(
+                    "only variables or aggregates in RETURN clause in v2 M3",
+                ));
+            }
         }
     }
 
@@ -577,15 +447,37 @@ fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
         plan = try_optimize_nodescan_filter(filter_plan, w.expression);
     }
 
-    // Add projection after filtering (to preserve columns for WHERE evaluation)
-    plan = Plan::Project {
-        input: Box::new(plan),
-        columns: project,
-    };
+    if is_aggregation {
+        plan = Plan::Aggregate {
+            input: Box::new(plan),
+            group_by,
+            aggregates,
+        };
+        // Aggregate produces the final columns, so we don't need a separate Project
+        // UNLESS we want to reorder/rename. But implicit project from Aggregate is effectively the output row.
+        // The Aggregate executor builds rows with [group_by_cols..., aggregate_cols...]
+        // We might need to map them to the requested order?
+        // For MVP, checking order might be complex. Let's assume Aggregate returns all keys + aggregates.
+        // But the user expect explicit minimal columns.
+        // Let's wrap in Project to ensure correct order/selection if needed?
+        // Actually, execute_aggregate returns rows with specific columns.
+        // We should ensure it returns ONLY the requested columns in usage?
+        // But execute_aggregate constructs rows with aliased values.
+        // Ideally we project the final result to match `project` list order.
+        plan = Plan::Project {
+            input: Box::new(plan),
+            columns: project,
+        };
+    } else {
+        // Standard Projection
+        plan = Plan::Project {
+            input: Box::new(plan),
+            columns: project,
+        };
+    }
 
-    // Add ORDER BY if present
+    // Add ORDER BY
     if let Some(order_by) = &ret.order_by {
-        // ... (order by logic)
         let items: Vec<(String, crate::ast::Direction)> = order_by
             .items
             .iter()
@@ -608,7 +500,7 @@ fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
         };
     }
 
-    // Add SKIP if present
+    // Add SKIP
     if let Some(skip) = ret.skip {
         plan = Plan::Skip {
             input: Box::new(plan),
@@ -616,7 +508,7 @@ fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
         };
     }
 
-    // Add LIMIT if present (override embedded limit in MatchOut)
+    // Add LIMIT
     if let Some(limit) = ret.limit {
         plan = Plan::Limit {
             input: Box::new(plan),
@@ -624,7 +516,7 @@ fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
         };
     }
 
-    // Add DISTINCT if present
+    // Add DISTINCT
     if ret.distinct {
         plan = Plan::Distinct {
             input: Box::new(plan),
@@ -916,6 +808,7 @@ fn compile_delete_plan(
     let dst_alias_1 = dst_alias.clone();
     let dst_alias_2 = dst_alias.clone();
     let mut input_plan = Plan::MatchOut {
+        input: None,
         src_alias,
         rel,
         edge_alias: rel_pat.variable.clone(),
@@ -923,6 +816,7 @@ fn compile_delete_plan(
         limit: None,
         project: vec![src_alias_1, dst_alias_1],
         project_external: false,
+        optional: false,
     };
 
     // Add WHERE filter if present
@@ -1008,4 +902,190 @@ fn compile_set_plan(
         input: Box::new(plan),
         items,
     })
+}
+
+fn compile_match_plan(input: Option<Plan>, m: crate::ast::MatchClause) -> Result<Plan> {
+    match m.pattern.elements.len() {
+        1 => {
+            if input.is_some() {
+                // If input exists, we don't support disconnected MATCH (n) yet.
+                return Err(Error::NotImplemented(
+                    "Multiple disconnected MATCH clauses not supported (Cartesian product) in v2 M3",
+                ));
+            }
+            let node = match &m.pattern.elements[0] {
+                crate::ast::PathElement::Node(n) => n,
+                _ => return Err(Error::Other("pattern must be a node".into())),
+            };
+            if node.properties.is_some() {
+                return Err(Error::NotImplemented(
+                    "node pattern properties in v2 M3 (use WHERE)",
+                ));
+            }
+            let alias = node
+                .variable
+                .as_deref()
+                .ok_or(Error::NotImplemented("anonymous node"))?
+                .to_string();
+
+            Ok(Plan::NodeScan {
+                alias,
+                label: node.labels.first().cloned(),
+            })
+        }
+        3 => {
+            let src = match &m.pattern.elements[0] {
+                crate::ast::PathElement::Node(n) => n,
+                _ => return Err(Error::Other("pattern must start with node".into())),
+            };
+            let rel_pat = match &m.pattern.elements[1] {
+                crate::ast::PathElement::Relationship(r) => r,
+                _ => return Err(Error::Other("expected relationship in middle".into())),
+            };
+            let dst = match &m.pattern.elements[2] {
+                crate::ast::PathElement::Node(n) => n,
+                _ => return Err(Error::Other("pattern must end with node".into())),
+            };
+
+            if src.properties.is_some() || dst.properties.is_some() {
+                return Err(Error::NotImplemented(
+                    "node pattern properties in v2 M3 (use WHERE)",
+                ));
+            }
+            if rel_pat.properties.is_some() {
+                return Err(Error::NotImplemented(
+                    "relationship pattern properties in v2 M3 (use WHERE)",
+                ));
+            }
+
+            let src_alias = src
+                .variable
+                .as_deref()
+                .ok_or(Error::NotImplemented("anonymous node"))?
+                .to_string();
+            let dst_alias = dst
+                .variable
+                .as_deref()
+                .ok_or(Error::NotImplemented("anonymous node"))?
+                .to_string();
+
+            if !matches!(rel_pat.direction, RelationshipDirection::LeftToRight) {
+                return Err(Error::NotImplemented("only -> direction in v2 M3"));
+            }
+
+            let rel = rel_pat.types.first().cloned();
+            let edge_alias = rel_pat.variable.clone();
+
+            if let Some(var_len) = &rel_pat.variable_length {
+                let min_hops = var_len.min.unwrap_or(1);
+                let max_hops = var_len.max;
+                if min_hops == 0 {
+                    return Err(Error::NotImplemented(
+                        "0-length variable-length paths in v2 M3",
+                    ));
+                }
+                if let Some(max) = max_hops {
+                    if max < min_hops {
+                        return Err(Error::Other(
+                            "invalid variable-length range: max < min".into(),
+                        ));
+                    }
+                }
+
+                Ok(Plan::MatchOutVarLen {
+                    input: input.map(Box::new),
+                    src_alias,
+                    rel,
+                    edge_alias,
+                    dst_alias,
+                    min_hops,
+                    max_hops,
+                    limit: None,
+                    project: Vec::new(),
+                    project_external: false,
+                    optional: m.optional,
+                })
+            } else {
+                Ok(Plan::MatchOut {
+                    input: input.map(Box::new),
+                    src_alias,
+                    rel,
+                    edge_alias,
+                    dst_alias,
+                    limit: None,
+                    project: Vec::new(),
+                    project_external: false,
+                    optional: m.optional,
+                })
+            }
+        }
+        _ => Err(Error::NotImplemented(
+            "pattern length must be 1 or 3 in v2 M3",
+        )),
+    }
+}
+
+fn parse_aggregate_function(
+    call: &crate::ast::FunctionCall,
+) -> Result<Option<crate::ast::AggregateFunction>> {
+    let name = call.name.to_lowercase();
+    match name.as_str() {
+        "count" => {
+            if call.args.is_empty() {
+                Ok(Some(crate::ast::AggregateFunction::Count(None)))
+            } else if call.args.len() == 1 {
+                if let Expression::Literal(Literal::String(s)) = &call.args[0] {
+                    if s == "*" {
+                        return Ok(Some(crate::ast::AggregateFunction::Count(None)));
+                    }
+                }
+                Ok(Some(crate::ast::AggregateFunction::Count(Some(
+                    call.args[0].clone(),
+                ))))
+            } else {
+                Err(Error::Other("COUNT takes 0 or 1 argument".into()))
+            }
+        }
+        "sum" => {
+            if call.args.len() != 1 {
+                return Err(Error::Other("SUM takes exactly 1 argument".into()));
+            }
+            Ok(Some(crate::ast::AggregateFunction::Sum(
+                call.args[0].clone(),
+            )))
+        }
+        "avg" => {
+            if call.args.len() != 1 {
+                return Err(Error::Other("AVG takes exactly 1 argument".into()));
+            }
+            Ok(Some(crate::ast::AggregateFunction::Avg(
+                call.args[0].clone(),
+            )))
+        }
+        "min" => {
+            if call.args.len() != 1 {
+                return Err(Error::Other("MIN takes exactly 1 argument".into()));
+            }
+            Ok(Some(crate::ast::AggregateFunction::Min(
+                call.args[0].clone(),
+            )))
+        }
+        "max" => {
+            if call.args.len() != 1 {
+                return Err(Error::Other("MAX takes exactly 1 argument".into()));
+            }
+            Ok(Some(crate::ast::AggregateFunction::Max(
+                call.args[0].clone(),
+            )))
+        }
+        "collect" => {
+            if call.args.len() != 1 {
+                return Err(Error::Other("COLLECT takes exactly 1 argument".into()));
+            }
+            Ok(Some(crate::ast::AggregateFunction::Collect(
+                call.args[0].clone(),
+            )))
+        }
+        _ => Ok(None),
+    }
 }
