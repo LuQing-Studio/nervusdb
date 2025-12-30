@@ -26,10 +26,7 @@ impl GraphStore for GraphEngine {
     type Snapshot = StorageSnapshot;
 
     fn snapshot(&self) -> Self::Snapshot {
-        let i2e = Arc::new(
-            self.scan_i2e_records()
-                .expect("scan_i2e_records must succeed after open()"),
-        );
+        let i2e = Arc::new(self.scan_i2e_records());
         let inner = self.begin_read();
         let tombstoned_nodes: HashSet<InternalNodeId> = inner
             .runs()

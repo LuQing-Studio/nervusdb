@@ -286,10 +286,9 @@ impl GraphEngine {
         idx.search(&mut *pager, query, k)
     }
 
-    pub fn scan_i2e_records(&self) -> Result<Vec<I2eRecord>> {
-        let mut pager = self.pager.lock().unwrap();
+    pub fn scan_i2e_records(&self) -> Vec<I2eRecord> {
         let idmap = self.idmap.lock().unwrap();
-        idmap.scan_i2e(&mut pager)
+        idmap.get_i2e_snapshot()
     }
 
     fn publish_run(&self, run: Arc<L0Run>) {

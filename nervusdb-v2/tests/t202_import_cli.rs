@@ -66,6 +66,14 @@ fn test_import_cli_csv() {
     let neighbors: Vec<_> = snap.neighbors(alice_iid, None).collect();
     assert_eq!(neighbors.len(), 1);
     assert_eq!(neighbors[0].dst, bob_iid);
+
+    // Ensure relationship type name -> id mapping is consistent after bulk import.
+    let follows_id = snap
+        .resolve_rel_type_id("FOLLOWS")
+        .expect("FOLLOWS rel type should exist");
+    let neighbors_filtered: Vec<_> = snap.neighbors(alice_iid, Some(follows_id)).collect();
+    assert_eq!(neighbors_filtered.len(), 1);
+    assert_eq!(neighbors_filtered[0].dst, bob_iid);
 }
 
 #[test]
@@ -132,4 +140,12 @@ fn test_import_cli_jsonl() {
     let neighbors: Vec<_> = snap.neighbors(alice_iid, None).collect();
     assert_eq!(neighbors.len(), 1);
     assert_eq!(neighbors[0].dst, bob_iid);
+
+    // Ensure relationship type name -> id mapping is consistent after bulk import.
+    let follows_id = snap
+        .resolve_rel_type_id("FOLLOWS")
+        .expect("FOLLOWS rel type should exist");
+    let neighbors_filtered: Vec<_> = snap.neighbors(alice_iid, Some(follows_id)).collect();
+    assert_eq!(neighbors_filtered.len(), 1);
+    assert_eq!(neighbors_filtered[0].dst, bob_iid);
 }

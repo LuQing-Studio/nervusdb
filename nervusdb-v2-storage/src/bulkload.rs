@@ -1,5 +1,6 @@
 use crate::csr::CsrSegment;
 use crate::idmap::{ExternalId, InternalNodeId, LabelId};
+use crate::label_interner::LabelInterner;
 use crate::property::PropertyValue;
 use crate::wal::SegmentPointer;
 use crate::{Error, Result};
@@ -129,28 +130,50 @@ impl BulkLoader {
         // Step 2: Create Pager
         let mut pager = crate::pager::Pager::open(&self.db_path)?;
 
-        // Step 3: Build IdMap and get label mappings
-        let (external_to_internal, label_snapshot) = self.build_idmap_and_labels(&mut pager)?;
+        // Step 3: Build the unified label/rel_type interner (must be consistent across
+        // idmap, segments, properties, and WAL label definitions).
+        let mut label_interner = self.build_label_interner();
 
-        // Step 4: Generate L1 Segments
-        let segments = self.build_segments(&external_to_internal)?;
+        // Step 4: Build IdMap and node label IDs
+        let (external_to_internal, node_label_ids) =
+            self.build_idmap_and_labels(&mut pager, &mut label_interner)?;
+
+        // Step 5: Generate L1 Segments
+        let segments = self.build_segments(&external_to_internal, &label_interner)?;
 
         // Clone for write_statistics (write_segments consumes segments)
         let segments_for_stats = segments.clone();
 
-        // Step 5: Write segments to pager and get segment pointers
+        // Step 6: Write segments to pager and get segment pointers
         let segment_pointers = self.write_segments(&mut pager, segments)?;
 
-        // Step 6: Write properties and get properties_root
-        let properties_root = self.write_properties(&mut pager, &external_to_internal)?;
+        // Step 7: Write properties and get properties_root
+        let properties_root =
+            self.write_properties(&mut pager, &external_to_internal, &label_interner)?;
 
-        // Step 7: Collect statistics and get stats_root
-        let stats_root = self.write_statistics(&mut pager, &label_snapshot, &segments_for_stats)?;
+        // Step 8: Collect statistics and get stats_root
+        let stats_root = self.write_statistics(&mut pager, &node_label_ids, &segments_for_stats)?;
 
-        // Step 8: Initialize WAL with manifest
-        self.initialize_wal(&segment_pointers, properties_root, stats_root)?;
+        // Step 9: Initialize WAL with manifest + label definitions
+        self.initialize_wal(
+            &segment_pointers,
+            properties_root,
+            stats_root,
+            &label_interner,
+        )?;
 
         Ok(())
+    }
+
+    fn build_label_interner(&self) -> LabelInterner {
+        let mut interner = LabelInterner::new();
+        for node in &self.nodes {
+            interner.get_or_create(&node.label);
+        }
+        for edge in &self.edges {
+            interner.get_or_create(&edge.rel_type);
+        }
+        interner
     }
 
     /// Validates all bulk data for consistency.
@@ -188,12 +211,9 @@ impl BulkLoader {
     fn build_idmap_and_labels(
         &self,
         pager: &mut crate::pager::Pager,
+        label_interner: &mut LabelInterner,
     ) -> Result<(BTreeMap<ExternalId, InternalNodeId>, Vec<LabelId>)> {
         use crate::idmap::IdMap;
-        use crate::label_interner::LabelInterner;
-
-        // Create label interner
-        let mut label_interner = LabelInterner::new();
 
         // Load IdMap (should be empty for new database)
         let mut idmap = IdMap::load(pager)?;
@@ -224,19 +244,22 @@ impl BulkLoader {
     fn build_segments(
         &self,
         external_to_internal: &BTreeMap<ExternalId, InternalNodeId>,
+        label_interner: &LabelInterner,
     ) -> Result<Vec<CsrSegment>> {
         use crate::csr::{EdgeRecord, SegmentId};
-        use crate::label_interner::LabelInterner;
         use crate::snapshot::EdgeKey;
 
         // Build edge list with internal IDs
-        let mut label_interner = LabelInterner::new();
         let mut edges: Vec<EdgeKey> = Vec::with_capacity(self.edges.len());
 
         for edge in &self.edges {
             let src = external_to_internal[&edge.src_external_id];
             let dst = external_to_internal[&edge.dst_external_id];
-            let rel = label_interner.get_or_create(&edge.rel_type);
+            let rel = label_interner
+                .get_id(&edge.rel_type)
+                .ok_or(Error::WalProtocol(
+                    "unknown relationship type during bulkload",
+                ))?;
             edges.push(EdgeKey { src, rel, dst });
         }
 
@@ -319,6 +342,7 @@ impl BulkLoader {
         &self,
         pager: &mut crate::pager::Pager,
         external_to_internal: &BTreeMap<ExternalId, InternalNodeId>,
+        label_interner: &LabelInterner,
     ) -> Result<u64> {
         use crate::index::btree::BTree;
 
@@ -345,12 +369,11 @@ impl BulkLoader {
         for edge in &self.edges {
             let src = external_to_internal[&edge.src_external_id];
             let dst = external_to_internal[&edge.dst_external_id];
-            let rel = {
-                // Use label interner to get rel type ID
-                use crate::label_interner::LabelInterner;
-                let mut interner = LabelInterner::new();
-                interner.get_or_create(&edge.rel_type)
-            };
+            let rel = label_interner
+                .get_id(&edge.rel_type)
+                .ok_or(Error::WalProtocol(
+                    "unknown relationship type during bulkload",
+                ))?;
 
             for (key, value) in &edge.properties {
                 let mut btree_key = Vec::with_capacity(1 + 4 + 4 + 4 + 4 + key.len());
@@ -406,20 +429,11 @@ impl BulkLoader {
         segment_pointers: &[SegmentPointer],
         properties_root: u64,
         stats_root: u64,
+        label_interner: &LabelInterner,
     ) -> Result<()> {
-        use crate::label_interner::LabelInterner;
         use crate::wal::{Wal, WalRecord};
 
         let mut wal = Wal::open(&self.wal_path)?;
-
-        // Create label interner to capture all labels used
-        let mut label_interner = LabelInterner::new();
-        for node in &self.nodes {
-            label_interner.get_or_create(&node.label);
-        }
-        for edge in &self.edges {
-            label_interner.get_or_create(&edge.rel_type);
-        }
 
         let txid = 0; // First transaction
 

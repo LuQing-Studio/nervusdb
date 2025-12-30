@@ -2,6 +2,8 @@ use crate::db::Db;
 use nervusdb_v2::WriteTxn as RustWriteTxn;
 use pyo3::prelude::*;
 use std::mem::transmute;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 /// Write transaction for NervusDB.
 ///
@@ -10,10 +12,12 @@ use std::mem::transmute;
 pub struct WriteTxn {
     inner: Option<RustWriteTxn<'static>>,
     db: Py<Db>,
+    active_write_txns: Arc<AtomicUsize>,
+    active: bool,
 }
 
 impl WriteTxn {
-    pub fn new(txn: RustWriteTxn<'_>, db: Py<Db>) -> Self {
+    pub fn new(txn: RustWriteTxn<'_>, db: Py<Db>, active_write_txns: Arc<AtomicUsize>) -> Self {
         // SAFETY: We hold a strong reference to `db` in the struct, ensuring the owner
         // stays alive as long as this transaction exists. The 'static lifetime is
         // a lie to the compiler, but it's safe because we enforce the lifetime relationship manually.
@@ -21,7 +25,24 @@ impl WriteTxn {
         Self {
             inner: Some(extended_txn),
             db,
+            active_write_txns,
+            active: true,
         }
+    }
+
+    fn finish(&mut self) {
+        if !self.active {
+            return;
+        }
+        self.active = false;
+        self.inner = None;
+        self.active_write_txns.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+impl Drop for WriteTxn {
+    fn drop(&mut self) {
+        self.finish();
     }
 }
 
@@ -53,11 +74,15 @@ impl WriteTxn {
 
     /// Commit the transaction.
     fn commit(&mut self) -> PyResult<()> {
-        if let Some(txn) = self.inner.take() {
-            txn.commit()
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        }
-        Ok(())
+        let txn = self.inner.take().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("Transaction already finished")
+        })?;
+
+        let res = txn
+            .commit()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()));
+        self.finish();
+        res
     }
 
     /// Set vector embedding for a node.
@@ -74,7 +99,7 @@ impl WriteTxn {
     }
 
     /// Rollback the transaction.
-    fn rollback(&mut self) {
-        self.inner = None;
+    pub(crate) fn rollback(&mut self) {
+        self.finish();
     }
 }

@@ -4,6 +4,8 @@ use nervusdb_v2::Db as RustDb;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 /// NervusDB database handle.
 ///
@@ -12,6 +14,7 @@ use std::path::PathBuf;
 pub struct Db {
     pub(crate) inner: Option<RustDb>,
     ndb_path: PathBuf,
+    active_write_txns: Arc<AtomicUsize>,
 }
 
 #[pymethods]
@@ -30,6 +33,7 @@ impl Db {
         Ok(Self {
             inner: Some(inner),
             ndb_path: PathBuf::from(path),
+            active_write_txns: Arc::new(AtomicUsize::new(0)),
         })
     }
 
@@ -106,24 +110,35 @@ impl Db {
     ///
     /// Returns:
     ///     WriteTxn instance
-    fn begin_write(slf: Py<Db>, py: Python<'_>) -> PyResult<WriteTxn> {
+    pub(crate) fn begin_write(slf: Py<Db>, py: Python<'_>) -> PyResult<WriteTxn> {
         let db_ref = slf.borrow(py);
         let inner = db_ref
             .inner
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("Database is closed"))?;
 
+        let counter = db_ref.active_write_txns.clone();
+        counter.fetch_add(1, Ordering::SeqCst);
+
         // SAFETY: The RustDb is inside the Db struct which is managed by Py<Db>.
         // We trick compiler to give us a transaction tied to the lifetime of the borrow reference,
         // and then WriteTxn::new extends it to 'static while holding the Py<Db> to keep it alive.
+        //
+        // IMPORTANT: Db.close() MUST refuse to drop `inner` while any active WriteTxn exists.
+        // That is enforced via `active_write_txns`.
         let inner_txn = inner.begin_write();
 
-        Ok(WriteTxn::new(inner_txn, slf.clone_ref(py)))
+        Ok(WriteTxn::new(inner_txn, slf.clone_ref(py), counter))
     }
 
     /// Explicitly closes the DB and performs a checkpoint-on-close.
     /// Explicitly closes the DB and performs a checkpoint-on-close.
-    fn close(&mut self) -> PyResult<()> {
+    pub(crate) fn close(&mut self) -> PyResult<()> {
+        if self.active_write_txns.load(Ordering::SeqCst) != 0 {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "Cannot close database: write transaction in progress",
+            ));
+        }
         if let Some(inner) = self.inner.take() {
             inner
                 .close()
