@@ -130,8 +130,28 @@ pub trait GraphSnapshot {
     }
 
     /// Get all properties for an edge.
-    /// Returns properties merged from all runs (newest takes precedence).
+    /// Get all edge properties merged from all runs (newest takes precedence).
     fn edge_properties(&self, _edge: EdgeKey) -> Option<BTreeMap<String, PropertyValue>> {
+        None
+    }
+
+    /// Resolve a label name to its ID.
+    fn resolve_label_id(&self, _name: &str) -> Option<LabelId> {
+        None
+    }
+
+    /// Resolve a relationship type name to its ID.
+    fn resolve_rel_type_id(&self, _name: &str) -> Option<RelTypeId> {
+        None
+    }
+
+    /// Resolve a label ID to its name.
+    fn resolve_label_name(&self, _id: LabelId) -> Option<String> {
+        None
+    }
+
+    /// Resolve a relationship type ID to its name.
+    fn resolve_rel_type_name(&self, _id: RelTypeId) -> Option<String> {
         None
     }
 }

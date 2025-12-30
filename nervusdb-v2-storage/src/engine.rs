@@ -23,6 +23,7 @@ pub struct GraphEngine {
     published_runs: RwLock<Arc<Vec<Arc<L0Run>>>>,
     published_segments: RwLock<Arc<Vec<Arc<CsrSegment>>>>,
     published_labels: RwLock<Arc<LabelSnapshot>>,
+    published_node_labels: RwLock<Arc<Vec<LabelId>>>,
     write_lock: Mutex<()>,
     next_txid: AtomicU64,
     next_segment_id: AtomicU64,
@@ -69,7 +70,10 @@ impl GraphEngine {
 
         runs.reverse(); // newest first for read path
 
+        runs.reverse(); // newest first for read path
+
         let label_snapshot = label_interner.snapshot();
+        let node_labels_snapshot = idmap.get_i2l_snapshot();
 
         Ok(Self {
             ndb_path,
@@ -81,6 +85,7 @@ impl GraphEngine {
             published_runs: RwLock::new(Arc::new(runs)),
             published_segments: RwLock::new(Arc::new(segments)),
             published_labels: RwLock::new(Arc::new(label_snapshot)),
+            published_node_labels: RwLock::new(Arc::new(node_labels_snapshot)),
             write_lock: Mutex::new(()),
             next_txid: AtomicU64::new(state.max_txid.saturating_add(1).max(1)),
             next_segment_id: AtomicU64::new(max_seg_id.saturating_add(1).max(1)),
@@ -102,7 +107,9 @@ impl GraphEngine {
     pub fn begin_read(&self) -> Snapshot {
         let runs = self.published_runs.read().unwrap().clone();
         let segments = self.published_segments.read().unwrap().clone();
-        Snapshot::new(runs, segments)
+        let labels = self.published_labels.read().unwrap().clone();
+        let node_labels = self.published_node_labels.read().unwrap().clone();
+        Snapshot::new(runs, segments, labels, node_labels)
     }
 
     pub fn begin_write(&self) -> WriteTxn<'_> {
@@ -127,18 +134,55 @@ impl GraphEngine {
     ///
     /// This is a write operation and must be called within a write transaction.
     pub fn get_or_create_label(&self, name: &str) -> Result<LabelId> {
-        let mut interner = self.label_interner.lock().unwrap();
-        let old_len = interner.len();
-        let id = interner.get_or_create(name);
-
-        // Always update published labels when a new label is created
-        if interner.len() > old_len {
-            let snapshot = interner.snapshot();
-            let mut published = self.published_labels.write().unwrap();
-            *published = Arc::new(snapshot);
+        // Optimistic read
+        {
+            let interner = self.label_interner.lock().unwrap();
+            if let Some(id) = interner.get_id(name) {
+                return Ok(id);
+            }
         }
 
-        Ok(id)
+        // Write path: serialize with a lock or just rely on interner lock?
+        // We need to write to WAL, so let's handle it carefully.
+        // We'll just lock interner, check again, then write WAL, then update interner.
+        let mut interner = self.label_interner.lock().unwrap();
+        if let Some(id) = interner.get_id(name) {
+            return Ok(id);
+        }
+
+        // It's a new label.
+        // We update memory first to get the authoritative ID.
+        let returned_id = interner.get_or_create(name);
+
+        // Durability: Log to WAL (post-facto, but before return)
+        // We wrap this in a mini-transaction to ensure replayability.
+        {
+            let txid = self.next_txid.fetch_add(1, Ordering::Relaxed);
+            let mut wal = self.wal.lock().unwrap();
+            wal.append(&WalRecord::BeginTx { txid })?;
+            wal.append(&WalRecord::CreateLabel {
+                name: name.to_string(),
+                label_id: returned_id,
+            })?;
+            wal.append(&WalRecord::CommitTx { txid })?;
+            wal.fsync()?;
+        }
+
+        // Update Published Snapshot
+        let snapshot = interner.snapshot();
+        let mut published = self.published_labels.write().unwrap();
+        *published = Arc::new(snapshot);
+
+        Ok(returned_id)
+    }
+
+    /// Update published node labels from IdMap.
+    /// Should be called after write transactions that create nodes.
+    fn update_published_node_labels(&self) {
+        let idmap = self.idmap.lock().unwrap();
+        let snapshot = idmap.get_i2l_snapshot();
+        let mut published = self.published_node_labels.write().unwrap();
+        *published = Arc::new(snapshot);
     }
 
     /// Get a snapshot of the current label state for reading.
@@ -359,6 +403,15 @@ impl<'a> WriteTxn<'a> {
         self.memtable.create_edge(src, rel, dst);
     }
 
+    pub fn get_or_create_label(&self, name: &str) -> Result<LabelId> {
+        self.engine.get_or_create_label(name)
+    }
+
+    pub fn get_or_create_rel_type(&self, name: &str) -> Result<RelTypeId> {
+        // Reuse label interner for relationship types for now
+        self.engine.get_or_create_label(name)
+    }
+
     pub fn tombstone_node(&mut self, node: InternalNodeId) {
         self.memtable.tombstone_node(node);
     }
@@ -457,11 +510,19 @@ impl<'a> WriteTxn<'a> {
             wal.fsync()?;
         }
 
-        // 2) Apply to ndb/idmap and publish immutable run.
-        let mut pager = self.engine.pager.lock().unwrap();
-        let mut idmap = self.engine.idmap.lock().unwrap();
-        for (external_id, label_id, internal_id) in self.created_nodes {
-            idmap.apply_create_node(&mut pager, external_id, label_id, internal_id)?;
+        let has_new_nodes = !self.created_nodes.is_empty();
+
+        // 3. Apply created nodes to IdMap / Node Index
+        {
+            let mut idmap = self.engine.idmap.lock().unwrap();
+            let mut pager = self.engine.pager.lock().unwrap();
+            for (external_id, label_id, internal_id) in self.created_nodes {
+                idmap.apply_create_node(&mut pager, external_id, label_id, internal_id)?;
+            }
+        }
+
+        if has_new_nodes {
+            self.engine.update_published_node_labels();
         }
 
         if !run.is_empty() {

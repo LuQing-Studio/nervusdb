@@ -124,6 +124,22 @@ impl GraphSnapshot for StorageSnapshot {
                 .collect()
         })
     }
+
+    fn resolve_label_id(&self, name: &str) -> Option<LabelId> {
+        self.inner.resolve_label_id(name)
+    }
+
+    fn resolve_rel_type_id(&self, name: &str) -> Option<RelTypeId> {
+        self.inner.resolve_rel_type_id(name)
+    }
+
+    fn resolve_label_name(&self, id: LabelId) -> Option<String> {
+        self.inner.resolve_label_name(id)
+    }
+
+    fn resolve_rel_type_name(&self, id: RelTypeId) -> Option<String> {
+        self.inner.resolve_rel_type_name(id)
+    }
 }
 
 fn convert_property_value(v: &crate::property::PropertyValue) -> PropertyValue {

@@ -1,7 +1,7 @@
 use crate::ast::{Clause, Expression, Literal, Query, RelationshipDirection};
 use crate::error::{Error, Result};
-use crate::executor::{Plan, Row, Value, execute_plan, execute_write, parse_u32_identifier};
-use nervusdb_v2_api::{GraphSnapshot, RelTypeId};
+use crate::executor::{Plan, Row, Value, execute_plan, execute_write};
+use nervusdb_v2_api::GraphSnapshot;
 use std::collections::BTreeMap;
 
 /// Query parameters for parameterized Cypher queries.
@@ -166,9 +166,7 @@ fn compile_m3_plan(query: Query) -> Result<Plan> {
                 crate::ast::PathElement::Node(n) => n,
                 _ => return Err(Error::Other("pattern must be a node".into())),
             };
-            if !node.labels.is_empty() {
-                return Err(Error::NotImplemented("labels in v2 M3"));
-            }
+
             if node.properties.is_some() {
                 return Err(Error::NotImplemented(
                     "node pattern properties in v2 M3 (use WHERE)",
@@ -180,7 +178,10 @@ fn compile_m3_plan(query: Query) -> Result<Plan> {
                 .ok_or(Error::NotImplemented("anonymous node"))?
                 .to_string();
 
-            Plan::NodeScan { alias }
+            Plan::NodeScan {
+                alias,
+                label: node.labels.first().cloned(),
+            }
         }
         3 => {
             let src = match &m.pattern.elements[0] {
@@ -196,9 +197,6 @@ fn compile_m3_plan(query: Query) -> Result<Plan> {
                 _ => return Err(Error::Other("pattern must end with node".into())),
             };
 
-            if !src.labels.is_empty() || !dst.labels.is_empty() {
-                return Err(Error::NotImplemented("labels in v2 M3"));
-            }
             if src.properties.is_some() || dst.properties.is_some() {
                 return Err(Error::NotImplemented(
                     "node pattern properties in v2 M3 (use WHERE)",
@@ -225,11 +223,7 @@ fn compile_m3_plan(query: Query) -> Result<Plan> {
                 return Err(Error::NotImplemented("only -> direction in v2 M3"));
             }
 
-            let rel: Option<RelTypeId> = match rel_pat.types.as_slice() {
-                [] => None,
-                [t] => Some(parse_u32_identifier(t)?),
-                _ => return Err(Error::NotImplemented("multiple rel types in v2 M3")),
-            };
+            let rel = rel_pat.types.first().cloned();
 
             let edge_alias = rel_pat.variable.clone();
 
@@ -313,7 +307,7 @@ fn compile_m3_plan(query: Query) -> Result<Plan> {
 
     // Fail-fast: RETURN variables must exist in the row shape produced by the base plan.
     let available: Vec<&str> = match &plan {
-        Plan::NodeScan { alias } => vec![alias.as_str()],
+        Plan::NodeScan { alias, .. } => vec![alias.as_str()],
         Plan::MatchOut {
             src_alias,
             edge_alias,
@@ -416,14 +410,7 @@ fn compile_create_plan(create_clause: crate::ast::CreateClause) -> Result<Plan> 
         return Err(Error::Other("CREATE pattern cannot be empty".into()));
     }
 
-    // v2 M3: labels are not supported yet (fail-fast instead of silently ignoring)
-    for el in &create_clause.pattern.elements {
-        if let crate::ast::PathElement::Node(node) = el
-            && !node.labels.is_empty()
-        {
-            return Err(Error::NotImplemented("labels in CREATE in v2 M3"));
-        }
-    }
+    // Labels are now supported!
 
     // MVP: Only support up to 3 elements (node, rel, node)
     if create_clause.pattern.elements.len() > 3 {
@@ -484,6 +471,7 @@ fn compile_delete_plan(
 
         let mut input_plan = Plan::NodeScan {
             alias: alias.clone(),
+            label: node.labels.first().cloned(),
         };
         if let Some(w) = where_clause {
             input_plan = Plan::Filter {
@@ -516,9 +504,6 @@ fn compile_delete_plan(
         _ => return Err(Error::Other("pattern must end with node".into())),
     };
 
-    if !src.labels.is_empty() || !dst.labels.is_empty() {
-        return Err(Error::NotImplemented("labels with DELETE in v2 M3"));
-    }
     if src.properties.is_some() || dst.properties.is_some() {
         return Err(Error::NotImplemented(
             "node pattern properties with DELETE in v2 M3 (use WHERE)",
@@ -547,15 +532,7 @@ fn compile_delete_plan(
         ));
     }
 
-    let rel: Option<RelTypeId> = match rel_pat.types.as_slice() {
-        [] => None,
-        [t] => Some(parse_u32_identifier(t)?),
-        _ => {
-            return Err(Error::NotImplemented(
-                "multiple rel types with DELETE in v2 M3",
-            ));
-        }
-    };
+    let rel = rel_pat.types.first().cloned();
 
     // Build the input plan (MATCH pattern)
     // Clone aliases for multiple uses

@@ -102,11 +102,14 @@ pub enum Plan {
     /// `RETURN 1`
     ReturnOne,
     /// `MATCH (n) RETURN ...`
-    NodeScan { alias: String },
+    NodeScan {
+        alias: String,
+        label: Option<String>,
+    },
     /// `MATCH (a)-[:rel]->(b) RETURN ...`
     MatchOut {
         src_alias: String,
-        rel: Option<RelTypeId>,
+        rel: Option<String>,
         edge_alias: Option<String>,
         dst_alias: String,
         limit: Option<u32>,
@@ -118,7 +121,7 @@ pub enum Plan {
     /// `MATCH (a)-[:rel*min..max]->(b) RETURN ...` (variable length)
     MatchOutVarLen {
         src_alias: String,
-        rel: Option<RelTypeId>,
+        rel: Option<String>,
         edge_alias: Option<String>,
         dst_alias: String,
         min_hops: u32,
@@ -171,11 +174,26 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
 ) -> Box<dyn Iterator<Item = Result<Row>> + 'a> {
     match plan {
         Plan::ReturnOne => Box::new(std::iter::once(Ok(Row::default().with("1", Value::Int(1))))),
-        Plan::NodeScan { alias } => {
+        Plan::NodeScan { alias, label } => {
             let alias = alias.clone();
+            let label_id = if let Some(l) = label {
+                match snapshot.resolve_label_id(l) {
+                    Some(id) => Some(id),
+                    None => return Box::new(std::iter::empty()),
+                }
+            } else {
+                None
+            };
+
             Box::new(snapshot.nodes().filter_map(move |iid| {
                 if snapshot.is_tombstoned_node(iid) {
                     return None;
+                }
+                if let Some(lid) = label_id {
+                    // Check label match
+                    if snapshot.node_label(iid) != Some(lid) {
+                        return None;
+                    }
                 }
                 Some(Ok(Row::default().with(alias.clone(), Value::NodeId(iid))))
             }))
@@ -189,8 +207,22 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
             project: _,
             project_external: _,
         } => {
-            let base =
-                MatchOutIter::new(snapshot, src_alias, *rel, edge_alias.as_deref(), dst_alias);
+            let rel_id = if let Some(r) = rel {
+                match snapshot.resolve_rel_type_id(r) {
+                    Some(id) => Some(id),
+                    None => return Box::new(std::iter::empty()),
+                }
+            } else {
+                None
+            };
+
+            let base = MatchOutIter::new(
+                snapshot,
+                src_alias,
+                rel_id,
+                edge_alias.as_deref(),
+                dst_alias,
+            );
             if let Some(n) = limit {
                 Box::new(base.take(*n as usize))
             } else {
@@ -208,10 +240,19 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
             project: _,
             project_external: _,
         } => {
+            let rel_id = if let Some(r) = rel {
+                match snapshot.resolve_rel_type_id(r) {
+                    Some(id) => Some(id),
+                    None => return Box::new(std::iter::empty()),
+                }
+            } else {
+                None
+            };
+
             let base = MatchOutVarLenIter::new(
                 snapshot,
                 src_alias,
-                *rel,
+                rel_id,
                 edge_alias.as_deref(),
                 dst_alias,
                 *min_hops,
@@ -381,6 +422,10 @@ pub trait WriteableGraph {
         rel: RelTypeId,
         dst: InternalNodeId,
     ) -> Result<()>;
+
+    // T65: Dynamic schema support
+    fn get_or_create_label_id(&mut self, name: &str) -> Result<LabelId>;
+    fn get_or_create_rel_type_id(&mut self, name: &str) -> Result<RelTypeId>;
 }
 
 pub use nervusdb_v2_storage::property::PropertyValue;
@@ -447,6 +492,15 @@ mod txn_engine_impl {
             EngineWriteTxn::tombstone_edge(self, src, rel, dst);
             Ok(())
         }
+
+        fn get_or_create_label_id(&mut self, name: &str) -> Result<LabelId> {
+            EngineWriteTxn::get_or_create_label(self, name).map_err(|e| Error::Other(e.to_string()))
+        }
+
+        fn get_or_create_rel_type_id(&mut self, name: &str) -> Result<RelTypeId> {
+            EngineWriteTxn::get_or_create_rel_type(self, name)
+                .map_err(|e| Error::Other(e.to_string()))
+        }
     }
 }
 
@@ -474,7 +528,15 @@ fn execute_create(
         let external_id = ExternalId::from(
             created_count as u64 + chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0) as u64,
         );
-        let node_id = txn.create_node(external_id, 0)?;
+
+        // Resolve or create label
+        let label_id = if let Some(label) = node_pat.labels.first() {
+            txn.get_or_create_label_id(label)?
+        } else {
+            0
+        };
+
+        let node_id = txn.create_node(external_id, label_id)?;
         created_count += 1;
 
         // Set properties if any
@@ -490,11 +552,12 @@ fn execute_create(
 
     // Now create all relationships
     for (idx, rel_pat) in &rel_patterns {
-        let rel_type: RelTypeId = rel_pat
+        let rel_type_name = rel_pat
             .types
             .first()
-            .and_then(|t| t.parse().ok())
-            .ok_or_else(|| Error::Other("relationship type must be numeric in v2 M3".into()))?;
+            .ok_or_else(|| Error::Other("CREATE relationship requires a type".into()))?;
+
+        let rel_type = txn.get_or_create_rel_type_id(rel_type_name)?;
 
         // For single-hop patterns, find nodes at idx-1 (src) and idx+1 (dst)
         let src_id = node_ids
