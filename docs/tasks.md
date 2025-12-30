@@ -24,11 +24,11 @@
 | T157          | [Tool] Implement Offline Bulk Loader                  | High   | Done   | -                           | Direct SST/Page generation                  |
 | T158          | [Lifecycle] Online Backup API                         | Medium | Done   | feat/T158-online-backup     | Hot snapshot capability                     |
 | **Phase 2**   | **v2.0.0 Stable Release Preparation**                 |        |        |                             |                                             |
-| T159          | [Release] v2.0.0 发布准备 (crates.io + 文档 + Binary) | High   | WIP    | -                           | crates.io 发布 + 完善文档 + GitHub Releases |
-| T160          | [Docs] 完善 README 和 User Guide                      | Medium | Plan   | -                           | Slogan + 快速上手 + 特性表格                |
-| T161          | [Release] GitHub Releases 二进制分发                   | Medium | Plan   | -                           | Linux/macOS/Windows binaries                |
-| T162          | [Benchmark] 性能基准测试和公布                         | Medium | Plan   | -                           | 对比 SQLite/redb/KùzeDB                     |
-| T163          | [CI] 自动化 Release CI                                | Medium | Plan   | -                           | Tag 触发自动发布 binary                     |
+| T159          | [Release] v2.0.0 发布准备 (crates.io + 文档 + Binary) | High   | Done   | -                           | crates.io 5个crate已发布 + GitHub Release   |
+| T160          | [Docs] 完善 README 和 User Guide                      | Medium | Done   | -                           | Slogan + 快速上手 + 特性表格                |
+| T161          | [Release] GitHub Releases 二进制分发                   | Medium | Done   | -                           | Linux binary 已发布                         |
+| T162          | [Benchmark] 性能基准测试和公布                         | Medium | Done   | feat/T162-benchmark         | 5万/10万节点测试结果已保存                  |
+| T163          | [CI] 自动化 Release CI                                | Medium | WIP    | -                           | Tag 触发自动发布 Linux binary               |
 | T201          | [Binding] UniFFI Setup & Python Binding               | Medium | Plan   | -                           | `pip install nervusdb`                      |
 | T202          | [Tool] Bulk Import Tool (CSV/JSONL)                   | Medium | Plan   | -                           | Bypass WAL for speed                        |
 | T203          | [AI] HNSW Index Prototype                             | High   | Plan   | -                           | Vector Search MVP                           |
