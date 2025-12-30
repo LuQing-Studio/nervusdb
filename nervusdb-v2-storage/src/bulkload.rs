@@ -90,7 +90,8 @@ impl BulkLoader {
     ///
     /// Returns an error if the external_id is not unique.
     pub fn add_node(&mut self, node: BulkNode) -> Result<()> {
-        // TODO: Validate uniqueness of external_id
+        // Uniqueness and referential integrity are validated in `commit()` to allow
+        // streaming ingestion without requiring nodes/edges ordering constraints here.
         self.nodes.push(node);
         Ok(())
     }
@@ -103,7 +104,8 @@ impl BulkLoader {
     ///
     /// Returns an error if src or dst external_id doesn't reference a node.
     pub fn add_edge(&mut self, edge: BulkEdge) -> Result<()> {
-        // TODO: Validate src and dst exist in nodes
+        // Referential integrity is validated in `commit()` to allow loading edges
+        // before all nodes have been buffered.
         self.edges.push(edge);
         Ok(())
     }
@@ -234,8 +236,8 @@ impl BulkLoader {
             idmap.apply_create_node(pager, node.external_id, label_id, internal_id)?;
         }
 
-        // TODO: Persist label interner snapshot to pager metadata
-        // For MVP, we rely on IdMap's i2e records which contain label_id
+        // We don't persist label interner snapshot to pager metadata. The canonical mapping
+        // is reconstructed from WAL `CreateLabel` records during `GraphEngine::open()`.
 
         Ok((external_to_internal, label_snapshot))
     }

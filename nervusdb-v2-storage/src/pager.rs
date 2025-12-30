@@ -367,7 +367,9 @@ impl Pager {
         let meta_page = self.meta.encode_page();
         write_page_raw(&mut self.file, META_PAGE_ID, &meta_page)?;
         write_page_raw(&mut self.file, BITMAP_PAGE_ID, &self.bitmap.data)?;
-        self.file.flush()?;
+        // Ensure meta + bitmap durability. WAL replay can recover data pages, but
+        // durable metadata reduces recovery work and avoids pathological re-scan.
+        self.file.sync_data()?;
         Ok(())
     }
 }

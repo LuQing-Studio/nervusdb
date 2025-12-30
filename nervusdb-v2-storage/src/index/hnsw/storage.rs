@@ -2,6 +2,7 @@ use crate::blob_store::BlobStore;
 use crate::index::btree::BTree;
 use crate::pager::Pager;
 use crate::{Error, Result};
+use std::collections::{HashMap, VecDeque};
 
 /// Trait for storing vectors.
 pub trait VectorStorage<Ctx> {
@@ -26,11 +27,15 @@ pub trait GraphStorage<Ctx> {
 #[derive(Debug)]
 pub struct PersistentVectorStorage {
     btree: BTree,
+    cache: VectorCache,
 }
 
 impl PersistentVectorStorage {
     pub fn new(btree: BTree) -> Self {
-        Self { btree }
+        Self {
+            btree,
+            cache: VectorCache::new(DEFAULT_VECTOR_CACHE_CAP),
+        }
     }
 }
 
@@ -44,10 +49,15 @@ impl VectorStorage<Pager> for PersistentVectorStorage {
         }
 
         let blob_id = BlobStore::write_direct(pager, &data)?;
+        self.cache.put(id, vector.to_vec());
         self.btree.insert(pager, &key, blob_id)
     }
 
     fn get_vector(&mut self, pager: &mut Pager, id: u32) -> Result<Vec<f32>> {
+        if let Some(v) = self.cache.get(id) {
+            return Ok(v);
+        }
+
         let key = encode_vector_key(id);
 
         let mut cursor = self.btree.cursor_lower_bound(pager, &key)?;
@@ -71,7 +81,52 @@ impl VectorStorage<Pager> for PersistentVectorStorage {
             vector.push(val);
         }
 
+        self.cache.put(id, vector.clone());
         Ok(vector)
+    }
+}
+
+const DEFAULT_VECTOR_CACHE_CAP: usize = 1024;
+
+#[derive(Debug)]
+struct VectorCache {
+    cap: usize,
+    map: HashMap<u32, Vec<f32>>,
+    lru: VecDeque<u32>,
+}
+
+impl VectorCache {
+    fn new(cap: usize) -> Self {
+        Self {
+            cap,
+            map: HashMap::new(),
+            lru: VecDeque::new(),
+        }
+    }
+
+    fn get(&mut self, id: u32) -> Option<Vec<f32>> {
+        let v = self.map.get(&id)?.clone();
+        self.touch(id);
+        Some(v)
+    }
+
+    fn put(&mut self, id: u32, v: Vec<f32>) {
+        self.map.insert(id, v);
+        self.touch(id);
+        while self.map.len() > self.cap {
+            if let Some(evicted) = self.lru.pop_front() {
+                self.map.remove(&evicted);
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn touch(&mut self, id: u32) {
+        if let Some(pos) = self.lru.iter().position(|&x| x == id) {
+            let _ = self.lru.remove(pos);
+        }
+        self.lru.push_back(id);
     }
 }
 

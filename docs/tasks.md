@@ -30,8 +30,10 @@
 | T162          | [Benchmark] 性能基准测试和公布                        | Medium | Done   | feat/T162-benchmark         | 5 万/10 万节点测试结果已保存                 |
 | T163          | [CI] 自动化 Release CI                                | Medium | Done   | -                           | Tag 触发自动发布 Linux/macOS/Windows binary  |
 | T201          | [Binding] UniFFI Setup & Python Binding               | Medium | Done   | feat/T201-python-binding    | `pip install nervusdb`                       |
-| T202          | [Tool] Bulk Import Tool (CSV/JSONL)                   | Medium | Plan   | -                           | Bypass WAL for speed                         |
-| T203          | [AI] HNSW Index Prototype                             | High   | Plan   | -                           | Vector Search MVP                            |
+| T202          | [Tool] Bulk Import Tool (CSV/JSONL)                   | Medium | Done   | feat/T202-T203-integration  | Bulk import end-to-end + rel type regression |
+| T203          | [AI] HNSW Index Prototype                             | High   | WIP    | feat/T202-T203-integration  | Persistent HNSW + vector cache; perf/GC TBD  |
+| T204          | [Storage] BlobStore VACUUM (Orphan Reclaim)           | High   | Plan   | -                           | Design: `docs/design/T204-blobstore-vacuum.md` |
+| T205          | [Storage] Pager Lock Granularity                      | High   | Plan   | -                           | Design: `docs/design/T205-pager-lock-granularity.md` |
 
 ## Archived (v1/Alpha)
 

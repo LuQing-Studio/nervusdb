@@ -946,6 +946,8 @@ fn execute_delete<S: GraphSnapshot>(
     let mut nodes_to_delete: Vec<InternalNodeId> = Vec::new();
     let mut seen_nodes: std::collections::HashSet<InternalNodeId> =
         std::collections::HashSet::new();
+    let mut edges_to_delete: Vec<EdgeKey> = Vec::new();
+    let mut seen_edges: std::collections::HashSet<EdgeKey> = std::collections::HashSet::new();
 
     // Stream input rows and collect delete targets without materializing all rows.
     for row in execute_plan(snapshot, input, params) {
@@ -953,17 +955,26 @@ fn execute_delete<S: GraphSnapshot>(
         for expr in expressions {
             match expr {
                 Expression::Variable(var_name) => {
-                    if let Some(node_id) = row.get_node(var_name)
-                        && seen_nodes.insert(node_id)
-                    {
-                        nodes_to_delete.push(node_id);
-                        if nodes_to_delete.len() > MAX_DELETE_TARGETS {
-                            return Err(Error::Other(format!(
-                                "DELETE target limit exceeded ({MAX_DELETE_TARGETS}); batch your deletes"
-                            )));
+                    if let Some(node_id) = row.get_node(var_name) {
+                        if seen_nodes.insert(node_id) {
+                            nodes_to_delete.push(node_id);
                         }
+                    } else if let Some(edge) = row.get_edge(var_name) {
+                        if seen_edges.insert(edge) {
+                            edges_to_delete.push(edge);
+                        }
+                    } else {
+                        return Err(Error::Other(format!(
+                            "Variable {} not found in row",
+                            var_name
+                        )));
                     }
-                    // TODO: Support deleting edges by variable once we expose edge bindings in Row API.
+
+                    if nodes_to_delete.len() + edges_to_delete.len() > MAX_DELETE_TARGETS {
+                        return Err(Error::Other(format!(
+                            "DELETE target limit exceeded ({MAX_DELETE_TARGETS}); batch your deletes"
+                        )));
+                    }
                 }
                 Expression::PropertyAccess(_pa) => {
                     return Err(Error::NotImplemented(
@@ -988,6 +999,12 @@ fn execute_delete<S: GraphSnapshot>(
                 deleted_count += 1;
             }
         }
+    }
+
+    // Delete explicitly targeted edges.
+    for edge in edges_to_delete {
+        txn.tombstone_edge(edge.src, edge.rel, edge.dst)?;
+        deleted_count += 1;
     }
 
     // Delete the nodes
@@ -1041,19 +1058,20 @@ fn execute_set<S: GraphSnapshot>(
     for row in execute_plan(snapshot, input, params) {
         let row = row?;
         for (var, key, expr) in items {
-            // Get Node ID from row variable
-            let node_id = row.get_node(var).ok_or_else(|| {
-                Error::Other(format!("Variable {} not found in row or not a node", var))
-            })?;
-
             // Evaluate expression
             let val = evaluate_expression_value(expr, &row, snapshot, params);
 
             // Convert value to PropertyValue
             let prop_val = convert_executor_value_to_property(&val)?;
 
-            // Set property
-            txn.set_node_property(node_id, key.clone(), prop_val)?;
+            // Set property (node or edge)
+            if let Some(node_id) = row.get_node(var) {
+                txn.set_node_property(node_id, key.clone(), prop_val)?;
+            } else if let Some(edge) = row.get_edge(var) {
+                txn.set_edge_property(edge.src, edge.rel, edge.dst, key.clone(), prop_val)?;
+            } else {
+                return Err(Error::Other(format!("Variable {} not found in row", var)));
+            }
             count += 1;
         }
     }
