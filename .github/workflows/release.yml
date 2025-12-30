@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release Binary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu, x86_64-apple-darwin, aarch64-apple-darwin, x86_64-pc-windows-msvc
+
+      - name: Build Linux
+        run: cargo build --release --package nervusdb-cli
+
+      - name: Build macOS x64
+        run: cargo build --release --package nervusdb-cli --target x86_64-apple-darwin
+
+      - name: Build macOS ARM
+        run: cargo build --release --package nervusdb-cli --target aarch64-apple-darwin
+
+      - name: Build Windows
+        run: cargo build --release --package nervusdb-cli --target x86_64-pc-windows-msvc
+
+      - name: Prepare Release Assets
+        run: |
+          mkdir -p release
+          cp target/release/nervusdb release/nervusdb-linux-x64
+          cp target/x86_64-apple-darwin/release/nervusdb release/nervusdb-macos-x64
+          cp target/aarch64-apple-darwin/release/nervusdb release/nervusdb-macos-arm64
+          cp target/x86_64-pc-windows-msvc/release/nervusdb.exe release/nervusdb-windows-x64.exe
+          gzip -f release/nervusdb-linux-x64
+          gzip -f release/nervusdb-macos-x64
+          gzip -f release/nervusdb-macos-arm64
+          gzip -f release/nervusdb-windows-x64.exe
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.gz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
