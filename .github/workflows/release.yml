@@ -1,0 +1,37 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release Binary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Linux
+        run: cargo build --release --package nervusdb-cli
+
+      - name: Prepare Release Assets
+        run: |
+          mkdir -p release
+          cp target/release/nervusdb release/nervusdb-linux-x64
+          gzip -f release/nervusdb-linux-x64
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.gz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
