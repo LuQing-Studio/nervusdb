@@ -67,7 +67,7 @@ def test_vector_search():
         db.close()
         print("✓ Closed database")
         
-        db = nervusdb.new(db_path)
+        db = nervusdb.open(db_path)
         print("✓ Reopened database")
         
         results3 = db.search_vector(query, 1)
