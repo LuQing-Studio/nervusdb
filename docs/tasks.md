@@ -29,7 +29,7 @@
 | T161          | [Release] GitHub Releases 二进制分发                   | Medium | Done   | -                           | Linux binary 已发布                         |
 | T162          | [Benchmark] 性能基准测试和公布                         | Medium | Done   | feat/T162-benchmark         | 5万/10万节点测试结果已保存                  |
 | T163          | [CI] 自动化 Release CI                                | Medium | Done   | -                           | Tag 触发自动发布 Linux/macOS/Windows binary |
-| T201          | [Binding] UniFFI Setup & Python Binding               | Medium | Plan   | -                           | `pip install nervusdb`                      |
+| T201          | [Binding] UniFFI Setup & Python Binding               | Medium | WIP    | feat/T201-python-binding  | `pip install nervusdb`                      |
 | T202          | [Tool] Bulk Import Tool (CSV/JSONL)                   | Medium | Plan   | -                           | Bypass WAL for speed                        |
 | T203          | [AI] HNSW Index Prototype                             | High   | Plan   | -                           | Vector Search MVP                           |
 
