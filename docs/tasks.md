@@ -28,7 +28,7 @@
 | T160          | [Docs] 完善 README 和 User Guide                      | Medium | Done   | -                           | Slogan + 快速上手 + 特性表格                |
 | T161          | [Release] GitHub Releases 二进制分发                   | Medium | Done   | -                           | Linux binary 已发布                         |
 | T162          | [Benchmark] 性能基准测试和公布                         | Medium | Done   | feat/T162-benchmark         | 5万/10万节点测试结果已保存                  |
-| T163          | [CI] 自动化 Release CI                                | Medium | WIP    | -                           | Tag 触发自动发布 Linux binary               |
+| T163          | [CI] 自动化 Release CI                                | Medium | Done   | -                           | Tag 触发自动发布 Linux/macOS/Windows binary |
 | T201          | [Binding] UniFFI Setup & Python Binding               | Medium | Plan   | -                           | `pip install nervusdb`                      |
 | T202          | [Tool] Bulk Import Tool (CSV/JSONL)                   | Medium | Plan   | -                           | Bypass WAL for speed                        |
 | T203          | [AI] HNSW Index Prototype                             | High   | Plan   | -                           | Vector Search MVP                           |
