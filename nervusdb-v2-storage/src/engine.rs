@@ -2,6 +2,9 @@ use crate::csr::{CsrSegment, EdgeRecord, SegmentId};
 use crate::idmap::{ExternalId, I2eRecord, IdMap, InternalNodeId, LabelId};
 use crate::index::btree::BTree;
 use crate::index::catalog::IndexCatalog;
+use crate::index::hnsw::HnswIndex;
+use crate::index::hnsw::params::HnswParams;
+use crate::index::hnsw::storage::{PersistentGraphStorage, PersistentVectorStorage};
 use crate::index::ordered_key::encode_ordered_value;
 use crate::label_interner::{LabelInterner, LabelSnapshot};
 use crate::memtable::MemTable;
@@ -15,6 +18,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
+type NativeHnsw = HnswIndex<PersistentVectorStorage, PersistentGraphStorage>;
+
 #[derive(Debug)]
 pub struct GraphEngine {
     ndb_path: PathBuf,
@@ -25,6 +30,9 @@ pub struct GraphEngine {
     idmap: Mutex<IdMap>,
     label_interner: Mutex<LabelInterner>,
     index_catalog: Arc<Mutex<IndexCatalog>>,
+
+    // T203: Vector Search Index
+    vector_index: Arc<Mutex<NativeHnsw>>,
 
     published_runs: RwLock<Arc<Vec<Arc<L0Run>>>>,
     published_segments: RwLock<Arc<Vec<Arc<CsrSegment>>>>,
@@ -48,7 +56,22 @@ impl GraphEngine {
         let wal = Wal::open(&wal_path)?;
 
         let mut idmap = IdMap::load(&mut pager)?;
-        let index_catalog = IndexCatalog::open_or_create(&mut pager)?;
+        let mut index_catalog = IndexCatalog::open_or_create(&mut pager)?;
+
+        // Initialize HNSW Index (T203)
+        // We use RESERVED names in IndexCatalog to store the roots for Vector and Graph BTrees.
+        let vec_def = index_catalog.get_or_create(&mut pager, "__sys_hnsw_vec")?;
+        let graph_def = index_catalog.get_or_create(&mut pager, "__sys_hnsw_graph")?;
+
+        let v_store = PersistentVectorStorage::new(BTree::load(vec_def.root));
+        let g_store = PersistentGraphStorage::new(BTree::load(graph_def.root));
+        let params = HnswParams {
+            m: 16,
+            ef_construction: 200,
+            ef_search: 200,
+        };
+        // HnswIndex::load needs generic Ctx = &mut Pager
+        let vector_index = HnswIndex::load(params, v_store, g_store, &mut pager)?;
 
         let committed = wal.replay_committed()?;
         let state = scan_recovery_state(&committed);
@@ -90,6 +113,7 @@ impl GraphEngine {
             idmap: Mutex::new(idmap),
             label_interner: Mutex::new(label_interner),
             index_catalog: Arc::new(Mutex::new(index_catalog)),
+            vector_index: Arc::new(Mutex::new(vector_index)),
             published_runs: RwLock::new(Arc::new(runs)),
             published_segments: RwLock::new(Arc::new(segments)),
             published_labels: RwLock::new(Arc::new(label_snapshot)),
@@ -247,6 +271,19 @@ impl GraphEngine {
             .unwrap()
             .get_name(id)
             .map(String::from)
+    }
+
+    // T203: HNSW Public API
+    pub fn insert_vector(&self, id: InternalNodeId, vector: Vec<f32>) -> Result<()> {
+        let mut pager = self.pager.lock().unwrap();
+        let mut idx = self.vector_index.lock().unwrap();
+        idx.insert(&mut *pager, id, vector)
+    }
+
+    pub fn search_vector(&self, query: &[f32], k: usize) -> Result<Vec<(InternalNodeId, f32)>> {
+        let mut pager = self.pager.lock().unwrap();
+        let mut idx = self.vector_index.lock().unwrap();
+        idx.search(&mut *pager, query, k)
     }
 
     pub fn scan_i2e_records(&self) -> Result<Vec<I2eRecord>> {
@@ -686,6 +723,11 @@ impl<'a> WriteTxn<'a> {
         key: &str,
     ) {
         self.memtable.remove_edge_property(src, rel, dst, key);
+    }
+
+    // T203: HNSW Support
+    pub fn set_vector(&mut self, id: InternalNodeId, vector: Vec<f32>) -> Result<()> {
+        self.engine.insert_vector(id, vector)
     }
 
     pub fn commit(self) -> Result<()> {

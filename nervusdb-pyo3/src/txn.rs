@@ -1,5 +1,4 @@
 use crate::db::Db;
-use crate::types::py_to_value;
 use nervusdb_v2::WriteTxn as RustWriteTxn;
 use pyo3::prelude::*;
 use std::mem::transmute;
@@ -59,6 +58,19 @@ impl WriteTxn {
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         }
         Ok(())
+    }
+
+    /// Set vector embedding for a node.
+    ///
+    /// Args:
+    ///     node_id: Internal Node ID (u32)
+    ///     vector: List of floats
+    fn set_vector(&mut self, node_id: u32, vector: Vec<f32>) -> PyResult<()> {
+        let txn = self.inner.as_mut().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("Transaction already finished")
+        })?;
+        txn.set_vector(node_id, vector)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
     /// Rollback the transaction.

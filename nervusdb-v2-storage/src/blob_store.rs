@@ -49,7 +49,12 @@ impl BlobStore {
     }
 
     /// Reads a blob starting from the given page ID.
-    pub fn read(pager: &mut MutexGuard<'_, Pager>, mut page_id: u64) -> Result<Vec<u8>> {
+    pub fn read(pager: &mut MutexGuard<'_, Pager>, page_id: u64) -> Result<Vec<u8>> {
+        Self::read_direct(pager, page_id)
+    }
+
+    /// Reads a blob directly from pager (no MutexGuard needed).
+    pub fn read_direct(pager: &mut Pager, mut page_id: u64) -> Result<Vec<u8>> {
         let mut out = Vec::new();
         while page_id != 0 {
             let page = pager.read_page(PageId::new(page_id))?;

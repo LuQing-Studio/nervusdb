@@ -7,7 +7,6 @@ use crate::Result;
 use crate::error::Error;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -259,7 +258,7 @@ impl BackupManager {
                 let manifest: BackupManifest = self.read_manifest(&handle.backup_dir)?;
                 match manifest.status {
                     ManifestStatus::Completed {
-                        completed_at,
+                        completed_at: _,
                         total_bytes,
                     } => Ok(BackupStatus::Completed(BackupInfo {
                         id: handle.id,

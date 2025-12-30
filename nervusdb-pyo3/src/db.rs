@@ -41,6 +41,7 @@ impl Db {
     ///
     /// Returns:
     ///     List of rows, where each row is a dict of column names to values
+    #[pyo3(signature = (query, params=None))]
     fn query(
         &self,
         query: &str,
@@ -79,6 +80,26 @@ impl Db {
         }
 
         Ok(result)
+    }
+
+    /// Search for similar vectors.
+    ///
+    /// Args:
+    ///     query: Query vector (list of floats)
+    ///     k: Number of nearest neighbors to return
+    ///
+    /// Returns:
+    ///     List of (node_id, distance) tuples
+    fn search_vector(&self, query: Vec<f32>, k: usize) -> PyResult<Vec<(u32, f32)>> {
+        let inner = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("Database is closed"))?;
+
+        // Use Rust-side search_vector
+        inner
+            .search_vector(&query, k)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
     /// Begin a write transaction.
