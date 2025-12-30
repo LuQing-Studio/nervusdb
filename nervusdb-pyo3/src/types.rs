@@ -1,0 +1,74 @@
+use nervusdb_v2_query::Value;
+use pyo3::prelude::*;
+
+/// Convert a generic Python object to a NervusDB Value.
+pub fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
+    if obj.is_none() {
+        return Ok(Value::Null);
+    }
+
+    if let Ok(b) = obj.extract::<bool>() {
+        return Ok(Value::Bool(b));
+    }
+
+    if let Ok(i) = obj.extract::<i64>() {
+        return Ok(Value::Int(i));
+    }
+
+    if let Ok(f) = obj.extract::<f64>() {
+        return Ok(Value::Float(f));
+    }
+
+    if let Ok(s) = obj.extract::<String>() {
+        return Ok(Value::String(s));
+    }
+
+    if let Ok(list) = obj.downcast::<pyo3::types::PyList>() {
+        let mut vec = Vec::new();
+        for item in list {
+            vec.push(py_to_value(&item)?);
+        }
+        return Ok(Value::List(vec));
+    }
+
+    // Note: PyDict check should handle string keys
+    if let Ok(dict) = obj.downcast::<pyo3::types::PyDict>() {
+        let mut map = std::collections::BTreeMap::new();
+        for (k, v) in dict {
+            let key = k.extract::<String>().map_err(|_| {
+                pyo3::exceptions::PyTypeError::new_err("Dictionary keys must be strings")
+            })?;
+            map.insert(key, py_to_value(&v)?);
+        }
+        return Ok(Value::Map(map));
+    }
+
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "Unsupported type for PropertyValue",
+    ))
+}
+
+/// Convert a NervusDB Value to a Python object.
+pub fn value_to_py(val: Value, py: Python<'_>) -> Py<PyAny> {
+    match val {
+        Value::Null => py.None(),
+        Value::Bool(b) => b.into_py(py),
+        Value::Int(i) => i.into_py(py),
+        Value::Float(f) => f.into_py(py),
+        Value::String(s) => s.into_py(py),
+        Value::List(list) => {
+            let py_list =
+                pyo3::types::PyList::new_bound(py, list.into_iter().map(|v| value_to_py(v, py)));
+            py_list.into()
+        }
+        Value::Map(map) => {
+            let py_dict = pyo3::types::PyDict::new_bound(py);
+            for (k, v) in map {
+                let _ = py_dict.set_item(k, value_to_py(v, py));
+            }
+            py_dict.into()
+        }
+        // Handle other types if necessary
+        _ => py.None(),
+    }
+}

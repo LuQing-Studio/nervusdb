@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "nervusdb-cli",
+    "nervusdb-pyo3",
     "nervusdb-v2",
     "nervusdb-v2-api",
     "nervusdb-v2-query",
