@@ -25,7 +25,7 @@ pub struct GraphEngine {
     ndb_path: PathBuf,
     wal_path: PathBuf,
 
-    pager: Arc<Mutex<Pager>>,
+    pager: Arc<RwLock<Pager>>,
     wal: Mutex<Wal>,
     idmap: Mutex<IdMap>,
     label_interner: Mutex<LabelInterner>,
@@ -108,7 +108,7 @@ impl GraphEngine {
         Ok(Self {
             ndb_path,
             wal_path,
-            pager: Arc::new(Mutex::new(pager)),
+            pager: Arc::new(RwLock::new(pager)),
             wal: Mutex::new(wal),
             idmap: Mutex::new(idmap),
             label_interner: Mutex::new(label_interner),
@@ -138,7 +138,7 @@ impl GraphEngine {
         &self.wal_path
     }
 
-    pub(crate) fn get_pager(&self) -> Arc<Mutex<Pager>> {
+    pub(crate) fn get_pager(&self) -> Arc<RwLock<Pager>> {
         self.pager.clone()
     }
 
@@ -158,7 +158,7 @@ impl GraphEngine {
             return Ok(());
         }
 
-        let mut pager = self.pager.lock().unwrap();
+        let mut pager = self.pager.write().unwrap();
         catalog.get_or_create(&mut pager, &name)?;
         catalog.flush(&mut pager)?;
         Ok(())
@@ -275,13 +275,13 @@ impl GraphEngine {
 
     // T203: HNSW Public API
     pub fn insert_vector(&self, id: InternalNodeId, vector: Vec<f32>) -> Result<()> {
-        let mut pager = self.pager.lock().unwrap();
+        let mut pager = self.pager.write().unwrap();
         let mut idx = self.vector_index.lock().unwrap();
         idx.insert(&mut *pager, id, vector)
     }
 
     pub fn search_vector(&self, query: &[f32], k: usize) -> Result<Vec<(InternalNodeId, f32)>> {
-        let mut pager = self.pager.lock().unwrap();
+        let mut pager = self.pager.write().unwrap();
         let mut idx = self.vector_index.lock().unwrap();
         idx.search(&mut *pager, query, k)
     }
@@ -319,7 +319,7 @@ impl GraphEngine {
         let mut seg = build_segment_from_runs(seg_id, &runs);
 
         {
-            let mut pager = self.pager.lock().unwrap();
+            let mut pager = self.pager.write().unwrap();
             seg.persist(&mut pager)?;
             pager.sync()?;
         }
@@ -357,7 +357,7 @@ impl GraphEngine {
 
         let mut current_root = self.properties_root.load(Ordering::SeqCst);
         if !sink_node_props.is_empty() || !sink_edge_props.is_empty() {
-            let mut pager = self.pager.lock().unwrap();
+            let mut pager = self.pager.write().unwrap();
             let mut tree = if current_root == 0 {
                 BTree::create(&mut pager)?
             } else {
@@ -373,7 +373,7 @@ impl GraphEngine {
                 btree_key.extend_from_slice(key.as_bytes());
 
                 let encoded_val = value.encode();
-                let blob_id = crate::blob_store::BlobStore::write(&mut pager, &encoded_val)?;
+                let blob_id = crate::blob_store::BlobStore::write(&mut *pager, &encoded_val)?;
                 tree.insert(&mut pager, &btree_key, blob_id)?;
             }
 
@@ -388,7 +388,7 @@ impl GraphEngine {
                 btree_key.extend_from_slice(key.as_bytes());
 
                 let encoded_val = value.encode();
-                let blob_id = crate::blob_store::BlobStore::write(&mut pager, &encoded_val)?;
+                let blob_id = crate::blob_store::BlobStore::write(&mut *pager, &encoded_val)?;
                 tree.insert(&mut pager, &btree_key, blob_id)?;
             }
 
@@ -418,9 +418,9 @@ impl GraphEngine {
 
         let stats_root;
         {
-            let mut pager = self.pager.lock().unwrap();
+            let mut pager = self.pager.write().unwrap();
             let encoded_stats = stats.encode();
-            stats_root = crate::blob_store::BlobStore::write(&mut pager, &encoded_stats)?;
+            stats_root = crate::blob_store::BlobStore::write(&mut *pager, &encoded_stats)?;
         }
 
         let pointers: Vec<SegmentPointer> = new_segments
@@ -489,7 +489,7 @@ impl GraphEngine {
             // Cannot compact WAL safely while L0 runs (esp. properties) are WAL-only.
             // Best-effort durability: flush NDB + WAL.
             {
-                let mut pager = self.pager.lock().unwrap();
+                let mut pager = self.pager.write().unwrap();
                 pager.sync()?;
             }
             {
@@ -501,7 +501,7 @@ impl GraphEngine {
 
         // Ensure idmap/pages are durable before allowing recovery to skip old WAL.
         {
-            let mut pager = self.pager.lock().unwrap();
+            let mut pager = self.pager.write().unwrap();
             pager.sync()?;
         }
 
@@ -856,7 +856,7 @@ impl<'a> WriteTxn<'a> {
             // Apply Index Updates
             if !index_ops.is_empty() {
                 let mut catalog = self.engine.index_catalog.lock().unwrap();
-                let mut pager = self.engine.pager.lock().unwrap();
+                let mut pager = self.engine.pager.write().unwrap();
 
                 for (op, node_id) in index_ops {
                     match op {
@@ -914,7 +914,7 @@ impl<'a> WriteTxn<'a> {
         // 3. Apply created nodes to IdMap / Node Index
         {
             let mut idmap = self.engine.idmap.lock().unwrap();
-            let mut pager = self.engine.pager.lock().unwrap();
+            let mut pager = self.engine.pager.write().unwrap();
             for (external_id, label_id, internal_id) in self.created_nodes {
                 idmap.apply_create_node(&mut pager, external_id, label_id, internal_id)?;
             }

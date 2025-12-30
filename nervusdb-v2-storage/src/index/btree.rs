@@ -1,6 +1,7 @@
 use crate::PAGE_SIZE;
 use crate::error::{Error, Result};
 use crate::pager::{PageId, Pager};
+use std::collections::{BTreeSet, VecDeque};
 
 const MAGIC: [u8; 4] = *b"NDBI";
 const VERSION: u8 = 1;
@@ -520,6 +521,66 @@ impl BTree {
         Ok(true)
     }
 
+    pub(crate) fn mark_reachable_pages(
+        &self,
+        pager: &Pager,
+        out: &mut BTreeSet<PageId>,
+        mut payloads: Option<&mut Vec<u64>>,
+    ) -> Result<()> {
+        if self.root.as_u64() == 0 {
+            return Ok(());
+        }
+
+        let mut queue = VecDeque::new();
+        queue.push_back(self.root);
+
+        while let Some(page_id) = queue.pop_front() {
+            if !out.insert(page_id) {
+                continue;
+            }
+
+            let mut buf = pager.read_page(page_id)?;
+            let page = Page::new(&mut buf);
+            match page.kind()? {
+                PageKind::Leaf => {
+                    let right = page.right_sibling();
+                    if right.as_u64() != 0 {
+                        queue.push_back(right);
+                    }
+
+                    if let Some(payloads) = payloads.as_deref_mut() {
+                        for i in 0..page.cell_count() {
+                            let (_, v) = page.leaf_cell_key_and_payload(i)?;
+                            payloads.push(v);
+                        }
+                    }
+                }
+                PageKind::Internal => {
+                    let right = page.right_sibling();
+                    if right.as_u64() != 0 {
+                        queue.push_back(right);
+                    }
+
+                    let left = page.leftmost_child()?;
+                    if left.as_u64() == 0 {
+                        return Err(Error::WalProtocol("index page: zero leftmost child"));
+                    }
+                    queue.push_back(left);
+
+                    for i in 0..page.cell_count() {
+                        let (_, child) = page.internal_cell_key_and_right_child(i)?;
+                        if child.as_u64() == 0 {
+                            return Err(Error::WalProtocol("index page: zero right child"));
+                        }
+                        queue.push_back(child);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     fn scan_all(&self, pager: &mut Pager) -> Result<Vec<(Vec<u8>, u64)>> {
         let mut cur = self.cursor_lower_bound(pager, &[])?;
         let mut out = Vec::new();
@@ -707,11 +768,7 @@ impl BTree {
         }
     }
 
-    pub fn cursor_lower_bound<'a>(
-        &self,
-        pager: &'a mut Pager,
-        key: &[u8],
-    ) -> Result<BTreeCursor<'a>> {
+    pub fn cursor_lower_bound<'a>(&self, pager: &'a Pager, key: &[u8]) -> Result<BTreeCursor<'a>> {
         let mut cur = self.root;
         loop {
             let mut buf = pager.read_page(cur)?;
@@ -767,7 +824,7 @@ impl BTree {
 }
 
 pub struct BTreeCursor<'a> {
-    pager: &'a mut Pager,
+    pager: &'a Pager,
     leaf: PageId,
     buf: [u8; PAGE_SIZE],
     slot: u16,

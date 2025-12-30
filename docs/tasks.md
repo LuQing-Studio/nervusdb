@@ -32,8 +32,8 @@
 | T201          | [Binding] UniFFI Setup & Python Binding               | Medium | Done   | feat/T201-python-binding    | `pip install nervusdb`                       |
 | T202          | [Tool] Bulk Import Tool (CSV/JSONL)                   | Medium | Done   | feat/T202-T203-integration  | Bulk import end-to-end + rel type regression |
 | T203          | [AI] HNSW Index Prototype                             | High   | WIP    | feat/T202-T203-integration  | Persistent HNSW + vector cache; perf/GC TBD  |
-| T204          | [Storage] BlobStore VACUUM (Orphan Reclaim)           | High   | Plan   | -                           | Design: `docs/design/T204-blobstore-vacuum.md` |
-| T205          | [Storage] Pager Lock Granularity                      | High   | Plan   | -                           | Design: `docs/design/T205-pager-lock-granularity.md` |
+| T204          | [Storage] BlobStore VACUUM (Orphan Reclaim)           | High   | Done   | feat/T202-T203-integration  | Implemented `vacuum_in_place` + CLI `v2 vacuum` |
+| T205          | [Storage] Pager Lock Granularity                      | High   | Done   | feat/T202-T203-integration  | Switched Pager to `Arc<RwLock<Pager>>` + offset IO reads |
 
 ## Archived (v1/Alpha)
 

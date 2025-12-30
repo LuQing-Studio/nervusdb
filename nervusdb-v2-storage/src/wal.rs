@@ -586,7 +586,11 @@ impl Wal {
     }
 
     pub fn replay_committed(&self) -> Result<Vec<CommittedTx>> {
-        let mut reader = WalReader::open(&self.path)?;
+        Self::replay_committed_from_path(&self.path)
+    }
+
+    pub fn replay_committed_from_path(path: impl AsRef<Path>) -> Result<Vec<CommittedTx>> {
+        let mut reader = WalReader::open(path.as_ref())?;
         let mut out: Vec<CommittedTx> = Vec::new();
 
         let mut current_txid: Option<u64> = None;
