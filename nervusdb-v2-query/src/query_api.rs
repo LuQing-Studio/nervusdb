@@ -942,21 +942,19 @@ fn compile_match_plan(
 
             // Optimizer: Try IndexSeek if there is a predicate.
             if let Some(label_name) = &label {
-                if let Some(var_preds) = predicates.get(&alias) {
-                    for (field, val_expr) in var_preds {
-                        // For MVP, we return IndexSeek with fallback.
-                        // It will try index at runtime, and if not found, use fallback scan.
-                        return Ok(Plan::IndexSeek {
+                if let Some((field, val_expr)) = var_preds.iter().next() {
+                    // For MVP, we return IndexSeek with fallback.
+                    // It will try index at runtime, and if not found, use fallback scan.
+                    return Ok(Plan::IndexSeek {
+                        alias: alias.clone(),
+                        label: label_name.clone(),
+                        field: field.clone(),
+                        value_expr: val_expr.clone(),
+                        fallback: Box::new(Plan::NodeScan {
                             alias: alias.clone(),
-                            label: label_name.clone(),
-                            field: field.clone(),
-                            value_expr: val_expr.clone(),
-                            fallback: Box::new(Plan::NodeScan {
-                                alias: alias.clone(),
-                                label: label.clone(),
-                            }),
-                        });
-                    }
+                            label: label.clone(),
+                        }),
+                    });
                 }
             }
 
