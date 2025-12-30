@@ -13,7 +13,7 @@
 | T105        | [Query] Implement `MERGE` Clause                      | Medium | Done   | -                           | Idempotent Create                     |
 | T106        | [Lifecycle] Implement Checkpoint-on-Close             | Medium | Done   | -                           | Merge WAL to NDB on shutdown          |
 | T107        | [Query] Index Integration (Optimizer V1)              | High   | Done   | feat/T107-index-integration | Connect Query to Storage IndexCatalog |
-| T108        | [Query] Implement `SET` Clause (Updates)              | High   | Plan   | -                           | Enable property updates (WAL+Index)   |
+| T108        | [Query] Implement `SET` Clause (Updates)              | High   | Done   | feat/T108-set-clause        | Enable property updates (WAL+Index)   |
 | **Phase 2** | **Ecosystem & AI**                                    |        |        |                             |                                       |
 | T201        | [Binding] UniFFI Setup & Python Binding               | Medium | Plan   | -                           | `pip install nervusdb`                |
 | T202        | [Tool] Bulk Import Tool (CSV/JSONL)                   | Medium | Plan   | -                           | Bypass WAL for speed                  |

@@ -274,6 +274,10 @@ fn render_plan(plan: &Plan) -> String {
                 );
                 go(out, input, depth + 1);
             }
+            Plan::SetProperty { input, items } => {
+                let _ = writeln!(out, "{pad}SetProperty(items={items:?})");
+                go(out, input, depth + 1);
+            }
             Plan::IndexSeek {
                 alias,
                 label,
@@ -305,10 +309,12 @@ fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
     // - RETURN 1
     // - MATCH (n)-[:<u32>]->(m) [WHERE ...] RETURN n,m [LIMIT k]
     // - MATCH (n)-[:<u32>]->(m) [WHERE ...] DELETE n [DETACH]
+    // - MATCH (n) [WHERE ...] SET n.prop = val
     let mut match_clause = None;
     let mut where_clause = None;
     let mut return_clause = None;
     let mut delete_clause = None;
+    let mut set_clause = None;
 
     for clause in query.clauses {
         match clause {
@@ -332,7 +338,7 @@ fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
             }
             Clause::Unwind(_) => return Err(Error::NotImplemented("UNWIND in v2 M3")),
             Clause::Call(_) => return Err(Error::NotImplemented("CALL in v2 M3")),
-            Clause::Set(_) => return Err(Error::NotImplemented("SET in v2 M3")),
+            Clause::Set(s) => set_clause = Some(s),
             Clause::Delete(d) => delete_clause = Some(d),
             Clause::Union(_) => return Err(Error::NotImplemented("UNION in v2 M3")),
         }
@@ -340,7 +346,19 @@ fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
 
     // Handle DELETE clause
     if let Some(delete) = delete_clause {
+        if set_clause.is_some() {
+            return Err(Error::NotImplemented("Mixing SET and DELETE in v2 M3"));
+        }
         let plan = compile_delete_plan(match_clause, where_clause, delete)?;
+        return Ok(CompiledQuery {
+            plan,
+            write: WriteSemantics::Default,
+        });
+    }
+
+    // Handle SET clause
+    if let Some(set) = set_clause {
+        let plan = compile_set_plan(match_clause, where_clause, set)?;
         return Ok(CompiledQuery {
             plan,
             write: WriteSemantics::Default,
@@ -365,6 +383,11 @@ fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
     }
 
     let m = match_clause.unwrap();
+    // Re-use logic for MATCH plan construction
+    // We need to extract this logic to a helper or just duplicate small part
+    // For now, let's keep it here but refactor slightly if needed.
+    // ... (rest of MATCH plan construction)
+
     if m.optional {
         return Err(Error::NotImplemented("OPTIONAL MATCH in v2 M3"));
     }
@@ -512,6 +535,7 @@ fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
         | Plan::Distinct { .. }
         | Plan::Create { .. }
         | Plan::Delete { .. }
+        | Plan::SetProperty { .. }
         | Plan::IndexSeek { .. } => {}
     }
 
@@ -561,6 +585,7 @@ fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
 
     // Add ORDER BY if present
     if let Some(order_by) = &ret.order_by {
+        // ... (order by logic)
         let items: Vec<(String, crate::ast::Direction)> = order_by
             .items
             .iter()
@@ -612,13 +637,11 @@ fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
     })
 }
 
-/// Compile a CREATE clause into a Plan
 fn compile_create_plan(create_clause: crate::ast::CreateClause) -> Result<Plan> {
     // M3 CREATE supports:
     // - CREATE (n {prop: val}) - single node with properties
     // - CREATE (n)-[:rel]->(m) - single-hop pattern
     // - CREATE (n {a: 1})-[:1]->(m {b: 2}) - pattern with properties
-
     // Validate pattern length for MVP
     if create_clause.pattern.elements.is_empty() {
         return Err(Error::Other("CREATE pattern cannot be empty".into()));
@@ -921,5 +944,68 @@ fn compile_delete_plan(
         input: Box::new(input_plan),
         detach: delete_clause.detach,
         expressions: delete_clause.expressions,
+    })
+}
+
+fn compile_set_plan(
+    match_clause: Option<crate::ast::MatchClause>,
+    where_clause: Option<crate::ast::WhereClause>,
+    set_clause: crate::ast::SetClause,
+) -> Result<Plan> {
+    // SET requires a preceding MATCH clause
+    let Some(m) = match_clause else {
+        return Err(Error::Other(
+            "SET requires a preceding MATCH clause in v2 M3".into(),
+        ));
+    };
+
+    if m.optional {
+        return Err(Error::NotImplemented("OPTIONAL MATCH with SET in v2 M3"));
+    }
+
+    let mut plan = match m.pattern.elements.len() {
+        1 => {
+            let node = match &m.pattern.elements[0] {
+                crate::ast::PathElement::Node(n) => n,
+                _ => return Err(Error::Other("pattern must be a node".into())),
+            };
+            let alias = node
+                .variable
+                .as_deref()
+                .ok_or(Error::NotImplemented("anonymous node"))?
+                .to_string();
+
+            Plan::NodeScan {
+                alias,
+                label: node.labels.first().cloned(),
+            }
+        }
+        // TODO: Support SET on relationships (length 3 pattern)
+        _ => {
+            return Err(Error::NotImplemented(
+                "only single-node patterns with SET in v2 M3",
+            ));
+        }
+    };
+
+    // Add WHERE filter if present
+    if let Some(w) = where_clause {
+        let filter_plan = Plan::Filter {
+            input: Box::new(plan),
+            predicate: w.expression.clone(),
+        };
+        plan = try_optimize_nodescan_filter(filter_plan, w.expression);
+    }
+
+    // Convert SetItems to (var, key, expr)
+    let mut items = Vec::new();
+    for item in set_clause.items {
+        // SetItem is a struct in this AST version, so we handle it directly
+        items.push((item.property.variable, item.property.property, item.value));
+    }
+
+    Ok(Plan::SetProperty {
+        input: Box::new(plan),
+        items,
     })
 }
