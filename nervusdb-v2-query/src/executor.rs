@@ -166,6 +166,11 @@ pub enum Plan {
         detach: bool,
         expressions: Vec<Expression>,
     },
+    /// `SetProperty` - update properties on nodes
+    SetProperty {
+        input: Box<Plan>,
+        items: Vec<(String, String, Expression)>, // (variable, key, value_expression)
+    },
     /// `IndexSeek` - optimize scan using index if available, else fallback
     IndexSeek {
         alias: String,
@@ -378,6 +383,12 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
                 "DELETE must be executed via execute_write".into(),
             ))))
         }
+        Plan::SetProperty { .. } => {
+            // SET should be executed via execute_write, not execute_plan
+            Box::new(std::iter::once(Err(Error::Other(
+                "SET must be executed via execute_write".into(),
+            ))))
+        }
         Plan::IndexSeek {
             alias,
             label,
@@ -423,7 +434,7 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
     }
 }
 
-/// Execute a write plan (CREATE/DELETE) with a transaction
+/// Execute a write plan (CREATE/DELETE/SET) with a transaction
 pub fn execute_write<S: GraphSnapshot>(
     plan: &Plan,
     snapshot: &S,
@@ -437,8 +448,9 @@ pub fn execute_write<S: GraphSnapshot>(
             detach,
             expressions,
         } => execute_delete(snapshot, input, txn, *detach, expressions, params),
+        Plan::SetProperty { input, items } => execute_set(snapshot, input, txn, items, params),
         _ => Err(Error::Other(
-            "Only CREATE and DELETE plans can be executed with execute_write".into(),
+            "Only CREATE, DELETE, and SET plans can be executed with execute_write".into(),
         )),
     }
 }
@@ -954,17 +966,46 @@ fn evaluate_property_value(
     }
 }
 
+fn execute_set<S: GraphSnapshot>(
+    snapshot: &S,
+    input: &Plan,
+    txn: &mut dyn WriteableGraph,
+    items: &[(String, String, Expression)],
+    params: &crate::query_api::Params,
+) -> Result<u32> {
+    let mut count = 0;
+    // Iterate over input rows
+    for row in execute_plan(snapshot, input, params) {
+        let row = row?;
+        for (var, key, expr) in items {
+            // Get Node ID from row variable
+            let node_id = row.get_node(var).ok_or_else(|| {
+                Error::Other(format!("Variable {} not found in row or not a node", var))
+            })?;
+
+            // Evaluate expression
+            let val = evaluate_expression_value(expr, &row, snapshot, params);
+
+            // Convert value to PropertyValue
+            let prop_val = convert_executor_value_to_property(&val)?;
+
+            // Set property
+            txn.set_node_property(node_id, key.clone(), prop_val)?;
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
 fn convert_executor_value_to_property(value: &Value) -> Result<PropertyValue> {
     match value {
         Value::Null => Ok(PropertyValue::Null),
         Value::Bool(b) => Ok(PropertyValue::Bool(*b)),
         Value::Int(i) => Ok(PropertyValue::Int(*i)),
         Value::String(s) => Ok(PropertyValue::String(s.clone())),
-        Value::Float(_) => Err(Error::NotImplemented(
-            "float values in properties not supported in v2 M3",
-        )),
+        Value::Float(f) => Ok(PropertyValue::Float(*f)),
         Value::NodeId(_) | Value::ExternalId(_) | Value::EdgeKey(_) => Err(Error::NotImplemented(
-            "node/edge values in properties not supported in v2 M3",
+            "node/edge values in properties not supported in v2 M3".into(),
         )),
     }
 }

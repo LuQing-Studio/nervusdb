@@ -1,14 +1,14 @@
 use crate::csr::{CsrSegment, EdgeRecord, SegmentId};
 use crate::idmap::{ExternalId, I2eRecord, IdMap, InternalNodeId, LabelId};
-use crate::index::btree::BTree;
 use crate::index::catalog::IndexCatalog;
-use crate::index::ordered_key::encode_index_key;
+use crate::index::ordered_key::encode_ordered_value;
 use crate::label_interner::{LabelInterner, LabelSnapshot};
 use crate::memtable::MemTable;
 use crate::pager::Pager;
 use crate::snapshot::{L0Run, RelTypeId, Snapshot};
 use crate::wal::{CommittedTx, SegmentPointer, Wal, WalRecord};
 use crate::{Error, Result};
+use nervusdb_v2_api::{GraphSnapshot, GraphStore};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -625,50 +625,136 @@ impl<'a> WriteTxn<'a> {
                 })?;
             }
 
-            // T107: Update Indexes for newly created nodes
-            let mut index_updates = Vec::new();
+            // T107/T108: Update Indexes
+            // We separate Read (Old Values) phase from Write (Index Update) phase to avoid deadlocks
+            // caused by holding pager lock during property lookup.
+            enum IndexOp {
+                Insert(String, crate::property::PropertyValue),
+                Update(
+                    String,
+                    Option<crate::property::PropertyValue>,
+                    crate::property::PropertyValue,
+                ),
+            }
+            let mut index_ops = Vec::new();
+
+            // Create a snapshot for reading current state (for old values/labels)
+            let snapshot = self.engine.snapshot();
+
+            // Helper to convert API PropertyValue to Storage PropertyValue
+            fn to_storage(v: nervusdb_v2_api::PropertyValue) -> crate::property::PropertyValue {
+                match v {
+                    nervusdb_v2_api::PropertyValue::Null => crate::property::PropertyValue::Null,
+                    nervusdb_v2_api::PropertyValue::Bool(b) => {
+                        crate::property::PropertyValue::Bool(b)
+                    }
+                    nervusdb_v2_api::PropertyValue::Int(i) => {
+                        crate::property::PropertyValue::Int(i)
+                    }
+                    nervusdb_v2_api::PropertyValue::Float(f) => {
+                        crate::property::PropertyValue::Float(f)
+                    }
+                    nervusdb_v2_api::PropertyValue::String(s) => {
+                        crate::property::PropertyValue::String(s)
+                    }
+                }
+            }
+
             for (node, key, value) in &node_properties {
-                // Check if this property belongs to a newly created node
-                if let Some((_, label_id, _)) =
-                    self.created_nodes.iter().find(|(_, _, iid)| iid == node)
-                {
+                let is_new = self.created_nodes.iter().any(|(_, _, iid)| iid == node);
+                let label_id = if is_new {
+                    self.created_nodes
+                        .iter()
+                        .find(|(_, _, iid)| iid == node)
+                        .map(|(_, l, _)| *l)
+                } else {
+                    snapshot.node_label(*node)
+                };
+
+                if let Some(lid) = label_id {
                     // Resolve Label Name
-                    // Note: We need a temporary scope to lock interner
                     let label_name = self
                         .engine
                         .label_interner
                         .lock()
                         .unwrap()
-                        .get_name(*label_id)
+                        .get_name(lid)
                         .map(|s| s.to_string());
 
-                    if let Some(lbl) = label_name {
-                        index_updates.push((lbl, key.clone(), value.clone(), *node));
+                    if let Some(label_name) = label_name {
+                        let index_name = format!("{}.{}", label_name, key);
+                        // Check if index exists without holding the lock for long
+                        let has_index = self
+                            .engine
+                            .index_catalog
+                            .lock()
+                            .unwrap()
+                            .get(&index_name)
+                            .is_some();
+
+                        if has_index {
+                            if is_new {
+                                index_ops.push((IndexOp::Insert(index_name, value.clone()), *node));
+                            } else {
+                                // For existing nodes, we need the old value to remove it from index
+                                let old_value = snapshot.node_property(*node, key).map(to_storage);
+                                index_ops.push((
+                                    IndexOp::Update(index_name, old_value, value.clone()),
+                                    *node,
+                                ));
+                            }
+                        }
                     }
                 }
             }
 
-            if !index_updates.is_empty() {
+            // Apply Index Updates
+            if !index_ops.is_empty() {
                 let mut catalog = self.engine.index_catalog.lock().unwrap();
-                // Catalog updates might change root, so we need write access to catalog
-                // But GraphEngine::index_catalog is Mutex<IndexCatalog>.
-                // IndexCatalog::get_mut is needed.
-
                 let mut pager = self.engine.pager.lock().unwrap();
 
-                for (lbl, key, val, iid) in index_updates {
-                    let idx_name = format!("{}.{}", lbl, key);
-                    // Use entries directly (internal access)
-                    if let Some(def) = catalog.entries.get_mut(&idx_name) {
-                        let mut tree = BTree::load(def.root);
-                        // Key = [IndexID][Value][NodeID]
-                        // Internal lookup uses same prefix construction
-                        let k = encode_index_key(def.id, &val, iid as u64);
-                        tree.insert(&mut pager, &k, iid as u64)?;
-                        def.root = tree.root();
+                for (op, node_id) in index_ops {
+                    match op {
+                        IndexOp::Insert(name, val) => {
+                            if let Some(re) = catalog.entries.get_mut(&name) {
+                                let mut tree = crate::index::btree::BTree::load(re.root);
+
+                                let mut key = Vec::new();
+                                key.extend_from_slice(&re.id.to_be_bytes());
+                                key.extend_from_slice(&encode_ordered_value(&val));
+
+                                let _ = tree.insert(&mut pager, &key, node_id as u64);
+                                re.root = tree.root();
+                            }
+                        }
+                        IndexOp::Update(name, old_val_opt, new_val) => {
+                            if let Some(re) = catalog.entries.get_mut(&name) {
+                                let mut tree = crate::index::btree::BTree::load(re.root);
+
+                                // 1. Remove old value
+                                if let Some(old_val) = old_val_opt {
+                                    let mut old_key = Vec::new();
+                                    old_key.extend_from_slice(&re.id.to_be_bytes());
+                                    old_key.extend_from_slice(&encode_ordered_value(&old_val));
+
+                                    let _ = tree.delete_exact_rebuild(
+                                        &mut pager,
+                                        &old_key,
+                                        node_id as u64,
+                                    );
+                                }
+
+                                // 2. Insert new value
+                                let mut new_key = Vec::new();
+                                new_key.extend_from_slice(&re.id.to_be_bytes());
+                                new_key.extend_from_slice(&encode_ordered_value(&new_val));
+
+                                let _ = tree.insert(&mut pager, &new_key, node_id as u64);
+                                re.root = tree.root();
+                            }
+                        }
                     }
                 }
-                // Flush catalog changes (roots) to catalog page
                 catalog.flush(&mut pager)?;
             }
 
