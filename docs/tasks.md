@@ -67,6 +67,8 @@
 | T326          | [CI] Integrate openCypher TCK Harness                      | High   | Plan    | feat/T326-tck               | Parse-only gate → Exec gate                              |
 | T327          | [Tool] Cypher Fuzz (Parser/Planner/Executor)               | Medium | Plan    | feat/T327-fuzz              | Find panics + semantic mismatches                        |
 | T328          | [Binding] Output Model Upgrade (Node/Rel/Path Values)      | High   | Plan    | feat/T328-output-model      | Align CLI/Python with Cypher value semantics             |
+| T329          | [Refactor] Evaluator Snapshot Access (Fix `keys()`)        | Medium | Plan    | feat/T329-eval-snapshot     | Pass Snapshot to evaluator, un-ignore `keys()` tests     |
+| T330          | [Refactor] Evaluator Schema Access (Fix `type()`)          | Medium | Plan    | feat/T330-eval-schema       | Pass Schema/Txn to evaluator, un-ignore `type()` tests   |
 
 ## Archived (v1/Alpha)
 
