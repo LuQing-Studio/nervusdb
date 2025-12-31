@@ -333,6 +333,11 @@ impl<'a> WriteTxn<'a> {
         self.inner.get_or_create_label(name).map_err(Error::from)
     }
 
+    /// Gets or creates a relationship type ID for the given name.
+    pub fn get_or_create_rel_type(&mut self, name: &str) -> Result<RelTypeId> {
+        self.inner.get_or_create_rel_type(name).map_err(Error::from)
+    }
+
     /// Creates a directed edge from source to destination.
     ///
     /// The relationship type is identified by `rel`.
