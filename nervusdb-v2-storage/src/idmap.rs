@@ -40,7 +40,8 @@ impl I2eRecord {
 #[derive(Debug)]
 pub struct IdMap {
     e2i: HashMap<ExternalId, InternalNodeId>,
-    i2l: Vec<LabelId>,
+    /// Internal node ID → Label IDs (sorted, deduplicated)
+    i2l: Vec<Vec<LabelId>>,
     i2e: Vec<I2eRecord>,
     i2e_start: Option<PageId>,
     i2e_len: u64,
@@ -62,7 +63,8 @@ impl IdMap {
                 if record.external_id != 0 {
                     e2i.insert(record.external_id, internal_id_u64 as u32);
                 }
-                i2l.push(record.label_id);
+                // Convert single label to vec for backward compat
+                i2l.push(vec![record.label_id]);
             }
         }
 
@@ -95,14 +97,23 @@ impl IdMap {
         self.e2i.get(&external_id).copied()
     }
 
-    /// Get the label ID for an internal node ID.
+    /// Get the first label ID for an internal node ID (backward compat).
+    #[deprecated(note = "Use get_labels() for multi-label support")]
     #[inline]
     pub fn get_label(&self, internal_id: InternalNodeId) -> Option<LabelId> {
-        self.i2l.get(internal_id as usize).copied()
+        self.i2l.get(internal_id as usize)?
+            .first()
+            .copied()
+    }
+
+    /// Get all label IDs for an internal node ID.
+    #[inline]
+    pub fn get_labels(&self, internal_id: InternalNodeId) -> Option<Vec<LabelId>> {
+        self.i2l.get(internal_id as usize).cloned()
     }
 
     /// Get the entire label mapping vector (for snapshotting).
-    pub fn get_i2l_snapshot(&self) -> Vec<LabelId> {
+    pub fn get_i2l_snapshot(&self) -> Vec<Vec<LabelId>> {
         self.i2l.clone()
     }
 
@@ -110,11 +121,23 @@ impl IdMap {
         self.i2e.clone()
     }
 
+    /// Create node with single label (backward compat).
     pub fn apply_create_node(
         &mut self,
         pager: &mut Pager,
         external_id: ExternalId,
         label_id: LabelId,
+        internal_id: InternalNodeId,
+    ) -> Result<()> {
+        self.apply_create_node_multi_label(pager, external_id, vec![label_id], internal_id)
+    }
+
+    /// Create node with multiple labels.
+    pub fn apply_create_node_multi_label(
+        &mut self,
+        pager: &mut Pager,
+        external_id: ExternalId,
+        mut labels: Vec<LabelId>,
         internal_id: InternalNodeId,
     ) -> Result<()> {
         let expected = self.next_internal_id();
@@ -124,6 +147,10 @@ impl IdMap {
         if self.e2i.contains_key(&external_id) {
             return Err(Error::WalProtocol("duplicate external id"));
         }
+
+        // Sort and deduplicate labels
+        labels.sort_unstable();
+        labels.dedup();
 
         let start = match self.i2e_start {
             Some(p) => p,
@@ -135,13 +162,15 @@ impl IdMap {
             }
         };
 
+        // For now, only persist first label in I2E (backward compat)
+        let first_label = labels.first().copied().unwrap_or(0);
         write_i2e_record(
             pager,
             start,
             internal_id as u64,
             I2eRecord {
                 external_id,
-                label_id,
+                label_id: first_label,
                 flags: 0,
             },
         )?;
@@ -151,12 +180,43 @@ impl IdMap {
         pager.set_next_internal_id(self.next_internal_id())?;
 
         self.e2i.insert(external_id, internal_id);
-        self.i2l.push(label_id);
+        self.i2l.push(labels.clone());
         self.i2e.push(I2eRecord {
             external_id,
-            label_id,
+            label_id: first_label,
             flags: 0,
         });
+        Ok(())
+    }
+
+    /// Add a label to an existing node.
+    pub fn apply_add_label(
+        &mut self,
+        _pager: &mut Pager,
+        internal_id: InternalNodeId,
+        label: LabelId,
+    ) -> Result<()> {
+        let labels = self.i2l.get_mut(internal_id as usize)
+            .ok_or_else(|| Error::WalProtocol("node not found"))?;
+        
+        if !labels.contains(&label) {
+            labels.push(label);
+            labels.sort_unstable();
+        }
+        Ok(())
+    }
+
+    /// Remove a label from an existing node.
+    pub fn apply_remove_label(
+        &mut self,
+        _pager: &mut Pager,
+        internal_id: InternalNodeId,
+        label: LabelId,
+    ) -> Result<()> {
+        let labels = self.i2l.get_mut(internal_id as usize)
+            .ok_or_else(|| Error::WalProtocol("node not found"))?;
+        
+        labels.retain(|&l| l != label);
         Ok(())
     }
 }

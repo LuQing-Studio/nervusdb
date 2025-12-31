@@ -148,7 +148,7 @@ pub struct Snapshot {
     runs: Arc<Vec<Arc<L0Run>>>,
     segments: Arc<Vec<Arc<CsrSegment>>>,
     labels: Arc<crate::label_interner::LabelSnapshot>,
-    node_labels: Arc<Vec<crate::idmap::LabelId>>,
+    node_labels: Arc<Vec<Vec<crate::idmap::LabelId>>>,
     pub(crate) properties_root: u64,
     pub(crate) stats_root: u64,
 }
@@ -158,7 +158,7 @@ impl Snapshot {
         runs: Arc<Vec<Arc<L0Run>>>,
         segments: Arc<Vec<Arc<CsrSegment>>>,
         labels: Arc<crate::label_interner::LabelSnapshot>,
-        node_labels: Arc<Vec<crate::idmap::LabelId>>,
+        node_labels: Arc<Vec<Vec<crate::idmap::LabelId>>>,
         properties_root: u64,
         stats_root: u64,
     ) -> Self {
@@ -202,8 +202,16 @@ impl Snapshot {
     }
 
     /// Get the label ID for a node.
+    /// Get the first label for a node (backward compat).
     pub fn node_label(&self, iid: InternalNodeId) -> Option<crate::idmap::LabelId> {
-        self.node_labels.get(iid as usize).copied()
+        self.node_labels.get(iid as usize)?
+            .first()
+            .copied()
+    }
+
+    /// Get all labels for a node.
+    pub fn node_labels(&self, iid: InternalNodeId) -> Option<Vec<crate::idmap::LabelId>> {
+        self.node_labels.get(iid as usize).cloned()
     }
 
     /// Get node property from the most recent run that has it.
