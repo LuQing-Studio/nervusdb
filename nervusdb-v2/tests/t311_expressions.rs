@@ -18,9 +18,10 @@ fn test_complex_expressions() {
         .unwrap();
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].get("res").unwrap(), &Value::Float(7.0));
-    assert_eq!(results[0].get("res2").unwrap(), &Value::Float(9.0));
-    assert_eq!(results[0].get("res3").unwrap(), &Value::Float(-5.0));
+    // Integer arithmetic returns Int, not Float
+    assert_eq!(results[0].get("res").unwrap(), &Value::Int(7));
+    assert_eq!(results[0].get("res2").unwrap(), &Value::Int(9));
+    assert_eq!(results[0].get("res3").unwrap(), &Value::Int(-5));
 }
 
 #[test]
@@ -39,5 +40,6 @@ fn test_with_expressions() {
         .unwrap();
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].get("y").unwrap(), &Value::Float(60.0));
+    // Integer arithmetic returns Int, not Float
+    assert_eq!(results[0].get("y").unwrap(), &Value::Int(60));
 }
