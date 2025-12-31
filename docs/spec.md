@@ -60,5 +60,4 @@
 
 ## 6. 已知技术债与折衷（Technical Debt & Trade-offs）
 
-- **B-Tree 删除**：当前版本的 `delete_exact_rebuild` 会重建整棵树。这在小型索引上可行，但在大规模删除时会产生严重的 I/O 抖动。
-- **查询执行器开销**：`executor.rs` 基于 `Box<dyn Iterator>` 的动态分发，对于极高性能要求的场景存在虚函数调用开销。
+- **暂无**：目前主要技术债（如 Vacuum, B-Tree 删除, 执行器动态分发）已在 v2.0 (T204-T207) 阶段解决。
