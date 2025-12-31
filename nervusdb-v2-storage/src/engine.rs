@@ -37,7 +37,7 @@ pub struct GraphEngine {
     published_runs: RwLock<Arc<Vec<Arc<L0Run>>>>,
     published_segments: RwLock<Arc<Vec<Arc<CsrSegment>>>>,
     published_labels: RwLock<Arc<LabelSnapshot>>,
-    published_node_labels: RwLock<Arc<Vec<LabelId>>>,
+    published_node_labels: RwLock<Arc<Vec<Vec<LabelId>>>>,
     write_lock: Mutex<()>,
     next_txid: AtomicU64,
     next_segment_id: AtomicU64,
@@ -401,11 +401,12 @@ impl GraphEngine {
             let idmap = self.idmap.lock().unwrap();
             let node_labels = idmap.get_i2l_snapshot();
 
-            // Count nodes per label (node_labels[iid] = label_id for that node)
-            // All labels should be counted, including label 0 (which is a valid label)
+            // Count nodes per label (node_labels[iid] = vec of label_ids for that node)
             stats.total_nodes = node_labels.len() as u64;
-            for &label_id in node_labels.iter() {
-                *stats.node_counts_by_label.entry(label_id).or_default() += 1;
+            for labels in node_labels.iter() {
+                for &label_id in labels.iter() {
+                    *stats.node_counts_by_label.entry(label_id).or_default() += 1;
+                }
             }
         }
 
