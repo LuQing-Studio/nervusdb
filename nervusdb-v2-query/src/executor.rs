@@ -29,6 +29,15 @@ pub trait ErasedSnapshot {
     ) -> Option<nervusdb_v2_api::PropertyValue>;
     fn resolve_label_name_erased(&self, id: LabelId) -> Option<String>;
     fn resolve_rel_type_name_erased(&self, id: RelTypeId) -> Option<String>;
+    fn resolve_node_labels_erased(&self, iid: InternalNodeId) -> Option<Vec<LabelId>>;
+    fn node_properties_erased(
+        &self,
+        iid: InternalNodeId,
+    ) -> Option<std::collections::BTreeMap<String, nervusdb_v2_api::PropertyValue>>;
+    fn edge_properties_erased(
+        &self,
+        key: EdgeKey,
+    ) -> Option<std::collections::BTreeMap<String, nervusdb_v2_api::PropertyValue>>;
 }
 
 impl<S: GraphSnapshot> ErasedSnapshot for S {
@@ -58,6 +67,21 @@ impl<S: GraphSnapshot> ErasedSnapshot for S {
     }
     fn resolve_rel_type_name_erased(&self, id: RelTypeId) -> Option<String> {
         self.resolve_rel_type_name(id)
+    }
+    fn resolve_node_labels_erased(&self, iid: InternalNodeId) -> Option<Vec<LabelId>> {
+        self.resolve_node_labels(iid)
+    }
+    fn node_properties_erased(
+        &self,
+        iid: InternalNodeId,
+    ) -> Option<std::collections::BTreeMap<String, nervusdb_v2_api::PropertyValue>> {
+        self.node_properties(iid)
+    }
+    fn edge_properties_erased(
+        &self,
+        key: EdgeKey,
+    ) -> Option<std::collections::BTreeMap<String, nervusdb_v2_api::PropertyValue>> {
+        self.edge_properties(key)
     }
 }
 
@@ -133,9 +157,29 @@ impl Procedure for MathAddProcedure {
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
+pub struct NodeValue {
+    pub id: InternalNodeId,
+    pub labels: Vec<String>,
+    pub properties: std::collections::BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
+pub struct RelationshipValue {
+    pub key: EdgeKey,
+    pub rel_type: String,
+    pub properties: std::collections::BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct PathValue {
     pub nodes: Vec<InternalNodeId>,
     pub edges: Vec<EdgeKey>,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
+pub struct ReifiedPathValue {
+    pub nodes: Vec<NodeValue>,
+    pub relationships: Vec<RelationshipValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -153,6 +197,9 @@ pub enum Value {
     Blob(Vec<u8>),
     Map(std::collections::BTreeMap<String, Value>),
     Path(PathValue),
+    Node(NodeValue),
+    Relationship(RelationshipValue),
+    ReifiedPath(ReifiedPathValue),
 }
 
 impl Value {
@@ -160,6 +207,85 @@ impl Value {
         match self {
             Value::String(s) => Some(s),
             _ => None,
+        }
+    }
+
+    pub fn reify(&self, snapshot: &dyn ErasedSnapshot) -> Result<Value> {
+        match self {
+            Value::NodeId(id) => {
+                let mut labels = Vec::new();
+                if let Some(label_ids) = snapshot.resolve_node_labels_erased(*id) {
+                    for lid in label_ids {
+                        if let Some(name) = snapshot.resolve_label_name_erased(lid) {
+                            labels.push(name);
+                        }
+                    }
+                }
+
+                let mut properties = std::collections::BTreeMap::new();
+                if let Some(props) = snapshot.node_properties_erased(*id) {
+                    for (k, v) in props {
+                        properties.insert(k, convert_api_property_to_value(&v));
+                    }
+                }
+
+                Ok(Value::Node(NodeValue {
+                    id: *id,
+                    labels,
+                    properties,
+                }))
+            }
+            Value::EdgeKey(key) => {
+                let rel_type = snapshot
+                    .resolve_rel_type_name_erased(key.rel)
+                    .unwrap_or_else(|| format!("<{}>", key.rel));
+
+                let mut properties = std::collections::BTreeMap::new();
+                if let Some(props) = snapshot.edge_properties_erased(*key) {
+                    for (k, v) in props {
+                        properties.insert(k, convert_api_property_to_value(&v));
+                    }
+                }
+
+                Ok(Value::Relationship(RelationshipValue {
+                    key: *key,
+                    rel_type,
+                    properties,
+                }))
+            }
+            Value::Path(p) => {
+                let mut nodes = Vec::new();
+                for nid in &p.nodes {
+                    if let Value::Node(n) = Value::NodeId(*nid).reify(snapshot)? {
+                        nodes.push(n);
+                    }
+                }
+                let mut relationships = Vec::new();
+                for ekey in &p.edges {
+                    if let Value::Relationship(r) = Value::EdgeKey(*ekey).reify(snapshot)? {
+                        relationships.push(r);
+                    }
+                }
+                Ok(Value::ReifiedPath(ReifiedPathValue {
+                    nodes,
+                    relationships,
+                }))
+            }
+            Value::List(l) => {
+                let mut out = Vec::new();
+                for v in l {
+                    out.push(v.reify(snapshot)?);
+                }
+                Ok(Value::List(out))
+            }
+            Value::Map(m) => {
+                let mut out = std::collections::BTreeMap::new();
+                for (k, v) in m {
+                    out.insert(k.clone(), v.reify(snapshot)?);
+                }
+                Ok(Value::Map(out))
+            }
+            _ => Ok(self.clone()),
         }
     }
 }
@@ -184,6 +310,9 @@ impl Hash for Value {
             Value::Blob(b) => b.hash(state),
             Value::Map(m) => m.hash(state),
             Value::Path(p) => p.hash(state),
+            Value::Node(n) => n.hash(state),
+            Value::Relationship(r) => r.hash(state),
+            Value::ReifiedPath(p) => p.hash(state),
         }
     }
 }
@@ -199,6 +328,14 @@ pub struct Row {
 impl Row {
     pub fn new(cols: Vec<(String, Value)>) -> Self {
         Self { cols }
+    }
+
+    pub fn reify(&self, snapshot: &dyn ErasedSnapshot) -> Result<Row> {
+        let mut cols = Vec::with_capacity(self.cols.len());
+        for (k, v) in &self.cols {
+            cols.push((k.clone(), v.reify(snapshot)?));
+        }
+        Ok(Row { cols })
     }
 
     pub fn get(&self, name: &str) -> Option<&Value> {
@@ -2083,9 +2220,34 @@ fn convert_executor_value_to_property(value: &Value) -> Result<PropertyValue> {
             }
             Ok(PropertyValue::Map(map))
         }
+        Value::Node(_) | Value::Relationship(_) | Value::ReifiedPath(_) => {
+            Err(Error::NotImplemented(
+                "node/relationship/path objects as property values are not supported",
+            ))
+        }
         Value::NodeId(_) | Value::ExternalId(_) | Value::EdgeKey(_) => Err(Error::NotImplemented(
             "node/edge identifiers as property values are not supported",
         )),
+    }
+}
+
+pub fn convert_api_property_to_value(api_value: &nervusdb_v2_api::PropertyValue) -> Value {
+    match api_value {
+        nervusdb_v2_api::PropertyValue::Null => Value::Null,
+        nervusdb_v2_api::PropertyValue::Bool(b) => Value::Bool(*b),
+        nervusdb_v2_api::PropertyValue::Int(i) => Value::Int(*i),
+        nervusdb_v2_api::PropertyValue::Float(f) => Value::Float(*f),
+        nervusdb_v2_api::PropertyValue::String(s) => Value::String(s.clone()),
+        nervusdb_v2_api::PropertyValue::DateTime(i) => Value::DateTime(*i),
+        nervusdb_v2_api::PropertyValue::Blob(b) => Value::Blob(b.clone()),
+        nervusdb_v2_api::PropertyValue::List(l) => {
+            Value::List(l.iter().map(convert_api_property_to_value).collect())
+        }
+        nervusdb_v2_api::PropertyValue::Map(m) => Value::Map(
+            m.iter()
+                .map(|(k, v)| (k.clone(), convert_api_property_to_value(v)))
+                .collect(),
+        ),
     }
 }
 

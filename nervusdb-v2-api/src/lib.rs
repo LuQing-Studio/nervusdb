@@ -169,6 +169,11 @@ pub trait GraphSnapshot {
         None
     }
 
+    /// Get all label IDs for a node.
+    fn resolve_node_labels(&self, _iid: InternalNodeId) -> Option<Vec<LabelId>> {
+        self.node_label(_iid).map(|l| vec![l])
+    }
+
     /// Check if a node is tombstoned (soft-deleted).
     ///
     /// Tombstoned nodes are not returned by `neighbors()` or `nodes()`.
