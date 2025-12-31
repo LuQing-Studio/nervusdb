@@ -156,10 +156,10 @@ pub enum Plan {
         input: Box<Plan>,
         predicate: Expression,
     },
-    /// Project columns from input row (runs after filtering)
+    /// Project expressions to new variables
     Project {
         input: Box<Plan>,
-        columns: Vec<String>,
+        projections: Vec<(String, Expression)>, // (Result/Alias Name, Expression to Eval)
     },
     /// Aggregation: COUNT, SUM, AVG with optional grouping
     Aggregate {
@@ -170,7 +170,7 @@ pub enum Plan {
     /// `ORDER BY` - sort results
     OrderBy {
         input: Box<Plan>,
-        items: Vec<(String, Direction)>, // (column_name, ASC|DESC)
+        items: Vec<(Expression, Direction)>, // (Expression to sort by, ASC|DESC)
     },
     /// `SKIP` - skip first n rows
     Skip { input: Box<Plan>, skip: u32 },
@@ -178,6 +178,18 @@ pub enum Plan {
     Limit { input: Box<Plan>, limit: u32 },
     /// `RETURN DISTINCT` - deduplicate results
     Distinct { input: Box<Plan> },
+    /// `UNWIND` - expand a list into multiple rows
+    Unwind {
+        input: Box<Plan>,
+        expression: Expression,
+        alias: String,
+    },
+    /// `UNION` / `UNION ALL` - combine results from two queries
+    Union {
+        left: Box<Plan>,
+        right: Box<Plan>,
+        all: bool, // true = UNION ALL (keep duplicates), false = UNION (distinct)
+    },
     /// `CREATE (n)-[:rel]->(m)` - create pattern
     Create { pattern: Pattern },
     /// `DELETE` - delete nodes/edges (with input plan for variable resolution)
@@ -418,12 +430,24 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
                 params,
             })
         }
-        Plan::Project { input, columns } => {
+        Plan::Project { input, projections } => {
             let input_iter = execute_plan(snapshot, input, params);
-            let names: Vec<&str> = columns.iter().map(|s| s.as_str()).collect();
-            PlanIterator::Dynamic(Box::new(
-                input_iter.map(move |result| result.map(|row| row.project(&names))),
-            ))
+            let projections = projections.clone();
+            let params = params.clone();
+            // We need to capture snapshot. But snapshot is &S within reference 'a.
+            // Check if we can capture it in move closure?
+            // Yes, &S is Copy.
+
+            PlanIterator::Dynamic(Box::new(input_iter.map(move |result| {
+                let row = result?;
+                let mut new_row = crate::executor::Row::default();
+                for (alias, expr) in &projections {
+                    let val =
+                        crate::evaluator::evaluate_expression_value(expr, &row, snapshot, &params);
+                    new_row = new_row.with(alias.clone(), val);
+                }
+                Ok(new_row)
+            })))
         }
         Plan::Aggregate {
             input,
@@ -446,19 +470,21 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
             let mut sortable: Vec<(Result<Row>, Vec<(Value, Direction)>)> = rows
                 .into_iter()
                 .map(|row| {
-                    let sort_keys: Vec<(Value, Direction)> = items
-                        .iter()
-                        .map(|(col, dir)| {
-                            let val = row
-                                .as_ref()
-                                .ok()
-                                .and_then(|r| r.cols.iter().find(|(n, _)| n == col))
-                                .map(|(_, v)| v.clone())
-                                .unwrap_or(Value::Null);
-                            (val, dir.clone())
-                        })
-                        .collect();
-                    (row, sort_keys)
+                    match &row {
+                        Ok(r) => {
+                            let sort_keys: Vec<(Value, Direction)> = items
+                                .iter()
+                                .map(|(expr, dir)| {
+                                    let val = crate::evaluator::evaluate_expression_value(
+                                        expr, r, snapshot, params,
+                                    );
+                                    (val, dir.clone())
+                                })
+                                .collect();
+                            (row, sort_keys)
+                        }
+                        Err(_) => (row, vec![]), // Error rows sort arbitrarily (usually bubble up)
+                    }
                 })
                 .collect();
 
@@ -506,6 +532,77 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
                 }
                 false
             })))
+        }
+        Plan::Unwind {
+            input,
+            expression,
+            alias,
+        } => {
+            let input_iter = execute_plan(snapshot, input, params);
+            // Must clone expression because it's used in closure
+            let expression = expression.clone();
+            let alias = alias.clone();
+            let params = params.clone();
+            // Capture snapshot in closure
+
+            PlanIterator::Dynamic(Box::new(input_iter.flat_map(move |result| {
+                match result {
+                    Ok(row) => {
+                        let val = crate::evaluator::evaluate_expression_value(
+                            &expression,
+                            &row,
+                            snapshot,
+                            &params,
+                        );
+                        match val {
+                            Value::List(list) => {
+                                // Expand list
+                                let mut rows = Vec::with_capacity(list.len());
+                                for item in list {
+                                    rows.push(Ok(row.clone().with(alias.clone(), item)));
+                                }
+                                rows
+                            }
+                            Value::Null => {
+                                // Null unwinds to 0 rows
+                                vec![]
+                            }
+                            _ => {
+                                // Scalar unwinds to 1 row
+                                vec![Ok(row.clone().with(alias.clone(), val))]
+                            }
+                        }
+                    }
+                    Err(e) => vec![Err(e)],
+                }
+            })))
+        }
+        Plan::Union { left, right, all } => {
+            let left_iter = execute_plan(snapshot, left, params);
+            let right_iter = execute_plan(snapshot, right, params);
+            let chained = left_iter.chain(right_iter);
+
+            if *all {
+                // UNION ALL: keep all rows
+                PlanIterator::Dynamic(Box::new(chained))
+            } else {
+                // UNION: deduplicate
+                let mut seen = std::collections::HashSet::new();
+                PlanIterator::Dynamic(Box::new(chained.filter(move |result| {
+                    if let Ok(row) = result {
+                        let key = row
+                            .columns()
+                            .iter()
+                            .map(|(_, v)| format!("{:?}", v))
+                            .collect::<Vec<_>>()
+                            .join(",");
+                        if seen.insert(key) {
+                            return true;
+                        }
+                    }
+                    false
+                })))
+            }
         }
         Plan::Create { pattern: _ } => {
             // CREATE should be executed via execute_write, not execute_plan

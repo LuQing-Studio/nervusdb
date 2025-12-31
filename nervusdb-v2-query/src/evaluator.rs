@@ -158,6 +158,53 @@ pub fn evaluate_expression_value<S: GraphSnapshot>(
                 .unwrap_or(Value::Null)
         }
         Expression::FunctionCall(call) => evaluate_function(call, row, snapshot, params),
+        Expression::Exists(exists_expr) => {
+            // EXISTS checks if pattern/subquery returns at least one row
+            match exists_expr.as_ref() {
+                crate::ast::ExistsExpression::Pattern(pattern) => {
+                    // Compile pattern into a mini-plan and execute to check for matches
+                    // We need to check if the pattern can match given current row context
+                    // For now, we'll use a simplified approach:
+                    // - Pattern like (n)-[:REL]->(m) where n is bound in current row
+                    // - Build a Plan::MatchOut from n and check if any edges exist
+
+                    // Extract the source variable from the pattern
+                    if let Some(first_element) = pattern.elements.first() {
+                        if let crate::ast::PathElement::Node(node_pattern) = first_element {
+                            if let Some(ref src_var) = node_pattern.variable {
+                                // Get node ID from current row
+                                if let Some(Value::NodeId(src_id)) = row.get(src_var) {
+                                    // Check if pattern has relationship and target
+                                    if pattern.elements.len() >= 3 {
+                                        if let crate::ast::PathElement::Relationship(rel_pattern) =
+                                            &pattern.elements[1]
+                                        {
+                                            // Get relationship type ID
+                                            let rel_id = if !rel_pattern.types.is_empty() {
+                                                snapshot.resolve_rel_type_id(&rel_pattern.types[0])
+                                            } else {
+                                                None
+                                            };
+
+                                            // Check if any outgoing edges exist
+                                            let mut neighbors = snapshot.neighbors(*src_id, rel_id);
+                                            return Value::Bool(neighbors.next().is_some());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Fallback: pattern can't be evaluated
+                    Value::Null
+                }
+                crate::ast::ExistsExpression::Subquery(_query) => {
+                    // Subquery evaluation is complex - requires full query compilation and execution
+                    // For now, return Null to indicate not implemented
+                    Value::Null
+                }
+            }
+        }
         _ => Value::Null, // Not supported yet
     }
 }
@@ -286,6 +333,76 @@ fn evaluate_function<S: GraphSnapshot>(
                 Value::List(parts)
             } else {
                 Value::Null
+            }
+        }
+        // T313: New built-in functions
+        "size" => match args.get(0) {
+            Some(Value::List(l)) => Value::Int(l.len() as i64),
+            Some(Value::String(s)) => Value::Int(s.chars().count() as i64),
+            Some(Value::Map(m)) => Value::Int(m.len() as i64),
+            _ => Value::Null,
+        },
+        "coalesce" => {
+            // Return first non-null argument
+            for arg in &args {
+                if !matches!(arg, Value::Null) {
+                    return arg.clone();
+                }
+            }
+            Value::Null
+        }
+        "head" => {
+            if let Some(Value::List(l)) = args.get(0) {
+                l.first().cloned().unwrap_or(Value::Null)
+            } else {
+                Value::Null
+            }
+        }
+        "tail" => {
+            if let Some(Value::List(l)) = args.get(0) {
+                if l.len() > 1 {
+                    Value::List(l[1..].to_vec())
+                } else {
+                    Value::List(vec![])
+                }
+            } else {
+                Value::Null
+            }
+        }
+        "last" => {
+            if let Some(Value::List(l)) = args.get(0) {
+                l.last().cloned().unwrap_or(Value::Null)
+            } else {
+                Value::Null
+            }
+        }
+        "keys" => {
+            match args.get(0) {
+                Some(Value::Map(m)) => {
+                    let keys: Vec<Value> = m.keys().map(|k| Value::String(k.clone())).collect();
+                    Value::List(keys)
+                }
+                // For nodes, we'd need snapshot access to get property keys
+                // For now, return null for non-map types
+                _ => Value::Null,
+            }
+        }
+        "type" => {
+            // Return relationship type - EdgeKey contains the rel_type
+            if let Some(Value::EdgeKey(edge_key)) = args.get(0) {
+                Value::Int(edge_key.rel as i64)
+            } else {
+                Value::Null
+            }
+        }
+        "id" => {
+            match args.get(0) {
+                Some(Value::NodeId(id)) => Value::Int(*id as i64),
+                Some(Value::EdgeKey(edge_key)) => {
+                    // Return source node ID as edge identifier
+                    Value::Int(edge_key.src as i64)
+                }
+                _ => Value::Null,
             }
         }
         _ => Value::Null, // Unknown function
