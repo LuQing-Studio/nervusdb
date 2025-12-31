@@ -69,6 +69,7 @@
 | T328          | [Binding] Output Model Upgrade (Node/Rel/Path Values)      | High   | Plan    | feat/T328-output-model      | Align CLI/Python with Cypher value semantics             |
 | T329          | [Refactor] Evaluator Snapshot Access (Fix `keys()`)        | Medium | Plan    | feat/T329-eval-snapshot     | Pass Snapshot to evaluator, un-ignore `keys()` tests     |
 | T330          | [Refactor] Evaluator Schema Access (Fix `type()`)          | Medium | Plan    | feat/T330-eval-schema       | Pass Schema/Txn to evaluator, un-ignore `type()` tests   |
+| T331          | [Bug] Fix `id()` Lookup / Node Scan Consistency            | Medium | Plan    | feat/T331-fix-id-lookup     | Investigate why `MATCH (n) RETURN id(n)` returns 0 rows  |
 
 ## Archived (v1/Alpha)
 
