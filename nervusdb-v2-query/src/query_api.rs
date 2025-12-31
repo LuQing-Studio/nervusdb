@@ -82,7 +82,7 @@ impl PreparedQuery {
             )));
             return it;
         }
-        execute_plan(snapshot, &self.plan, params)
+        Box::new(execute_plan(snapshot, &self.plan, params))
     }
 
     /// Executes a write query (CREATE/DELETE) with a write transaction.

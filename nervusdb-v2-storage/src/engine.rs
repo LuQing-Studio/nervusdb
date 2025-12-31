@@ -882,11 +882,7 @@ impl<'a> WriteTxn<'a> {
                                     old_key.extend_from_slice(&re.id.to_be_bytes());
                                     old_key.extend_from_slice(&encode_ordered_value(&old_val));
 
-                                    let _ = tree.delete_exact_rebuild(
-                                        &mut pager,
-                                        &old_key,
-                                        node_id as u64,
-                                    );
+                                    let _ = tree.delete(&mut pager, &old_key, node_id as u64);
                                 }
 
                                 // 2. Insert new value
