@@ -1,5 +1,5 @@
 use nervusdb_v2::Db;
-use nervusdb_v2::GraphSnapshot;
+
 use nervusdb_v2::query::Value;
 use tempfile::tempdir;
 
@@ -28,7 +28,7 @@ fn test_incoming_relationship() -> nervusdb_v2::Result<()> {
         nervusdb_v2::PropertyValue::String("Bob".to_string()),
     )?;
 
-    txn.create_edge(alice, bob, rel_type.into());
+    txn.create_edge(alice, bob, rel_type);
     txn.commit()?;
 
     // Query: MATCH (b:Person {name: 'Bob'})<-[:KNOWS]-(a) RETURN a.name
@@ -74,7 +74,7 @@ fn test_undirected_relationship() -> nervusdb_v2::Result<()> {
         nervusdb_v2::PropertyValue::String("Bob".to_string()),
     )?;
 
-    txn.create_edge(alice, bob, rel_type.into());
+    txn.create_edge(alice, bob, rel_type);
     txn.commit()?;
 
     // Query 1: MATCH (a {name: 'Alice'})-[:KNOWS]-(b) RETURN b.name

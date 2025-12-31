@@ -18,10 +18,10 @@ fn test_type_alternation() -> nervusdb_v2::Result<()> {
     let person = txn.get_or_create_label("Person")?;
 
     // External IDs 1, 2, 3, 4
-    let a = txn.create_node(1u64.into(), person)?;
-    let b = txn.create_node(2u64.into(), person)?;
-    let c = txn.create_node(3u64.into(), person)?;
-    let d = txn.create_node(4u64.into(), person)?;
+    let a = txn.create_node(1, person)?;
+    let b = txn.create_node(2, person)?;
+    let c = txn.create_node(3, person)?;
+    let d = txn.create_node(4, person)?;
 
     txn.set_node_property(
         a,

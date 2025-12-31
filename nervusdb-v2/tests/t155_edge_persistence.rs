@@ -1,4 +1,4 @@
-use nervusdb_v2::query::WriteableGraph;
+
 use nervusdb_v2::{Db, GraphSnapshot, PropertyValue};
 use nervusdb_v2_api::EdgeKey;
 use tempfile::tempdir;

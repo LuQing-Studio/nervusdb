@@ -1775,12 +1775,10 @@ fn execute_foreach<S: GraphSnapshot>(
         let items = match list_val {
             Value::List(l) => l,
             _ => {
-                return Err(Error::Other(
-                    format!(
-                        "FOREACH expression must evaluate to a list, got {:?}",
-                        list_val
-                    ),
-                ));
+                return Err(Error::Other(format!(
+                    "FOREACH expression must evaluate to a list, got {:?}",
+                    list_val
+                )));
             }
         };
 

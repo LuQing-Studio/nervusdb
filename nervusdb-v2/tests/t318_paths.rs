@@ -11,8 +11,8 @@ fn test_path_assignment_basic() -> Result<()> {
     let mut txn = db.begin_write();
 
     let node_label = txn.get_or_create_label("Node")?;
-    let alice = txn.create_node(1u64.into(), node_label)?;
-    let bob = txn.create_node(2u64.into(), node_label)?;
+    let alice = txn.create_node(1u64, node_label)?;
+    let bob = txn.create_node(2u64, node_label)?;
     let knows = txn.get_or_create_rel_type("KNOWS")?;
     txn.create_edge(alice, knows, bob);
 
@@ -61,9 +61,9 @@ fn test_path_multi_hop() -> Result<()> {
     let mut txn = db.begin_write();
 
     let node_label = txn.get_or_create_label("Node")?;
-    let a = txn.create_node(101u64.into(), node_label)?;
-    let b = txn.create_node(102u64.into(), node_label)?;
-    let c = txn.create_node(103u64.into(), node_label)?;
+    let a = txn.create_node(101, node_label)?;
+    let b = txn.create_node(102, node_label)?;
+    let c = txn.create_node(103, node_label)?;
     let rel = txn.get_or_create_rel_type("REL")?;
     txn.create_edge(a, rel, b);
     txn.create_edge(b, rel, c);
@@ -90,9 +90,9 @@ fn test_path_var_len() -> Result<()> {
     let mut txn = db.begin_write();
 
     let node_label = txn.get_or_create_label("Node")?;
-    let a = txn.create_node(201u64.into(), node_label)?;
-    let b = txn.create_node(202u64.into(), node_label)?;
-    let c = txn.create_node(203u64.into(), node_label)?;
+    let a = txn.create_node(201, node_label)?;
+    let b = txn.create_node(202, node_label)?;
+    let c = txn.create_node(203, node_label)?;
     let rel = txn.get_or_create_rel_type("REL")?;
     txn.create_edge(a, rel, b);
     txn.create_edge(b, rel, c);
@@ -126,8 +126,8 @@ fn test_path_incoming_undirected() -> Result<()> {
     let mut txn = db.begin_write();
 
     let node_label = txn.get_or_create_label("Node")?;
-    let a = txn.create_node(301u64.into(), node_label)?;
-    let b = txn.create_node(302u64.into(), node_label)?;
+    let a = txn.create_node(301, node_label)?;
+    let b = txn.create_node(302, node_label)?;
     let rel = txn.get_or_create_rel_type("REL")?;
     txn.create_edge(a, rel, b);
 
@@ -153,7 +153,7 @@ fn test_path_incoming_undirected() -> Result<()> {
     let results_undirected: Vec<_> = prep_und
         .execute_streaming(&snapshot, &Default::default())
         .collect::<nervusdb_v2::query::error::Result<Vec<_>>>()?;
-    assert!(results_undirected.len() >= 1);
+    assert!(!results_undirected.is_empty());
 
     Ok(())
 }
