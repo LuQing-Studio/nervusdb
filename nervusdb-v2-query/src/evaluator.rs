@@ -157,7 +157,138 @@ pub fn evaluate_expression_value<S: GraphSnapshot>(
                 .map(|e| evaluate_expression_value(e, row, snapshot, params))
                 .unwrap_or(Value::Null)
         }
+        Expression::FunctionCall(call) => evaluate_function(call, row, snapshot, params),
         _ => Value::Null, // Not supported yet
+    }
+}
+
+fn evaluate_function<S: GraphSnapshot>(
+    call: &crate::ast::FunctionCall,
+    row: &Row,
+    snapshot: &S,
+    params: &Params,
+) -> Value {
+    let name = call.name.to_lowercase();
+    let args: Vec<Value> = call
+        .args
+        .iter()
+        .map(|arg| evaluate_expression_value(arg, row, snapshot, params))
+        .collect();
+
+    match name.as_str() {
+        "tolower" => {
+            if let Some(Value::String(s)) = args.get(0) {
+                Value::String(s.to_lowercase())
+            } else {
+                Value::Null
+            }
+        }
+        "toupper" => {
+            if let Some(Value::String(s)) = args.get(0) {
+                Value::String(s.to_uppercase())
+            } else {
+                Value::Null
+            }
+        }
+        "reverse" => {
+            if let Some(Value::String(s)) = args.get(0) {
+                Value::String(s.chars().rev().collect())
+            } else {
+                Value::Null
+            }
+        }
+        "tostring" => {
+            if let Some(arg) = args.get(0) {
+                match arg {
+                    Value::String(s) => Value::String(s.clone()),
+                    Value::Int(i) => Value::String(i.to_string()),
+                    Value::Float(f) => Value::String(f.to_string()),
+                    Value::Bool(b) => Value::String(b.to_string()),
+                    _ => Value::Null,
+                }
+            } else {
+                Value::Null
+            }
+        }
+        "trim" => {
+            if let Some(Value::String(s)) = args.get(0) {
+                Value::String(s.trim().to_string())
+            } else {
+                Value::Null
+            }
+        }
+        "ltrim" => {
+            if let Some(Value::String(s)) = args.get(0) {
+                Value::String(s.trim_start().to_string())
+            } else {
+                Value::Null
+            }
+        }
+        "rtrim" => {
+            if let Some(Value::String(s)) = args.get(0) {
+                Value::String(s.trim_end().to_string())
+            } else {
+                Value::Null
+            }
+        }
+        "substring" => {
+            // substring(str, start, [length])
+            // start is 0-based in Rust but Cypher uses 0-based indices for substring?
+            // openCypher spec says: substring(original, start, length)
+            // indices are 0-based.
+            if let Some(Value::String(s)) = args.get(0) {
+                if let Some(Value::Int(start)) = args.get(1) {
+                    let start = *start as usize;
+                    let len = if let Some(Value::Int(l)) = args.get(2) {
+                        Some(*l as usize)
+                    } else {
+                        None
+                    };
+
+                    let chars: Vec<char> = s.chars().collect();
+                    if start >= chars.len() {
+                        Value::String("".to_string())
+                    } else {
+                        let end = if let Some(l) = len {
+                            (start + l).min(chars.len())
+                        } else {
+                            chars.len()
+                        };
+                        Value::String(chars[start..end].iter().collect())
+                    }
+                } else {
+                    Value::Null
+                }
+            } else {
+                Value::Null
+            }
+        }
+        "replace" => {
+            if let (
+                Some(Value::String(orig)),
+                Some(Value::String(search)),
+                Some(Value::String(replacement)),
+            ) = (args.get(0), args.get(1), args.get(2))
+            {
+                Value::String(orig.replace(search, replacement))
+            } else {
+                Value::Null
+            }
+        }
+        "split" => {
+            if let (Some(Value::String(orig)), Some(Value::String(delim))) =
+                (args.get(0), args.get(1))
+            {
+                let parts: Vec<Value> = orig
+                    .split(delim)
+                    .map(|s| Value::String(s.to_string()))
+                    .collect();
+                Value::List(parts)
+            } else {
+                Value::Null
+            }
+        }
+        _ => Value::Null, // Unknown function
     }
 }
 
