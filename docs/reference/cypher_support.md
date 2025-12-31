@@ -36,6 +36,9 @@ v2 M3 是新一代查询引擎，支持通过 `nervusdb-v2-query` crate 或 CLI 
 - `MERGE`（幂等写入）：
   - 单节点：`MERGE (n {name: 'Alice'})`
   - 单跳关系：`MERGE (a {name: 'A'})-[:1]->(b {name: 'B'})`
+  - 条件属性写入：`ON CREATE SET` / `ON MATCH SET`
+    - `MERGE (n {name: 'Alice'}) ON CREATE SET n.age = 1 ON MATCH SET n.age = 2`
+    - `MERGE (a {name: 'A'})-[r:1]->(b {name: 'B'}) ON CREATE SET r.weight = 1`
 - `DELETE` / `DETACH DELETE`：
   - `MATCH (n) DELETE n`（删除节点）
   - `MATCH (a)-[:1]->(b) DELETE a`（删除节点）
