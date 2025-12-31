@@ -1,7 +1,7 @@
 use nervusdb_v2_storage::index::btree::BTree;
 use nervusdb_v2_storage::index::hnsw::storage::{PersistentGraphStorage, PersistentVectorStorage};
 use nervusdb_v2_storage::index::hnsw::{HnswIndex, HnswParams};
-use nervusdb_v2_storage::index::vector::VectorIndex;
+
 use nervusdb_v2_storage::pager::Pager;
 use tempfile::tempdir;
 
@@ -9,6 +9,7 @@ use tempfile::tempdir;
 fn test_hnsw_persistence() {
     let dir = tempdir().unwrap();
     let db_path = dir.path().join("test_hnsw.ndb");
+    #[allow(unused_assignments)]
     let mut btree_root_opt: Option<u64> = None;
 
     // 1. Create and Insert

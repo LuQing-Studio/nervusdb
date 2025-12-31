@@ -197,7 +197,7 @@ impl IdMap {
         let labels = self
             .i2l
             .get_mut(internal_id as usize)
-            .ok_or_else(|| Error::WalProtocol("node not found"))?;
+            .ok_or(Error::WalProtocol("node not found"))?;
 
         if !labels.contains(&label) {
             labels.push(label);
@@ -216,7 +216,7 @@ impl IdMap {
         let labels = self
             .i2l
             .get_mut(internal_id as usize)
-            .ok_or_else(|| Error::WalProtocol("node not found"))?;
+            .ok_or(Error::WalProtocol("node not found"))?;
 
         labels.retain(|&l| l != label);
         Ok(())

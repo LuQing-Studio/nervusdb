@@ -410,7 +410,7 @@ fn writer(args: WriterArgs) -> Result<(), String> {
         let _ = tx.commit();
 
         tx_counter += 1;
-        if args.compact_every > 0 && tx_counter.is_multiple_of(args.compact_every) {
+        if args.compact_every > 0 && tx_counter % args.compact_every == 0 {
             let _ = engine.compact();
         }
     }

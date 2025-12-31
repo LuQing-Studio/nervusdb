@@ -9,7 +9,7 @@ fn test_optional_match() -> nervusdb_v2::Result<()> {
     let db = Db::open(&db_path)?;
 
     // Setup Data
-    let (alice_id, bob_id, charlie_id) = {
+    let (_alice_id, _bob_id, charlie_id) = {
         let mut txn = db.begin_write();
         let person = txn.get_or_create_label("Person")?;
         let knows = txn.get_or_create_rel_type_id("KNOWS")?;

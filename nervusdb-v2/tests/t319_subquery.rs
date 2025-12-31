@@ -30,7 +30,7 @@ fn test_correlated_subquery_with_projection() -> Result<()> {
     let db = Db::open(dir.path())?;
     let mut txn = db.begin_write();
 
-    let node = txn.create_node(1u64.into(), 0u32.into())?;
+    let node = txn.create_node(1, 0)?;
     txn.set_node_property(node, "val".to_string(), PropertyValue::Int(42))?;
     txn.commit()?;
 
@@ -58,9 +58,9 @@ fn test_correlated_aggregation_subquery() -> Result<()> {
     let l_person = txn.get_or_create_label("Person")?;
     let r_knows = txn.get_or_create_rel_type("KNOWS")?;
 
-    let alice = txn.create_node(1u64.into(), l_person)?;
-    let bob = txn.create_node(2u64.into(), l_person)?;
-    let carol = txn.create_node(3u64.into(), l_person)?;
+    let alice = txn.create_node(1, l_person)?;
+    let bob = txn.create_node(2, l_person)?;
+    let carol = txn.create_node(3, l_person)?;
 
     // Alice -> Bob, Alice -> Carol
     txn.create_edge(alice, r_knows, bob);

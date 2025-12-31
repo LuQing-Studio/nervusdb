@@ -1,8 +1,9 @@
-use nervusdb_v2_storage::idmap::{I2eRecord, IdMap};
+use nervusdb_v2_storage::idmap::IdMap;
 use nervusdb_v2_storage::pager::Pager;
 use tempfile::tempdir;
 
 #[test]
+#[allow(deprecated)]
 fn test_multi_label_create_and_lookup() {
     let dir = tempdir().unwrap();
     let ndb = dir.path().join("test_multi_label.ndb");

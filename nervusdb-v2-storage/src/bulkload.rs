@@ -410,10 +410,11 @@ impl BulkLoader {
         label_snapshot: &[LabelId],
         segments: &[CsrSegment],
     ) -> Result<u64> {
-        let mut stats = crate::stats::GraphStatistics::default();
-
+        let mut stats = crate::stats::GraphStatistics {
+            total_nodes: label_snapshot.len() as u64,
+            ..Default::default()
+        };
         // Count nodes per label
-        stats.total_nodes = label_snapshot.len() as u64;
         for &label_id in label_snapshot.iter() {
             *stats.node_counts_by_label.entry(label_id).or_default() += 1;
         }

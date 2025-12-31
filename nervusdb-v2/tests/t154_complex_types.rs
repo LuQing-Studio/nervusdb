@@ -1,4 +1,3 @@
-use nervusdb_v2::query::{Value, WriteableGraph};
 use nervusdb_v2::{Db, GraphSnapshot, PropertyValue};
 use std::collections::BTreeMap;
 use tempfile::tempdir;
@@ -8,9 +7,7 @@ fn test_complex_types_storage() {
     let dir = tempdir().unwrap();
     let db = Db::open(dir.path()).unwrap();
 
-    let mut list = Vec::new();
-    list.push(PropertyValue::Int(1));
-    list.push(PropertyValue::String("inner".into()));
+    let list = vec![PropertyValue::Int(1), PropertyValue::String("inner".into())];
 
     let mut map = BTreeMap::new();
     map.insert("key1".into(), PropertyValue::Bool(true));

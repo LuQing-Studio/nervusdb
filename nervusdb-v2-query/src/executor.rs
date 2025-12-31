@@ -378,11 +378,19 @@ pub enum Plan {
         items: Vec<(Expression, Direction)>, // (Expression to sort by, ASC|DESC)
     },
     /// `SKIP` - skip first n rows
-    Skip { input: Box<Plan>, skip: u32 },
+    Skip {
+        input: Box<Plan>,
+        skip: u32,
+    },
     /// `LIMIT` - limit result count
-    Limit { input: Box<Plan>, limit: u32 },
+    Limit {
+        input: Box<Plan>,
+        limit: u32,
+    },
     /// `RETURN DISTINCT` - deduplicate results
-    Distinct { input: Box<Plan> },
+    Distinct {
+        input: Box<Plan>,
+    },
     /// `UNWIND` - expand a list into multiple rows
     Unwind {
         input: Box<Plan>,
@@ -395,8 +403,7 @@ pub enum Plan {
         right: Box<Plan>,
         all: bool, // true = UNION ALL (keep duplicates), false = UNION (distinct)
     },
-    /// `CREATE (n)-[:rel]->(m)` - create pattern
-    Create { pattern: Pattern },
+
     /// `DELETE` - delete nodes/edges (with input plan for variable resolution)
     Delete {
         input: Box<Plan>,
@@ -422,7 +429,10 @@ pub enum Plan {
         fallback: Box<Plan>,
     },
     /// `CartesianProduct` - multiply two plans (join without shared variables)
-    CartesianProduct { left: Box<Plan>, right: Box<Plan> },
+    CartesianProduct {
+        left: Box<Plan>,
+        right: Box<Plan>,
+    },
     /// `Apply` - execute subquery for each row (Correlated Subquery)
     Apply {
         input: Box<Plan>,
@@ -436,6 +446,20 @@ pub enum Plan {
         args: Vec<Expression>,
         yields: Vec<(String, Option<String>)>, // (field_name, alias)
     },
+    Foreach {
+        input: Box<Plan>,
+        variable: String,
+        list: Expression,
+        sub_plan: Box<Plan>,
+    },
+    // Injects specific rows into the pipeline (used for FOREACH context and constructing literal rows)
+    Values {
+        rows: Vec<Row>,
+    },
+    Create {
+        input: Box<Plan>,
+        pattern: Pattern,
+    },
 }
 
 pub enum PlanIterator<'a, S: GraphSnapshot> {
@@ -445,6 +469,7 @@ pub enum PlanIterator<'a, S: GraphSnapshot> {
     CartesianProduct(Box<CartesianProductIter<'a, S>>),
     Apply(Box<ApplyIter<'a, S>>),
     ProcedureCall(Box<ProcedureCallIter<'a, S>>),
+
     Dynamic(Box<dyn Iterator<Item = Result<Row>> + 'a>),
 }
 
@@ -459,6 +484,7 @@ impl<'a, S: GraphSnapshot> Iterator for PlanIterator<'a, S> {
             PlanIterator::CartesianProduct(iter) => iter.next(),
             PlanIterator::Apply(iter) => iter.next(),
             PlanIterator::ProcedureCall(iter) => iter.next(),
+
             PlanIterator::Dynamic(iter) => iter.next(),
         }
     }
@@ -624,6 +650,12 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
                 params,
             )))
         }
+        Plan::Foreach { .. } => {
+            // FOREACH should be executed via execute_write
+            PlanIterator::Dynamic(Box::new(std::iter::once(Err(crate::error::Error::Other(
+                "FOREACH must be executed via execute_write".into(),
+            )))))
+        }
         Plan::NodeScan { alias, label } => {
             let label_id = if let Some(l) = label {
                 match snapshot.resolve_label_id(l) {
@@ -761,7 +793,7 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
             rels,
             edge_alias,
             dst_alias,
-            limit,
+            limit: _,
             optional,
             path_alias,
         } => {
@@ -903,7 +935,7 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
             let src_alias = src_alias.clone();
             let dst_alias = dst_alias.clone();
             let edge_alias = edge_alias.clone();
-            let optional = *optional;
+            let _optional = *optional;
             let rel_ids_out = rel_ids.clone();
 
             // Outgoing Iterator
@@ -1198,7 +1230,7 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
                 })))
             }
         }
-        Plan::Create { pattern: _ } => {
+        Plan::Create { .. } => {
             // CREATE should be executed via execute_write, not execute_plan
             PlanIterator::Dynamic(Box::new(std::iter::once(Err(Error::Other(
                 "CREATE must be executed via execute_write".into(),
@@ -1264,6 +1296,10 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
                 execute_plan(snapshot, fallback, params)
             }
         }
+        Plan::Values { rows } => {
+            let rows = rows.clone();
+            PlanIterator::Dynamic(Box::new(rows.into_iter().map(Ok)))
+        }
     }
 }
 
@@ -1275,7 +1311,7 @@ pub fn execute_write<S: GraphSnapshot>(
     params: &crate::query_api::Params,
 ) -> Result<u32> {
     match plan {
-        Plan::Create { pattern } => execute_create(txn, pattern, params),
+        Plan::Create { input, pattern } => execute_create(snapshot, input, txn, pattern, params),
         Plan::Delete {
             input,
             detach,
@@ -1285,8 +1321,15 @@ pub fn execute_write<S: GraphSnapshot>(
         Plan::RemoveProperty { input, items } => {
             execute_remove(snapshot, input, txn, items, params)
         }
+        Plan::Foreach {
+            input,
+            variable,
+            list,
+            sub_plan,
+        } => execute_foreach(snapshot, input, txn, variable, list, sub_plan, params),
         _ => Err(Error::Other(
-            "Only CREATE, DELETE, SET, and REMOVE plans can be executed with execute_write".into(),
+            "Only CREATE, DELETE, SET, REMOVE and FOREACH plans can be executed with execute_write"
+                .into(),
         )),
     }
 }
@@ -1299,7 +1342,7 @@ pub(crate) fn execute_merge<S: GraphSnapshot>(
     on_create_items: &[(String, String, Expression)],
     on_match_items: &[(String, String, Expression)],
 ) -> Result<u32> {
-    let Plan::Create { pattern } = plan else {
+    let Plan::Create { pattern, .. } = plan else {
         return Err(Error::Other(
             "MERGE must compile to a CREATE plan in v2 M3".into(),
         ));
@@ -1710,7 +1753,50 @@ mod txn_engine_impl {
     }
 }
 
-fn execute_create(
+fn execute_foreach<S: GraphSnapshot>(
+    snapshot: &S,
+    input: &Plan,
+    txn: &mut dyn WriteableGraph,
+    variable: &str,
+    list: &Expression,
+    sub_plan: &Plan,
+    params: &crate::query_api::Params,
+) -> Result<u32> {
+    let mut total_mods = 0;
+
+    // We must collect rows first if needed, but execute_plan yields independent rows?
+    // Actually execute_plan captures reference to S.
+    // And we borrow traverse input plan.
+    for row in execute_plan(snapshot, input, params) {
+        let row = row?;
+
+        let list_val = evaluate_expression_value(list, &row, snapshot, params);
+
+        let items = match list_val {
+            Value::List(l) => l,
+            _ => {
+                return Err(Error::Other(format!(
+                    "FOREACH expression must evaluate to a list, got {:?}",
+                    list_val
+                )));
+            }
+        };
+
+        for item in items {
+            let sub_row = row.clone().with(variable, item.clone());
+            let mut current_sub_plan = sub_plan.clone();
+            inject_rows(&mut current_sub_plan, vec![sub_row]);
+            let mods = execute_write(&current_sub_plan, snapshot, txn, params)?;
+            total_mods += mods;
+        }
+    }
+
+    Ok(total_mods)
+}
+
+fn execute_create<S: GraphSnapshot>(
+    snapshot: &S,
+    input: &Plan,
     txn: &mut dyn WriteableGraph,
     pattern: &Pattern,
     params: &crate::query_api::Params,
@@ -1728,65 +1814,72 @@ fn execute_create(
         }
     }
 
-    // Create all nodes first
-    let mut node_ids: Vec<(usize, InternalNodeId)> = Vec::new();
-    for (idx, node_pat) in &node_patterns {
-        let external_id = ExternalId::from(
-            created_count as u64 + chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0) as u64,
-        );
+    // Iterate over input rows
+    for row in execute_plan(snapshot, input, params) {
+        let row = row?;
 
-        // Resolve or create label
-        let label_id = if let Some(label) = node_pat.labels.first() {
-            txn.get_or_create_label_id(label)?
-        } else {
-            0
-        };
+        // Scope: IDs created in this row's context
+        // Maps pattern index -> InternalNodeId
+        let mut row_node_ids: std::collections::HashMap<usize, InternalNodeId> =
+            std::collections::HashMap::new();
 
-        let node_id = txn.create_node(external_id, label_id)?;
-        created_count += 1;
+        // Create all nodes first
+        for (idx, node_pat) in &node_patterns {
+            let external_id = ExternalId::from(
+                created_count as u64 + chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0) as u64,
+            );
 
-        // Set properties if any
-        if let Some(props) = &node_pat.properties {
-            for prop in &props.properties {
-                let value = evaluate_property_value(&prop.value, params)?;
-                txn.set_node_property(node_id, prop.key.clone(), value)?;
+            // Resolve or create label
+            let label_id = if let Some(label) = node_pat.labels.first() {
+                txn.get_or_create_label_id(label)?
+            } else {
+                0
+            };
+
+            let node_id = txn.create_node(external_id, label_id)?;
+            created_count += 1;
+            row_node_ids.insert(*idx, node_id);
+
+            // Set properties if any
+            if let Some(props) = &node_pat.properties {
+                for prop in &props.properties {
+                    // Use evaluate_expression_value to support variables
+                    let val = evaluate_expression_value(&prop.value, &row, snapshot, params);
+                    let prop_val = convert_executor_value_to_property(&val)?;
+                    txn.set_node_property(node_id, prop.key.clone(), prop_val)?;
+                }
             }
         }
 
-        node_ids.push((*idx, node_id));
-    }
+        // Now create all relationships
+        for (idx, rel_pat) in &rel_patterns {
+            let rel_type_name = rel_pat
+                .types
+                .first()
+                .ok_or_else(|| Error::Other("CREATE relationship requires a type".into()))?;
 
-    // Now create all relationships
-    for (idx, rel_pat) in &rel_patterns {
-        let rel_type_name = rel_pat
-            .types
-            .first()
-            .ok_or_else(|| Error::Other("CREATE relationship requires a type".into()))?;
+            let rel_type = txn.get_or_create_rel_type_id(rel_type_name)?;
 
-        let rel_type = txn.get_or_create_rel_type_id(rel_type_name)?;
+            // Find src and dst
+            let src_id = *row_node_ids
+                .get(&(idx - 1))
+                .ok_or(Error::Other("CREATE relationship src node missing".into()))?;
 
-        // For single-hop patterns, find nodes at idx-1 (src) and idx+1 (dst)
-        let src_id = node_ids
-            .iter()
-            .find(|(n_idx, _)| *n_idx == *idx - 1)
-            .map(|(_, id)| *id)
-            .ok_or_else(|| Error::Other("CREATE relationship requires preceding node".into()))?;
+            let dst_id = *row_node_ids
+                .get(&(idx + 1))
+                .ok_or(Error::Other("CREATE relationship dst node missing".into()))?;
 
-        let dst_id = node_ids
-            .iter()
-            .find(|(n_idx, _)| *n_idx == *idx + 1)
-            .map(|(_, id)| *id)
-            .ok_or_else(|| Error::Other("CREATE relationship requires following node".into()))?;
+            // Create the edge
+            txn.create_edge(src_id, rel_type, dst_id)?;
+            created_count += 1;
 
-        // Create the edge
-        txn.create_edge(src_id, rel_type, dst_id)?;
-        created_count += 1;
-
-        // Set properties if any
-        if let Some(props) = &rel_pat.properties {
-            for prop in &props.properties {
-                let value = evaluate_property_value(&prop.value, params)?;
-                txn.set_edge_property(src_id, rel_type, dst_id, prop.key.clone(), value)?;
+            // Set properties if any
+            if let Some(props) = &rel_pat.properties {
+                for prop in &props.properties {
+                    let val = evaluate_expression_value(&prop.value, &row, snapshot, params);
+                    let prop_val = convert_executor_value_to_property(&val)?;
+                    txn.set_edge_property(src_id, rel_type, dst_id, prop.key.clone(), prop_val)?;
+                }
             }
         }
     }
@@ -1996,6 +2089,42 @@ fn convert_executor_value_to_property(value: &Value) -> Result<PropertyValue> {
     }
 }
 
+fn inject_rows(plan: &mut Plan, rows: Vec<Row>) {
+    match plan {
+        Plan::Values { rows: target_rows } => {
+            *target_rows = rows;
+        }
+        Plan::Create { input, .. }
+        | Plan::Delete { input, .. }
+        | Plan::SetProperty { input, .. }
+        | Plan::RemoveProperty { input, .. }
+        | Plan::Foreach { input, .. }
+        | Plan::Filter { input, .. }
+        | Plan::Project { input, .. }
+        | Plan::Limit { input, .. }
+        | Plan::Skip { input, .. }
+        | Plan::OrderBy { input, .. }
+        | Plan::Distinct { input }
+        | Plan::Unwind { input, .. }
+        | Plan::Aggregate { input, .. } => inject_rows(input, rows),
+
+        // Binary ops: injection usually goes to Left? Or ambiguous?
+        // For FOREACH updates, it's linear.
+        // CartesianProduct/Union shouldn't appear in strictly update chains (v2 MVP).
+        // But if they do, we default to injecting to LEFT side (primary flow).
+        Plan::CartesianProduct { left, .. } | Plan::Union { left, .. } => inject_rows(left, rows),
+
+        Plan::Apply { input, .. } => inject_rows(input, rows),
+
+        _ => {
+            // Leaf plans like Scan, ReturnOne - cannot inject.
+            // If we reached here without matching Values, it means the plan doesn't start with Values placeholder.
+            // This is fine if FOREACH body doesn't actually use the input (e.g. standalone CREATE without vars).
+            // But query_api ensures Foreach body starts with Values placeholder.
+        }
+    }
+}
+
 struct MatchOutIter<'a, S: GraphSnapshot + 'a> {
     snapshot: &'a S,
     src_alias: &'a str,
@@ -2095,7 +2224,7 @@ impl<'a, S: GraphSnapshot + 'a> Iterator for MatchOutIter<'a, S> {
 /// Variable-length path iterator using DFS
 const DEFAULT_MAX_VAR_LEN_HOPS: u32 = 5;
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 struct MatchOutVarLenIter<'a, S: GraphSnapshot + 'a> {
     snapshot: &'a S,
     input: Option<Box<dyn Iterator<Item = Result<Row>> + 'a>>,
@@ -2232,7 +2361,7 @@ impl<'a, S: GraphSnapshot + 'a> Iterator for MatchOutVarLenIter<'a, S> {
                     } else {
                         for edge in self.snapshot.neighbors(current_node, None) {
                             let mut next_path = current_path.clone();
-                            if let Some(path_alias) = self.path_alias {
+                            if self.path_alias.is_some() {
                                 if let Some(p) = &mut next_path {
                                     p.edges.push(edge);
                                     p.nodes.push(edge.dst);
@@ -2419,12 +2548,10 @@ fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
                         let sum: f64 = rows
                             .iter()
                             .filter_map(|r| {
-                                if let Value::Float(f) =
-                                    evaluate_expression_value(expr, r, snapshot, params)
-                                {
-                                    Some(f)
-                                } else {
-                                    None
+                                match evaluate_expression_value(expr, r, snapshot, params) {
+                                    Value::Float(f) => Some(f),
+                                    Value::Int(i) => Some(i as f64),
+                                    _ => None,
                                 }
                             })
                             .sum();
@@ -2434,12 +2561,10 @@ fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
                         let values: Vec<f64> = rows
                             .iter()
                             .filter_map(|r| {
-                                if let Value::Float(f) =
-                                    evaluate_expression_value(expr, r, snapshot, params)
-                                {
-                                    Some(f)
-                                } else {
-                                    None
+                                match evaluate_expression_value(expr, r, snapshot, params) {
+                                    Value::Float(f) => Some(f),
+                                    Value::Int(i) => Some(i as f64),
+                                    _ => None,
                                 }
                             })
                             .collect();

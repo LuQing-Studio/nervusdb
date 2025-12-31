@@ -57,6 +57,7 @@ impl<V, G> HnswIndex<V, G> {
         ((-r.ln() * ml).floor() as u8).min(16) // Cap at 16 layers for safety
     }
 
+    #[allow(clippy::type_complexity)]
     fn search_layer<Ctx>(
         &mut self,
         ctx: &mut Ctx,
