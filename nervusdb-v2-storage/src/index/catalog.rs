@@ -185,6 +185,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn equality_seek_and_delete_via_rebuild() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("cat2.ndb");

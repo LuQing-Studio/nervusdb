@@ -155,9 +155,9 @@ pub fn prepare(cypher: &str) -> Result<PreparedQuery> {
         let mut merge_subclauses = VecDeque::from(merge_subclauses);
         let compiled = compile_m3_plan(query, &mut merge_subclauses, None)?;
         if !merge_subclauses.is_empty() {
-             return Err(Error::Other(
-                 "internal error: unconsumed MERGE subclauses".into(),
-             ));
+            return Err(Error::Other(
+                "internal error: unconsumed MERGE subclauses".into(),
+            ));
         }
         let explain = Some(render_plan(&compiled.plan));
         return Ok(PreparedQuery {
@@ -222,7 +222,12 @@ fn render_plan(plan: &Plan) -> String {
                 let _ = writeln!(out, "{pad}Create(pattern={pattern:?})");
                 go(out, input, depth + 1);
             }
-            Plan::Foreach { input, variable, list, sub_plan } => {
+            Plan::Foreach {
+                input,
+                variable,
+                list,
+                sub_plan,
+            } => {
                 let _ = writeln!(out, "{pad}Foreach(var={variable}, list={list:?})");
                 go(out, input, depth + 1);
                 let _ = writeln!(out, "{pad}  SubPlan:");
@@ -535,7 +540,8 @@ fn compile_m3_plan(
             Clause::Call(c) => match c {
                 CallClause::Subquery(sub_query) => {
                     let input = plan.unwrap_or(Plan::ReturnOne);
-                    let sub_query_compiled = compile_m3_plan(sub_query.clone(), merge_subclauses, None)?;
+                    let sub_query_compiled =
+                        compile_m3_plan(sub_query.clone(), merge_subclauses, None)?;
                     plan = Some(Plan::Apply {
                         input: Box::new(input),
                         subquery: Box::new(sub_query_compiled.plan),
@@ -638,8 +644,8 @@ fn compile_m3_plan(
                 });
             }
             Clause::Foreach(f) => {
-                 let input = plan.unwrap_or(Plan::ReturnOne);
-                 plan = Some(compile_foreach_plan(input, f.clone(), merge_subclauses)?);
+                let input = plan.unwrap_or(Plan::ReturnOne);
+                plan = Some(compile_foreach_plan(input, f.clone(), merge_subclauses)?);
             }
         }
     }
@@ -1070,9 +1076,9 @@ fn compile_merge_plan(input: Plan, merge_clause: crate::ast::MergeClause) -> Res
         }
     }
 
-    Ok(Plan::Create { 
+    Ok(Plan::Create {
         input: Box::new(input),
-        pattern: pattern 
+        pattern,
     })
 }
 
@@ -1499,7 +1505,6 @@ fn extract_output_vars(plan: &Plan, vars: &mut BTreeSet<String>) {
         } => {
             vars.insert(alias.clone());
             extract_output_vars(fallback, vars);
-
         }
         Plan::Foreach { input, .. } => extract_output_vars(input, vars),
         Plan::Values { .. } => {}
@@ -1507,7 +1512,9 @@ fn extract_output_vars(plan: &Plan, vars: &mut BTreeSet<String>) {
             extract_output_vars(input, vars);
             vars.extend(extract_merge_pattern_vars(pattern));
         }
-        Plan::Delete { input, .. } | Plan::SetProperty { input, .. } | Plan::RemoveProperty { input, .. } => {
+        Plan::Delete { input, .. }
+        | Plan::SetProperty { input, .. }
+        | Plan::RemoveProperty { input, .. } => {
             extract_output_vars(input, vars);
         }
     }
@@ -1643,14 +1650,14 @@ fn compile_foreach_plan(
 ) -> Result<Plan> {
     // Compile updates sub-plan with a placeholder input
     let initial_input = Some(Plan::Values { rows: vec![] });
-    
+
     // Wrap updates in a Query structure for compilation
     let sub_query = Query {
         clauses: foreach.updates,
     };
-    
+
     let compiled_sub = compile_m3_plan(sub_query, merge_subclauses, initial_input)?;
-    
+
     Ok(Plan::Foreach {
         input: Box::new(input),
         variable: foreach.variable,

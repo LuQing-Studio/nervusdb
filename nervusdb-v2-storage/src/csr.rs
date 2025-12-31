@@ -45,7 +45,7 @@ impl CsrSegment {
         Box::new(
             self.edges[start..end]
                 .iter()
-                .filter(move |e| rel.is_none_or(|r| e.rel == r))
+                .filter(move |e| rel.map_or(true, |r| e.rel == r))
                 .map(move |e| EdgeKey {
                     src,
                     rel: e.rel,
@@ -70,7 +70,7 @@ impl CsrSegment {
         Box::new(
             self.in_edges[start..end]
                 .iter()
-                .filter(move |e| rel.is_none_or(|r| e.rel == r))
+                .filter(move |e| rel.map_or(true, |r| e.rel == r))
                 .map(move |e| EdgeKey {
                     src: e.dst,
                     rel: e.rel,

@@ -31,6 +31,7 @@ pub struct L0Run {
 }
 
 impl L0Run {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         txid: u64,
         edges_by_src: BTreeMap<InternalNodeId, Vec<EdgeKey>>,

@@ -667,16 +667,26 @@ impl TokenParser {
 
         let mut updates = Vec::new();
         while !self.check(&TokenType::RightParen) && !self.is_at_end() {
-             if let Some(clause) = self.parse_clause()? {
-                 match clause {
-                     Clause::Create(_) | Clause::Merge(_) | Clause::Set(_) | Clause::Delete(_) | Clause::Remove(_) | Clause::Foreach(_) => {
-                         updates.push(clause);
-                     }
-                     _ => return Err(Error::Other(format!("Invalid clause inside FOREACH: {:?}", clause))),
-                 }
-             } else {
-                 break;
-             }
+            if let Some(clause) = self.parse_clause()? {
+                match clause {
+                    Clause::Create(_)
+                    | Clause::Merge(_)
+                    | Clause::Set(_)
+                    | Clause::Delete(_)
+                    | Clause::Remove(_)
+                    | Clause::Foreach(_) => {
+                        updates.push(clause);
+                    }
+                    _ => {
+                        return Err(Error::Other(format!(
+                            "Invalid clause inside FOREACH: {:?}",
+                            clause
+                        )));
+                    }
+                }
+            } else {
+                break;
+            }
         }
 
         self.consume(&TokenType::RightParen, "Expected ')' at end of FOREACH")?;
