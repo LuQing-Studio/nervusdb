@@ -1296,12 +1296,35 @@ pub(crate) fn execute_merge<S: GraphSnapshot>(
     snapshot: &S,
     txn: &mut dyn WriteableGraph,
     params: &crate::query_api::Params,
+    on_create_items: &[(String, String, Expression)],
+    on_match_items: &[(String, String, Expression)],
 ) -> Result<u32> {
     let Plan::Create { pattern } = plan else {
         return Err(Error::Other(
             "MERGE must compile to a CREATE plan in v2 M3".into(),
         ));
     };
+
+    fn apply_merge_set_items<S: GraphSnapshot>(
+        snapshot: &S,
+        txn: &mut dyn WriteableGraph,
+        row: &Row,
+        items: &[(String, String, Expression)],
+        params: &crate::query_api::Params,
+    ) -> Result<()> {
+        for (var, key, expr) in items {
+            let val = evaluate_expression_value(expr, row, snapshot, params);
+            let prop_val = convert_executor_value_to_property(&val)?;
+            if let Some(node_id) = row.get_node(var) {
+                txn.set_node_property(node_id, key.clone(), prop_val)?;
+            } else if let Some(edge) = row.get_edge(var) {
+                txn.set_edge_property(edge.src, edge.rel, edge.dst, key.clone(), prop_val)?;
+            } else {
+                return Err(Error::Other(format!("Variable {} not found in row", var)));
+            }
+        }
+        Ok(())
+    }
 
     #[derive(Clone)]
     struct OverlayNode {
@@ -1462,8 +1485,18 @@ pub(crate) fn execute_merge<S: GraphSnapshot>(
 
     match pattern.elements.as_slice() {
         [PathElement::Node(n)] => {
-            let _ =
+            let iid =
                 find_or_create_node(snapshot, txn, n, &mut overlay, params, &mut created_count)?;
+            let mut row = Row::default();
+            if let Some(var) = &n.variable {
+                row = row.with(var.clone(), Value::NodeId(iid));
+            }
+            let items = if created_count > 0 {
+                on_create_items
+            } else {
+                on_match_items
+            };
+            apply_merge_set_items(snapshot, txn, &row, items, params)?;
             Ok(created_count)
         }
         [
@@ -1508,6 +1541,30 @@ pub(crate) fn execute_merge<S: GraphSnapshot>(
                 txn.create_edge(src_iid, rel_type, dst_iid)?;
                 created_count += 1;
             }
+
+            let mut row = Row::default();
+            if let Some(var) = &src.variable {
+                row = row.with(var.clone(), Value::NodeId(src_iid));
+            }
+            if let Some(var) = &dst.variable {
+                row = row.with(var.clone(), Value::NodeId(dst_iid));
+            }
+            if let Some(var) = &rel.variable {
+                row = row.with(
+                    var.clone(),
+                    Value::EdgeKey(EdgeKey {
+                        src: src_iid,
+                        rel: rel_type,
+                        dst: dst_iid,
+                    }),
+                );
+            }
+            let items = if created_count > 0 {
+                on_create_items
+            } else {
+                on_match_items
+            };
+            apply_merge_set_items(snapshot, txn, &row, items, params)?;
 
             Ok(created_count)
         }

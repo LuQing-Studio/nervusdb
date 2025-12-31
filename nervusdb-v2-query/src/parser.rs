@@ -2,22 +2,37 @@ use crate::ast::*;
 use crate::error::Error;
 use crate::lexer::{Lexer, Token, TokenType};
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct MergeSubclauses {
+    pub on_create: Vec<SetClause>,
+    pub on_match: Vec<SetClause>,
+}
+
 pub struct Parser<'a> {
     _phantom: std::marker::PhantomData<&'a ()>,
 }
 
 impl<'a> Parser<'a> {
     pub fn parse(input: &'a str) -> Result<Query, Error> {
+        let (query, _merge_subclauses) = Self::parse_with_merge_subclauses(input)?;
+        Ok(query)
+    }
+
+    pub(crate) fn parse_with_merge_subclauses(
+        input: &'a str,
+    ) -> Result<(Query, Vec<MergeSubclauses>), Error> {
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize().map_err(Error::Other)?;
         let mut parser = TokenParser::new(tokens);
-        parser.parse_query()
+        let query = parser.parse_query()?;
+        Ok((query, parser.merge_subclauses))
     }
 }
 
 struct TokenParser {
     tokens: Vec<Token>,
     position: usize,
+    merge_subclauses: Vec<MergeSubclauses>,
 }
 
 impl TokenParser {
@@ -35,6 +50,7 @@ impl TokenParser {
         Self {
             tokens,
             position: 0,
+            merge_subclauses: Vec::new(),
         }
     }
 
@@ -218,6 +234,25 @@ impl TokenParser {
 
     fn parse_merge(&mut self) -> Result<MergeClause, Error> {
         let pattern = self.parse_pattern()?;
+        let mut subclauses = MergeSubclauses::default();
+
+        while self.match_token(&TokenType::On) {
+            if self.match_token(&TokenType::Create) {
+                self.consume(&TokenType::Set, "Expected SET after ON CREATE")?;
+                subclauses.on_create.push(self.parse_set()?);
+                continue;
+            }
+            if self.match_token(&TokenType::Match) {
+                self.consume(&TokenType::Set, "Expected SET after ON MATCH")?;
+                subclauses.on_match.push(self.parse_set()?);
+                continue;
+            }
+            return Err(Error::Other(
+                "Expected CREATE or MATCH after ON".to_string(),
+            ));
+        }
+
+        self.merge_subclauses.push(subclauses);
         Ok(MergeClause { pattern })
     }
 

@@ -2,7 +2,7 @@ use crate::ast::{BinaryOperator, CallClause, Clause, Expression, Literal, Query}
 use crate::error::{Error, Result};
 use crate::executor::{Plan, Row, Value, execute_plan, execute_write};
 use nervusdb_v2_api::GraphSnapshot;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Write as _;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +53,8 @@ pub struct PreparedQuery {
     plan: Plan,
     explain: Option<String>,
     write: WriteSemantics,
+    merge_on_create_items: Vec<(String, String, Expression)>,
+    merge_on_match_items: Vec<(String, String, Expression)>,
 }
 
 impl PreparedQuery {
@@ -110,9 +112,14 @@ impl PreparedQuery {
         }
         match self.write {
             WriteSemantics::Default => execute_write(&self.plan, snapshot, txn, params),
-            WriteSemantics::Merge => {
-                crate::executor::execute_merge(&self.plan, snapshot, txn, params)
-            }
+            WriteSemantics::Merge => crate::executor::execute_merge(
+                &self.plan,
+                snapshot,
+                txn,
+                params,
+                &self.merge_on_create_items,
+                &self.merge_on_match_items,
+            ),
         }
     }
 
@@ -144,22 +151,38 @@ pub fn prepare(cypher: &str) -> Result<PreparedQuery> {
         if inner.is_empty() {
             return Err(Error::Other("EXPLAIN requires a query".into()));
         }
-        let query = crate::parser::Parser::parse(inner)?;
-        let compiled = compile_m3_plan(query)?;
+        let (query, merge_subclauses) = crate::parser::Parser::parse_with_merge_subclauses(inner)?;
+        let mut merge_subclauses = VecDeque::from(merge_subclauses);
+        let compiled = compile_m3_plan(query, &mut merge_subclauses)?;
+        if !merge_subclauses.is_empty() {
+            return Err(Error::Other(
+                "internal error: unconsumed MERGE subclauses".into(),
+            ));
+        }
         let explain = Some(render_plan(&compiled.plan));
         return Ok(PreparedQuery {
             plan: compiled.plan,
             explain,
             write: compiled.write,
+            merge_on_create_items: compiled.merge_on_create_items,
+            merge_on_match_items: compiled.merge_on_match_items,
         });
     }
 
-    let query = crate::parser::Parser::parse(cypher)?;
-    let compiled = compile_m3_plan(query)?;
+    let (query, merge_subclauses) = crate::parser::Parser::parse_with_merge_subclauses(cypher)?;
+    let mut merge_subclauses = VecDeque::from(merge_subclauses);
+    let compiled = compile_m3_plan(query, &mut merge_subclauses)?;
+    if !merge_subclauses.is_empty() {
+        return Err(Error::Other(
+            "internal error: unconsumed MERGE subclauses".into(),
+        ));
+    }
     Ok(PreparedQuery {
         plan: compiled.plan,
         explain: None,
         write: compiled.write,
+        merge_on_create_items: compiled.merge_on_create_items,
+        merge_on_match_items: compiled.merge_on_match_items,
     })
 }
 
@@ -426,12 +449,19 @@ fn render_plan(plan: &Plan) -> String {
 struct CompiledQuery {
     plan: Plan,
     write: WriteSemantics,
+    merge_on_create_items: Vec<(String, String, Expression)>,
+    merge_on_match_items: Vec<(String, String, Expression)>,
 }
 
-fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
+fn compile_m3_plan(
+    query: Query,
+    merge_subclauses: &mut VecDeque<crate::parser::MergeSubclauses>,
+) -> Result<CompiledQuery> {
     let mut plan: Option<Plan> = None;
     let mut clauses = query.clauses.iter().peekable();
     let mut write_semantics = WriteSemantics::Default;
+    let mut merge_on_create_items: Vec<(String, String, Expression)> = Vec::new();
+    let mut merge_on_match_items: Vec<(String, String, Expression)> = Vec::new();
 
     while let Some(clause) = clauses.next() {
         match clause {
@@ -492,7 +522,7 @@ fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
             Clause::Call(c) => match c {
                 CallClause::Subquery(sub_query) => {
                     let input = plan.unwrap_or(Plan::ReturnOne);
-                    let sub_query_compiled = compile_m3_plan(sub_query.clone())?;
+                    let sub_query_compiled = compile_m3_plan(sub_query.clone(), merge_subclauses)?;
                     plan = Some(Plan::Apply {
                         input: Box::new(input),
                         subquery: Box::new(sub_query_compiled.plan),
@@ -539,6 +569,8 @@ fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
                     return Ok(CompiledQuery {
                         plan: plan.unwrap(),
                         write: write_semantics,
+                        merge_on_create_items,
+                        merge_on_match_items,
                     });
                 }
             }
@@ -565,6 +597,12 @@ fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
             Clause::Merge(m) => {
                 write_semantics = WriteSemantics::Merge;
                 if plan.is_none() {
+                    let sub = merge_subclauses.pop_front().ok_or_else(|| {
+                        Error::Other("internal error: missing MERGE subclauses".into())
+                    })?;
+                    let merge_vars = extract_merge_pattern_vars(&m.pattern);
+                    merge_on_create_items = compile_merge_set_items(&merge_vars, sub.on_create)?;
+                    merge_on_match_items = compile_merge_set_items(&merge_vars, sub.on_match)?;
                     plan = Some(compile_merge_plan(m.clone())?);
                 } else {
                     return Err(Error::NotImplemented("Chained MERGE not supported yet"));
@@ -595,7 +633,7 @@ fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
                 // UNION logic: current plan is the "left" side; the clause's nested query is the "right" side
                 let left_plan =
                     plan.ok_or_else(|| Error::Other("UNION requires left query part".into()))?;
-                let right_compiled = compile_m3_plan(u.query.clone())?;
+                let right_compiled = compile_m3_plan(u.query.clone(), merge_subclauses)?;
                 plan = Some(Plan::Union {
                     left: Box::new(left_plan),
                     right: Box::new(right_compiled.plan),
@@ -621,10 +659,50 @@ fn compile_m3_plan(query: Query) -> Result<CompiledQuery> {
         return Ok(CompiledQuery {
             plan,
             write: write_semantics,
+            merge_on_create_items,
+            merge_on_match_items,
         });
     }
 
     Err(Error::NotImplemented("Empty query"))
+}
+
+fn extract_merge_pattern_vars(pattern: &crate::ast::Pattern) -> BTreeSet<String> {
+    let mut vars = BTreeSet::new();
+    for el in &pattern.elements {
+        match el {
+            crate::ast::PathElement::Node(n) => {
+                if let Some(v) = &n.variable {
+                    vars.insert(v.clone());
+                }
+            }
+            crate::ast::PathElement::Relationship(r) => {
+                if let Some(v) = &r.variable {
+                    vars.insert(v.clone());
+                }
+            }
+        }
+    }
+    vars
+}
+
+fn compile_merge_set_items(
+    merge_vars: &BTreeSet<String>,
+    set_clauses: Vec<crate::ast::SetClause>,
+) -> Result<Vec<(String, String, Expression)>> {
+    let mut items = Vec::new();
+    for set_clause in set_clauses {
+        for item in set_clause.items {
+            if !merge_vars.contains(&item.property.variable) {
+                return Err(Error::Other(format!(
+                    "MERGE ON CREATE/ON MATCH SET references unknown variable '{}'",
+                    item.property.variable
+                )));
+            }
+            items.push((item.property.variable, item.property.property, item.value));
+        }
+    }
+    Ok(items)
 }
 
 fn compile_with_plan(input: Plan, with: &crate::ast::WithClause) -> Result<Plan> {
