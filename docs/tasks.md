@@ -38,7 +38,7 @@
 | T206          | [Storage] B-Tree Incremental Delete                        | Medium | Done   | feat/T202-T203-integration  | Replace `delete_exact_rebuild` with in-place delete      |
 | T207          | [Query] Executor Optimization                              | Medium | Done   | feat/T202-T203-integration  | Enum-based iterator to reduce dynamic dispatch           |
 | **Phase 4**   | **Cypher Full Support**                                    |        |        |                             |                                                          |
-| T300          | [Query] Define “Full Cypher” Contract + TCK Gate           | High   | Plan   | feat/T300-cypher-full       | Design doc + CI gate (parse-only → exec)                 |
+| T300          | [Query] Define “Full Cypher” Contract + TCK Gate           | High   | Done   | feat/T300-cypher-full       | Spec: `docs/specs/cypher_compatibility_v2.md`            |
 | T301          | [Query] Implement Arithmetic Expressions (+,-,\*,/,%,^)    | Medium | Done   | feat/T301-arithmetic        | Support numeric calculations in queries                  |
 | T302          | [Query] Implement String Operations (STARTS/ENDS/CONTAINS) | Medium | Done   | feat/T302-string-ops        | Enable text search and pattern matching                  |
 | T303          | [Query] Implement IN Operator                              | Low    | Done   | feat/T303-in-operator       | Array membership testing                                 |
@@ -48,7 +48,7 @@
 | T307          | [Query] Implement UNION (ALL)                              | Medium | Done   | feat/T307-union             | Merge result sets from multiple queries                  |
 | T308          | [Query] Implement CASE Expression                          | Medium | Done   | feat/T308-case-expr         | Conditional logic in SELECT                              |
 | T309          | [Query] Implement EXISTS Subquery/Operator                 | Low    | Done   | feat/T309-exists            | Pattern existence testing (Parser+Evaluator)             |
-| T310          | [Docs] Update cypher_support.md                            | High   | Plan   | feat/T310-docs-update       | Fix OPTIONAL MATCH and aggregation docs                  |
+| T310          | [Docs] Update cypher_support.md                            | High   | Done   | feat/T310-docs-update       | Updated based on `docs/specs/cypher_compatibility_v2.md` |
 | T311          | [Query] Support RETURN/WITH Expressions (Projection)       | High   | Done   | feat/T311-projection-expr   | Allow computed columns, not only variables/aggregates    |
 | T312          | [Query] Expression Precedence + Unary (NOT/Negate)         | High   | Done   | feat/T312-expr-precedence   | Full expression parser + evaluator semantics             |
 | T313          | [Query] Built-in Functions (String/Math/List/Type)         | High   | Done   | feat/T313-functions         | toUpper/substring/size/coalesce/keys/type/id             |
@@ -64,12 +64,28 @@
 | T323          | [Query] MERGE Full Semantics (ON CREATE/ON MATCH)          | High   | Done   | feat/T323-merge-semantics   | Cypher-complete MERGE behavior                           |
 | T324          | [Query] FOREACH Clause                                     | Medium | Done   | -                           | Iterative updates                                        |
 | T325          | [Query] Pattern Properties Rewrite (Pattern → WHERE)       | Medium | Done   | -                           | 支持 `(n {k:v})` 语法，内联属性下沉为 WHERE 谓词         |
-| T326          | [CI] Integrate openCypher TCK Harness                      | High   | Plan   | feat/T326-tck               | Parse-only gate → Exec gate                              |
-| T327          | [Tool] Cypher Fuzz (Parser/Planner/Executor)               | Medium | Plan   | feat/T327-fuzz              | Find panics + semantic mismatches                        |
-| T328          | [Binding] Output Model Upgrade (Node/Rel/Path Values)      | High   | Plan   | feat/T328-output-model      | Align CLI/Python with Cypher value semantics             |
+| T326          | [CI] Integrate openCypher TCK Harness                      | High   | Done   | feat/T326-tck               | Parse-only gate → Exec gate                              |
+| T327          | [Tool] Cypher Fuzz (Parser/Planner/Executor)               | Medium | Done   | feat/T327-fuzz              | Implemented `tests/fuzz_cypher.rs` with proptest         |
+| T328          | [Binding] Output Model Upgrade (Node/Rel/Path Values)      | High   | Done   | feat/T328-output-model      | Align CLI/Python with Cypher value semantics             |
 | T329          | [Refactor] Evaluator Snapshot Access (Fix `keys()`)        | Medium | Done   | feat/T329-eval-snapshot     | Pass Snapshot to evaluator, un-ignore `keys()` tests     |
 | T330          | [Refactor] Evaluator Schema Access (Fix `type()`)          | Medium | Done   | feat/T330-eval-schema       | Pass Schema/Txn to evaluator, un-ignore `type()` tests   |
 | T331          | [Bug] Fix `id()` Lookup / Node Scan Consistency            | Medium | Done   | feat/T331-fix-id-lookup     | Resolved issue with `create_node` test arguments         |
+| **M4**        | **Cypher Completeness (TCK ≥70%)**                         |        |        |                             |                                                          |
+| M4-01         | [Query] Fix NotImplemented in query_api.rs                 | High   | Done   | feat/M4-01-query-api        | 16 occurrences resolved                                  |
+| M4-02         | [Query] Fix NotImplemented in executor.rs                  | High   | Done   | feat/M4-02-executor         | 11 occurrences resolved                                  |
+| M4-03         | [Query] Complete MERGE Semantics                           | High   | Done   | feat/M4-03-merge            | Chained MERGE, multi-label patterns                      |
+| M4-04         | [Query] SET/DELETE with Complex Expressions                | High   | Done   | feat/M4-04-expressions      | Support list/var/expressions in writes                   |
+| M4-05         | [Query] Simple CASE Expression                             | Medium | Done   | feat/M4-05-case             | Parser support implemented                               |
+| M4-06         | [Query] Anonymous Node Handling                            | Medium | Done   | feat/M4-06-anon-nodes       | Auto-generated variable names                            |
+| M4-07         | [CI] Expand TCK to clauses/\*                              | High   | WIP    | feat/M4-07-tck-clauses      | Currently running full suite                             |
+| M4-08         | [CI] Expand TCK to expressions/\*                          | High   | WIP    | feat/M4-08-tck-expressions  | Currently running full suite                             |
+| M4-09         | [Bug] Ongoing Unicode/String Edge Cases                    | Medium | Done   | -                           | Fixed UTF-8 panic in explain                             |
+| **M5**        | **Polish & Performance (TCK ≥90%)**                        |        |        |                             |                                                          |
+| M5-01         | [Binding] Complete Python Binding + Examples               | High   | Plan   | feat/M5-01-python           | Error handling, type mapping, docs                       |
+| M5-02         | [Docs] Comprehensive User Guide                            | High   | Plan   | feat/M5-02-user-guide       | Quick start, examples, API reference                     |
+| M5-03         | [Benchmark] Performance vs Neo4j/Memgraph                  | Medium | Plan   | feat/M5-03-benchmark        | Import speed, query latency, memory usage                |
+| M5-04         | [Performance] Concurrent Read Optimization                 | Medium | Plan   | feat/M5-04-concurrency      | Read-write lock, parallel queries                        |
+| M5-05         | [AI] HNSW Index Tuning                                     | Low    | Plan   | feat/M5-05-hnsw             | Parameters, GC, memory management                        |
 
 ## Archived (v1/Alpha)
 

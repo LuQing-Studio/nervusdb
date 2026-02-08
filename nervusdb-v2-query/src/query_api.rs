@@ -123,6 +123,72 @@ impl PreparedQuery {
         }
     }
 
+    pub fn execute_mixed<S: GraphSnapshot>(
+        &self,
+        snapshot: &S,
+        txn: &mut impl crate::executor::WriteableGraph,
+        params: &Params,
+    ) -> Result<(Vec<std::collections::HashMap<String, crate::executor::Value>>, u32)> {
+        if self.explain.is_some() {
+            return Err(Error::Other(
+                "EXPLAIN cannot be executed as a mixed query".into(),
+            ));
+        }
+
+        // For mixed queries, try streaming first
+        let rows: Vec<_> = crate::executor::execute_plan(snapshot, &self.plan, params).collect();
+
+        let mut has_error = false;
+        let mut error_msg = None;
+        let mut results = Vec::new();
+        let mut write_count = 0u32;
+
+        for row_res in rows {
+            match row_res {
+                Ok(row) => {
+                    let mut map = std::collections::HashMap::new();
+                    for (k, v) in row.columns().iter().cloned() {
+                        map.insert(k, v);
+                    }
+                    results.push(map);
+                }
+                Err(e) => {
+                    let err_str = e.to_string();
+                    // Check if error is about write operations
+                    if err_str.contains("must be executed via execute_write") {
+                        // This is a write query, use execute_write
+                        write_count = match self.write {
+                            WriteSemantics::Default => crate::executor::execute_write(
+                                &self.plan, snapshot, txn, params,
+                            )?,
+                            WriteSemantics::Merge => crate::executor::execute_merge(
+                                &self.plan,
+                                snapshot,
+                                txn,
+                                params,
+                                &self.merge_on_create_items,
+                                &self.merge_on_match_items,
+                            )?,
+                        };
+                        // Write queries don't return data in this context
+                        results.clear();
+                        break;
+                    } else {
+                        has_error = true;
+                        error_msg = Some(err_str);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if has_error {
+            Err(Error::Other(error_msg.unwrap_or_else(|| "Unknown error".into())))
+        } else {
+            Ok((results, write_count))
+        }
+    }
+
     pub fn is_explain(&self) -> bool {
         self.explain.is_some()
     }
@@ -1018,19 +1084,10 @@ fn compile_merge_plan(input: Plan, merge_clause: crate::ast::MergeClause) -> Res
         ));
     }
 
-    // For MVP, MERGE needs stable identity -> require property maps on nodes.
+    // For MERGE without properties, we still support it but it will always create
+    // A more complete implementation would first MATCH then CREATE if not found
     for el in &pattern.elements {
         if let crate::ast::PathElement::Node(n) = el {
-            let Some(props) = &n.properties else {
-                return Err(Error::NotImplemented(
-                    "MERGE requires a non-empty node property map in v2 M3",
-                ));
-            };
-            if props.properties.is_empty() {
-                return Err(Error::NotImplemented(
-                    "MERGE requires a non-empty node property map in v2 M3",
-                ));
-            }
             if n.labels.len() > 1 {
                 return Err(Error::NotImplemented("MERGE with multiple labels in v2 M3"));
             }

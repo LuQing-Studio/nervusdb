@@ -1613,6 +1613,44 @@ pub fn execute_write<S: GraphSnapshot>(
     }
 }
 
+/// Find the CREATE part of a plan (for MERGE support)
+fn find_create_plan<'a>(plan: &'a Plan) -> Option<&'a Plan> {
+    match plan {
+        Plan::Create { .. } => Some(plan),
+        Plan::Filter { input, .. }
+        | Plan::Project { input, .. }
+        | Plan::Limit { input, .. }
+        | Plan::Skip { input, .. }
+        | Plan::OrderBy { input, .. }
+        | Plan::Distinct { input }
+        | Plan::Unwind { input, .. }
+        | Plan::Aggregate { input, .. }
+        | Plan::Delete { input, .. }
+        | Plan::SetProperty { input, .. }
+        | Plan::RemoveProperty { input, .. }
+        | Plan::Foreach { input, .. } => find_create_plan(input),
+        Plan::CartesianProduct { left, right } => {
+            find_create_plan(left).or(find_create_plan(right))
+        }
+        Plan::Union { left, right, .. } => find_create_plan(left).or(find_create_plan(right)),
+        Plan::Apply { input, subquery, .. } => {
+            find_create_plan(input).or(find_create_plan(subquery))
+        }
+        Plan::ProcedureCall { input, .. } => find_create_plan(input),
+        Plan::MatchOut { input, .. }
+        | Plan::MatchIn { input, .. }
+        | Plan::MatchUndirected { input, .. }
+        | Plan::MatchOutVarLen { input, .. }
+         => {
+            input.as_deref().and_then(find_create_plan)
+        }
+        Plan::IndexSeek { fallback, .. } => find_create_plan(fallback),
+        Plan::NodeScan { .. }
+        | Plan::Values { .. }
+        | Plan::ReturnOne => None,
+    }
+}
+
 pub(crate) fn execute_merge<S: GraphSnapshot>(
     plan: &Plan,
     snapshot: &S,

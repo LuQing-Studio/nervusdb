@@ -78,7 +78,10 @@ impl Db {
         for row in rows {
             let mut row_map = HashMap::new();
             for (col, val) in row.columns() {
-                row_map.insert(col.clone(), value_to_py(val.clone(), py));
+                let reified = val
+                    .reify(&snapshot)
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+                row_map.insert(col.clone(), value_to_py(reified, py));
             }
             result.push(row_map);
         }
