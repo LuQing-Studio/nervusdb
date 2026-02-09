@@ -220,7 +220,9 @@ fn run_v2_query(args: V2QueryArgs) -> Result<(), String> {
                 let row = row.map_err(|e| e.to_string())?;
                 let mut map = serde_json::Map::with_capacity(row.columns().len());
                 for (k, v) in row.columns() {
-                    map.insert(k.clone(), value_to_json_v2(&graph_snap, v));
+                    // Reify the value to resolve IDs to full objects
+                    let reified = v.reify(&graph_snap).map_err(|e| e.to_string())?;
+                    map.insert(k.clone(), value_to_json_v2(&graph_snap, &reified));
                 }
                 serde_json::to_writer(&mut stdout, &serde_json::Value::Object(map))
                     .map_err(|e| e.to_string())?;

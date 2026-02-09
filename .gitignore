@@ -58,3 +58,9 @@ repomix-output.xml
 repomix-output.md
 bindings/node/*.tgz
 .husky/
+
+# Test results
+tck_results.txt
+
+# Local generated artifacts
+artifacts/

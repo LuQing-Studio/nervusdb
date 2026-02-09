@@ -1,21 +1,32 @@
-use nervusdb_v2_api::InternalNodeId;
 use nervusdb_v2_query::Value;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use std::collections::BTreeMap;
 
 #[pyclass]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Node {
     #[pyo3(get)]
     pub id: u64,
     #[pyo3(get)]
     pub labels: Vec<String>,
-    #[pyo3(get)]
     pub properties: BTreeMap<String, PyObject>,
 }
 
+#[pymethods]
+impl Node {
+    #[getter]
+    fn properties(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let dict = PyDict::new_bound(py);
+        for (k, v) in &self.properties {
+            dict.set_item(k, v.clone_ref(py))?;
+        }
+        Ok(dict.into())
+    }
+}
+
 #[pyclass]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Relationship {
     #[pyo3(get)]
     pub id: Option<u64>,
@@ -25,17 +36,65 @@ pub struct Relationship {
     pub end_node_id: u64,
     #[pyo3(get)]
     pub rel_type: String,
-    #[pyo3(get)]
     pub properties: BTreeMap<String, PyObject>,
 }
 
+#[pymethods]
+impl Relationship {
+    #[getter]
+    fn properties(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let dict = PyDict::new_bound(py);
+        for (k, v) in &self.properties {
+            dict.set_item(k, v.clone_ref(py))?;
+        }
+        Ok(dict.into())
+    }
+}
+
 #[pyclass]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Path {
-    #[pyo3(get)]
     pub nodes: Vec<Node>,
-    #[pyo3(get)]
     pub relationships: Vec<Relationship>,
+}
+
+#[pymethods]
+impl Path {
+    #[getter]
+    fn nodes(&self, py: Python<'_>) -> PyResult<Vec<Node>> {
+        let mut out = Vec::new();
+        for n in &self.nodes {
+            let mut props = BTreeMap::new();
+            for (k, v) in &n.properties {
+                props.insert(k.clone(), v.clone_ref(py));
+            }
+            out.push(Node {
+                id: n.id,
+                labels: n.labels.clone(),
+                properties: props,
+            });
+        }
+        Ok(out)
+    }
+
+    #[getter]
+    fn relationships(&self, py: Python<'_>) -> PyResult<Vec<Relationship>> {
+        let mut out = Vec::new();
+        for r in &self.relationships {
+            let mut props = BTreeMap::new();
+            for (k, v) in &r.properties {
+                props.insert(k.clone(), v.clone_ref(py));
+            }
+            out.push(Relationship {
+                id: r.id,
+                start_node_id: r.start_node_id,
+                end_node_id: r.end_node_id,
+                rel_type: r.rel_type.clone(),
+                properties: props,
+            });
+        }
+        Ok(out)
+    }
 }
 
 /// Convert a generic Python object to a NervusDB Value.
@@ -111,7 +170,7 @@ pub fn value_to_py(val: Value, py: Python<'_>) -> Py<PyAny> {
                 props.insert(k, value_to_py(v, py));
             }
             Node {
-                id: n.id.0,
+                id: n.id as u64,
                 labels: n.labels,
                 properties: props,
             }
@@ -123,9 +182,9 @@ pub fn value_to_py(val: Value, py: Python<'_>) -> Py<PyAny> {
                 props.insert(k, value_to_py(v, py));
             }
             Relationship {
-                id: r.id.map(|k| k.src ^ k.dst ^ 0x0102030405060708), // Dummy stable ID for now
-                start_node_id: r.start.0,
-                end_node_id: r.end.0,
+                id: Some((r.key.src as u64) ^ (r.key.dst as u64) ^ 0x0102030405060708), // Dummy stable ID
+                start_node_id: r.key.src as u64,
+                end_node_id: r.key.dst as u64,
                 rel_type: r.rel_type,
                 properties: props,
             }
@@ -141,7 +200,7 @@ pub fn value_to_py(val: Value, py: Python<'_>) -> Py<PyAny> {
                         props.insert(k, value_to_py(v, py));
                     }
                     Node {
-                        id: n.id.0,
+                        id: n.id as u64,
                         labels: n.labels,
                         properties: props,
                     }
@@ -156,9 +215,9 @@ pub fn value_to_py(val: Value, py: Python<'_>) -> Py<PyAny> {
                         props.insert(k, value_to_py(v, py));
                     }
                     Relationship {
-                        id: r.id.map(|k| k.src ^ k.dst ^ 0x0102030405060708),
-                        start_node_id: r.start.0,
-                        end_node_id: r.end.0,
+                        id: Some((r.key.src as u64) ^ (r.key.dst as u64) ^ 0x0102030405060708),
+                        start_node_id: r.key.src as u64,
+                        end_node_id: r.key.dst as u64,
                         rel_type: r.rel_type,
                         properties: props,
                     }
@@ -170,7 +229,7 @@ pub fn value_to_py(val: Value, py: Python<'_>) -> Py<PyAny> {
             }
             .into_py(py)
         }
-        Value::NodeId(id) => id.0.into_py(py),
+        Value::NodeId(id) => (id as u64).into_py(py),
         Value::EdgeKey(key) => format!("{key:?}").into_py(py),
         Value::Path(p) => {
             // Deprecated Path representation, but let's keep it for compatibility if needed
@@ -179,7 +238,7 @@ pub fn value_to_py(val: Value, py: Python<'_>) -> Py<PyAny> {
                 "nodes".to_string(),
                 p.nodes
                     .iter()
-                    .map(|id| id.0)
+                    .map(|id| *id as u64)
                     .collect::<Vec<_>>()
                     .into_py(py),
             );
