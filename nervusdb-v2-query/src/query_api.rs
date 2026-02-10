@@ -1184,6 +1184,43 @@ fn compile_return_plan(input: Plan, ret: &crate::ast::ReturnClause) -> Result<(P
     Ok((plan, project_cols))
 }
 
+fn expression_alias_fragment(expr: &Expression) -> String {
+    match expr {
+        Expression::Variable(name) => name.clone(),
+        Expression::PropertyAccess(pa) => format!("{}.{}", pa.variable, pa.property),
+        Expression::Literal(Literal::String(s)) if s == "*" => "*".to_string(),
+        Expression::Literal(Literal::Number(n)) => n.to_string(),
+        Expression::Literal(Literal::Boolean(b)) => b.to_string(),
+        Expression::Literal(Literal::String(s)) => format!("'{}'", s),
+        _ => "...".to_string(),
+    }
+}
+
+fn default_aggregate_alias(call: &crate::ast::FunctionCall, index: usize) -> String {
+    let name = call.name.to_lowercase();
+    if call.args.is_empty() {
+        return format!("{}()", name);
+    }
+
+    if call.args.len() == 1 {
+        return format!("{}({})", name, expression_alias_fragment(&call.args[0]));
+    }
+
+    let args = call
+        .args
+        .iter()
+        .map(expression_alias_fragment)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let alias = format!("{}({})", name, args);
+
+    if alias.len() > 80 {
+        format!("agg_{}", index)
+    } else {
+        alias
+    }
+}
+
 fn compile_projection_aggregation(
     input: Plan,
     items: &[crate::ast::ReturnItem],
@@ -1235,7 +1272,10 @@ fn compile_projection_aggregation(
         {
             found_agg = true;
             is_aggregation = true;
-            let alias = item.alias.clone().unwrap_or_else(|| format!("agg_{}", i));
+            let alias = item
+                .alias
+                .clone()
+                .unwrap_or_else(|| default_aggregate_alias(call, i));
             aggregates.push((agg, alias.clone()));
             project_cols.push(alias);
 

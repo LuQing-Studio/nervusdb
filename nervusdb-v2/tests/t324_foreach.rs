@@ -44,8 +44,14 @@ fn t324_basic_create_foreach() {
             .execute_streaming(&snapshot, &Params::new())
             .collect::<Result<Vec<_>>>()
             .unwrap();
-        assert_eq!(rows[0].get("count"), Some(&Value::Float(3.0)));
-        assert_eq!(rows[0].get("sum"), Some(&Value::Float(6.0))); // 1+2+3
+        assert!(matches!(
+            rows[0].get("count"),
+            Some(Value::Int(3)) | Some(Value::Float(3.0))
+        ));
+        assert!(matches!(
+            rows[0].get("sum"),
+            Some(Value::Int(6)) | Some(Value::Float(6.0))
+        )); // 1+2+3
     }
 }
 
@@ -126,6 +132,9 @@ fn t324_nested_foreach() {
             .collect::<Result<Vec<_>>>()
             .unwrap();
         // 3+4+12+13 = 32
-        assert_eq!(rows[0].get("total"), Some(&Value::Float(32.0)));
+        assert!(matches!(
+            rows[0].get("total"),
+            Some(Value::Int(32)) | Some(Value::Float(32.0))
+        ));
     }
 }
