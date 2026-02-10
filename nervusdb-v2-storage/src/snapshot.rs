@@ -520,7 +520,6 @@ pub struct NeighborsIter {
     current_segment_edges: Vec<EdgeKey>,
     blocked_nodes: HashSet<InternalNodeId>,
     blocked_edges: HashSet<EdgeKey>,
-    seen_edges: HashSet<EdgeKey>,
     terminated: bool,
 }
 
@@ -545,7 +544,6 @@ impl NeighborsIter {
             current_segment_edges: Vec::with_capacity(16),
             blocked_nodes: HashSet::with_capacity(base_cap),
             blocked_edges: HashSet::with_capacity(base_cap),
-            seen_edges: HashSet::with_capacity(base_cap),
             terminated: false,
         }
     }
@@ -624,10 +622,6 @@ impl Iterator for NeighborsIter {
                     continue;
                 }
 
-                if !self.seen_edges.insert(edge) {
-                    continue;
-                }
-
                 return Some(edge);
             }
 
@@ -648,10 +642,6 @@ impl Iterator for NeighborsIter {
                 continue;
             }
 
-            if !self.seen_edges.insert(edge) {
-                continue;
-            }
-
             return Some(edge);
         }
     }
@@ -669,7 +659,6 @@ pub struct IncomingNeighborsIter {
     current_segment_edges: Vec<EdgeKey>,
     blocked_nodes: HashSet<InternalNodeId>,
     blocked_edges: HashSet<EdgeKey>,
-    seen_edges: HashSet<EdgeKey>,
     terminated: bool,
 }
 
@@ -694,7 +683,6 @@ impl IncomingNeighborsIter {
             current_segment_edges: Vec::with_capacity(16),
             blocked_nodes: HashSet::with_capacity(base_cap),
             blocked_edges: HashSet::with_capacity(base_cap),
-            seen_edges: HashSet::with_capacity(base_cap),
             terminated: false,
         }
     }
@@ -772,10 +760,6 @@ impl Iterator for IncomingNeighborsIter {
                     continue;
                 }
 
-                if !self.seen_edges.insert(edge) {
-                    continue;
-                }
-
                 return Some(edge);
             }
 
@@ -793,10 +777,6 @@ impl Iterator for IncomingNeighborsIter {
             }
 
             if self.blocked_edges.contains(&edge) {
-                continue;
-            }
-
-            if !self.seen_edges.insert(edge) {
                 continue;
             }
 

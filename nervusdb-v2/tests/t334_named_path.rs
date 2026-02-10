@@ -70,3 +70,34 @@ fn test_parse_named_path_with_undirected_fixed_varlen() {
         prepared.err()
     );
 }
+
+#[test]
+fn test_named_path_undirected_fixed_varlen_returns_four_routes() {
+    let dir = tempdir().unwrap();
+    let db = Db::open(dir.path()).unwrap();
+    let snapshot = db.snapshot();
+
+    let seed = prepare(
+        "CREATE (db1:Start), (db2:End), (mid), (other)          CREATE (mid)-[:CONNECTED_TO]->(db1),                 (mid)-[:CONNECTED_TO]->(db2),                 (mid)-[:CONNECTED_TO]->(db2),                 (mid)-[:CONNECTED_TO]->(other),                 (mid)-[:CONNECTED_TO]->(other)",
+    )
+    .unwrap();
+    let mut txn = db.begin_write();
+    seed.execute_write(&snapshot, &mut txn, &Params::new())
+        .unwrap();
+    txn.commit().unwrap();
+
+    let query = prepare(
+        "MATCH topRoute = (:Start)<-[:CONNECTED_TO]-()-[:CONNECTED_TO*3..3]-(:End) RETURN topRoute",
+    )
+    .unwrap();
+
+    let snapshot = db.snapshot();
+    let rows: Vec<_> = query.execute_streaming(&snapshot, &Params::new()).collect();
+
+    assert_eq!(
+        rows.len(),
+        4,
+        "expected 4 routes from parallel edge combinations"
+    );
+    assert!(rows.iter().all(|r| r.is_ok()), "all rows should succeed");
+}
