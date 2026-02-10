@@ -578,7 +578,6 @@ fn build_segment_from_runs(seg_id: SegmentId, runs: &Arc<Vec<Arc<L0Run>>>) -> Cs
 
     let mut blocked_nodes: HashSet<InternalNodeId> = HashSet::new();
     let mut blocked_edges: HashSet<crate::snapshot::EdgeKey> = HashSet::new();
-    let mut seen_edges: HashSet<crate::snapshot::EdgeKey> = HashSet::new();
     let mut edges: Vec<crate::snapshot::EdgeKey> = Vec::new();
 
     for run in runs.iter() {
@@ -590,9 +589,6 @@ fn build_segment_from_runs(seg_id: SegmentId, runs: &Arc<Vec<Arc<L0Run>>>) -> Cs
                 continue;
             }
             if blocked_edges.contains(&e) {
-                continue;
-            }
-            if !seen_edges.insert(e) {
                 continue;
             }
             edges.push(e);

@@ -810,11 +810,32 @@ fn row_contains_all_bindings(candidate: &Row, outer: &Row) -> bool {
         .all(|(key, value)| candidate.get(key).is_some_and(|v| v == value))
 }
 
-fn path_alias_contains_edge(row: &Row, path_alias: Option<&str>, edge: EdgeKey) -> bool {
+fn edge_multiplicity<S: GraphSnapshot>(snapshot: &S, edge: EdgeKey) -> usize {
+    let count = snapshot
+        .neighbors(edge.src, Some(edge.rel))
+        .filter(|candidate| candidate.dst == edge.dst)
+        .count();
+    count.max(1)
+}
+
+fn path_alias_contains_edge<S: GraphSnapshot>(
+    snapshot: &S,
+    row: &Row,
+    path_alias: Option<&str>,
+    edge: EdgeKey,
+) -> bool {
     if let Some(alias) = path_alias
         && let Some(Value::Path(path)) = row.get(alias)
     {
-        return path.edges.contains(&edge);
+        let used = path
+            .edges
+            .iter()
+            .filter(|existing| **existing == edge)
+            .count();
+        if used == 0 {
+            return false;
+        }
+        return used >= edge_multiplicity(snapshot, edge);
     }
     false
 }
@@ -1301,7 +1322,12 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
                         let dst_label_constraint = dst_label_constraint.clone();
 
                         let mapped = candidates.filter_map(move |edge| {
-                            if path_alias_contains_edge(&row_for_map, path_alias.as_deref(), edge) {
+                            if path_alias_contains_edge(
+                                snapshot,
+                                &row_for_map,
+                                path_alias.as_deref(),
+                                edge,
+                            ) {
                                 return None;
                             }
                             if !row_matches_node_binding(&row_for_map, &dst_alias_binding, edge.src)
@@ -1414,7 +1440,12 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
                     if let Some(rids) = &rel_ids {
                         for rid in rids {
                             for edge in snapshot.neighbors(src_iid, Some(*rid)) {
-                                if path_alias_contains_edge(&row, path_alias.as_deref(), edge) {
+                                if path_alias_contains_edge(
+                                    snapshot,
+                                    &row,
+                                    path_alias.as_deref(),
+                                    edge,
+                                ) {
                                     continue;
                                 }
                                 if !row_matches_node_binding(&row, &dst_alias, edge.dst) {
@@ -1438,7 +1469,12 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
                                 rows.push(Ok(new_row));
                             }
                             for edge in snapshot.incoming_neighbors_erased(src_iid, Some(*rid)) {
-                                if path_alias_contains_edge(&row, path_alias.as_deref(), edge) {
+                                if path_alias_contains_edge(
+                                    snapshot,
+                                    &row,
+                                    path_alias.as_deref(),
+                                    edge,
+                                ) {
                                     continue;
                                 }
                                 if edge.src == edge.dst {
@@ -1467,7 +1503,8 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
                         }
                     } else {
                         for edge in snapshot.neighbors(src_iid, None) {
-                            if path_alias_contains_edge(&row, path_alias.as_deref(), edge) {
+                            if path_alias_contains_edge(snapshot, &row, path_alias.as_deref(), edge)
+                            {
                                 continue;
                             }
                             if !row_matches_node_binding(&row, &dst_alias, edge.dst) {
@@ -1491,7 +1528,8 @@ pub fn execute_plan<'a, S: GraphSnapshot + 'a>(
                             rows.push(Ok(new_row));
                         }
                         for edge in snapshot.incoming_neighbors_erased(src_iid, None) {
-                            if path_alias_contains_edge(&row, path_alias.as_deref(), edge) {
+                            if path_alias_contains_edge(snapshot, &row, path_alias.as_deref(), edge)
+                            {
                                 continue;
                             }
                             if edge.src == edge.dst {
@@ -3713,13 +3751,27 @@ impl<'a, S: GraphSnapshot + 'a> Iterator for MatchOutVarLenIter<'a, S> {
             {
                 // Expand
                 if depth < max_hops {
-                    let push_edge =
+                    let mut emitted_per_edge: HashMap<EdgeKey, usize> = HashMap::new();
+                    let mut push_edge =
                         |edge: EdgeKey,
                          next_node: InternalNodeId,
                          stack: &mut Vec<VarLenStackItem>| {
-                            if used_edges.contains(&edge) {
+                            let used_count = used_edges
+                                .iter()
+                                .filter(|existing| **existing == edge)
+                                .count();
+                            let total_count = edge_multiplicity(self.snapshot, edge);
+                            if used_count >= total_count {
                                 return;
                             }
+
+                            let remaining = total_count - used_count;
+                            let already_emitted = emitted_per_edge.entry(edge).or_insert(0);
+                            if *already_emitted >= remaining {
+                                return;
+                            }
+                            *already_emitted += 1;
+
                             let mut next_path = current_path.clone();
                             if self.path_alias.is_some() {
                                 if let Some(p) = &mut next_path {
@@ -4140,7 +4192,12 @@ impl<'a, S: GraphSnapshot + 'a> Iterator for ExpandIter<'a, S> {
 
             let edges = self.cur_edges.as_mut().unwrap();
             if let Some(edge) = edges.next() {
-                if path_alias_contains_edge(self.cur_row.as_ref().unwrap(), self.path_alias, edge) {
+                if path_alias_contains_edge(
+                    self.snapshot,
+                    self.cur_row.as_ref().unwrap(),
+                    self.path_alias,
+                    edge,
+                ) {
                     continue;
                 }
                 if !row_matches_node_binding(
