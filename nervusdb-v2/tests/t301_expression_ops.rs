@@ -150,7 +150,11 @@ fn test_string_ops_in_and_count_star() -> nervusdb_v2::Result<()> {
             .execute_streaming(&snapshot, &Params::default())
             .collect::<Result<Vec<_>, _>>()?;
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].get("agg_0"), Some(&Value::Float(2.0)));
+        let count = rows[0].get("count(*)").or_else(|| rows[0].get("agg_0"));
+        assert!(matches!(
+            count,
+            Some(Value::Int(2)) | Some(Value::Float(2.0))
+        ));
     }
 
     Ok(())

@@ -90,8 +90,10 @@ fn test_aggregation_functions() -> nervusdb_v2::Result<()> {
         for row in results {
             let n_node = row.get("n").unwrap();
             let count = row
-                .get("count_1")
-                .unwrap_or_else(|| row.get("agg_1").unwrap());
+                .get("count(friend)")
+                .or_else(|| row.get("count_1"))
+                .or_else(|| row.get("agg_1"))
+                .unwrap();
 
             if let Value::NodeId(id) = n_node {
                 let name_val = snapshot.node_property(*id, "name").unwrap();
@@ -102,9 +104,9 @@ fn test_aggregation_functions() -> nervusdb_v2::Result<()> {
                 };
 
                 if name == "A" {
-                    assert_eq!(*count, Value::Float(3.0));
+                    assert!(matches!(*count, Value::Int(3) | Value::Float(3.0)));
                 } else if name == "X" {
-                    assert_eq!(*count, Value::Float(1.0));
+                    assert!(matches!(*count, Value::Int(1) | Value::Float(1.0)));
                 }
             }
         }
@@ -122,11 +124,15 @@ fn test_aggregation_functions() -> nervusdb_v2::Result<()> {
         for row in results {
             let n_node = row.get("n").unwrap();
             let min_age = row
-                .get("min_1")
-                .unwrap_or_else(|| row.get("agg_1").unwrap());
+                .get("min(friend.age)")
+                .or_else(|| row.get("min_1"))
+                .or_else(|| row.get("agg_1"))
+                .unwrap();
             let max_age = row
-                .get("max_2")
-                .unwrap_or_else(|| row.get("agg_2").unwrap());
+                .get("max(friend.age)")
+                .or_else(|| row.get("max_2"))
+                .or_else(|| row.get("agg_2"))
+                .unwrap();
 
             if let Value::NodeId(id) = n_node {
                 let name_val = snapshot.node_property(*id, "name").unwrap();
@@ -156,8 +162,10 @@ fn test_aggregation_functions() -> nervusdb_v2::Result<()> {
         for row in results {
             let n_node = row.get("n").unwrap();
             let ages_val = row
-                .get("collect_1")
-                .unwrap_or_else(|| row.get("agg_1").unwrap());
+                .get("collect(friend.age)")
+                .or_else(|| row.get("collect_1"))
+                .or_else(|| row.get("agg_1"))
+                .unwrap();
 
             if let Value::NodeId(id) = n_node {
                 let name_val = snapshot.node_property(*id, "name").unwrap();

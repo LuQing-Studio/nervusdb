@@ -4019,7 +4019,7 @@ fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
                 let value = match func {
                     AggregateFunction::Count(None) => {
                         // COUNT(*)
-                        Value::Float(rows.len() as f64)
+                        Value::Int(rows.len() as i64)
                     }
                     AggregateFunction::Count(Some(expr)) => {
                         // COUNT(expr) - count non-null values
@@ -4032,20 +4032,32 @@ fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
                                 )
                             })
                             .count();
-                        Value::Float(count as f64)
+                        Value::Int(count as i64)
                     }
                     AggregateFunction::Sum(expr) => {
-                        let sum: f64 = rows
-                            .iter()
-                            .filter_map(|r| {
-                                match evaluate_expression_value(expr, r, snapshot, params) {
-                                    Value::Float(f) => Some(f),
-                                    Value::Int(i) => Some(i as f64),
-                                    _ => None,
+                        let mut saw_float = false;
+                        let mut int_sum: i128 = 0;
+                        let mut float_sum: f64 = 0.0;
+
+                        for row in &rows {
+                            match evaluate_expression_value(expr, row, snapshot, params) {
+                                Value::Int(i) => {
+                                    int_sum += i as i128;
+                                    float_sum += i as f64;
                                 }
-                            })
-                            .sum();
-                        Value::Float(sum)
+                                Value::Float(f) => {
+                                    saw_float = true;
+                                    float_sum += f;
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        if saw_float {
+                            Value::Float(float_sum)
+                        } else {
+                            Value::Int(int_sum as i64)
+                        }
                     }
                     AggregateFunction::Avg(expr) => {
                         let values: Vec<f64> = rows
