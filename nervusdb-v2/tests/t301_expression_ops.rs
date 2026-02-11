@@ -161,6 +161,55 @@ fn test_string_ops_in_and_count_star() -> nervusdb_v2::Result<()> {
 }
 
 #[test]
+fn test_in_operator_null_semantics_for_nested_lists() -> nervusdb_v2::Result<()> {
+    let dir = tempdir()?;
+    let db = Db::open(dir.path().join("t301_in_nulls.ndb"))?;
+    let snapshot = db.snapshot();
+
+    let q = "RETURN [1, null] IN [[1, null]] AS same_with_null, \
+             [] IN [1, 2, null] AS empty_vs_null_tail, \
+             [1, null] IN [[1, 2], null] AS needs_null_cmp, \
+             [1, 2] IN [[1, null], [1, 2]] AS true_beats_null";
+    let rows: Vec<_> = nervusdb_v2::query::prepare(q)?
+        .execute_streaming(&snapshot, &Params::default())
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(rows.len(), 1);
+    assert!(matches!(rows[0].get("same_with_null"), Some(Value::Null)));
+    assert!(matches!(
+        rows[0].get("empty_vs_null_tail"),
+        Some(Value::Null)
+    ));
+    assert!(matches!(rows[0].get("needs_null_cmp"), Some(Value::Null)));
+    assert!(matches!(
+        rows[0].get("true_beats_null"),
+        Some(Value::Bool(true))
+    ));
+
+    Ok(())
+}
+
+#[test]
+fn test_in_operator_rejects_non_list_literal_rhs_at_compile_time() {
+    let cases = [
+        "RETURN 1 IN true AS r",
+        "RETURN 1 IN 123 AS r",
+        "RETURN 1 IN 123.4 AS r",
+        "RETURN 1 IN 'foo' AS r",
+        "RETURN 1 IN {x: []} AS r",
+    ];
+
+    for query in cases {
+        let err = nervusdb_v2::query::prepare(query)
+            .expect_err("prepare should reject non-list literal rhs")
+            .to_string();
+        assert!(
+            err.contains("InvalidArgumentType"),
+            "unexpected compile error for `{query}`: {err}"
+        );
+    }
+}
+
+#[test]
 fn test_comparison_list_and_map_null_semantics() -> nervusdb_v2::Result<()> {
     let dir = tempdir()?;
     let db = Db::open(dir.path().join("t301_cmp_nulls.ndb"))?;

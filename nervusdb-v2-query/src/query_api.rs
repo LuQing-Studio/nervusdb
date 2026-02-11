@@ -999,6 +999,15 @@ fn is_definitely_non_boolean(expr: &Expression) -> bool {
     }
 }
 
+fn is_definitely_non_list_literal(expr: &Expression) -> bool {
+    matches!(
+        expr,
+        Expression::Literal(
+            Literal::Boolean(_) | Literal::Integer(_) | Literal::Float(_) | Literal::String(_)
+        ) | Expression::Map(_)
+    )
+}
+
 fn validate_expression_types(expr: &Expression) -> Result<()> {
     match expr {
         Expression::Unary(u) => {
@@ -1015,6 +1024,12 @@ fn validate_expression_types(expr: &Expression) -> Result<()> {
         Expression::Binary(b) => {
             validate_expression_types(&b.left)?;
             validate_expression_types(&b.right)?;
+            if matches!(b.operator, BinaryOperator::In) && is_definitely_non_list_literal(&b.right)
+            {
+                return Err(Error::Other(
+                    "syntax error: InvalidArgumentType".to_string(),
+                ));
+            }
             if matches!(
                 b.operator,
                 BinaryOperator::And | BinaryOperator::Or | BinaryOperator::Xor
