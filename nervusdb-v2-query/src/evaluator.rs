@@ -2448,7 +2448,22 @@ where
 fn in_list(left: &Value, right: &Value) -> Value {
     match (left, right) {
         (Value::Null, _) | (_, Value::Null) => Value::Null,
-        (l, Value::List(items)) => Value::Bool(items.contains(l)),
+        (l, Value::List(items)) => {
+            let mut saw_null = false;
+            for item in items {
+                match cypher_equals(l, item) {
+                    Value::Bool(true) => return Value::Bool(true),
+                    Value::Bool(false) => {}
+                    Value::Null => saw_null = true,
+                    _ => saw_null = true,
+                }
+            }
+            if saw_null {
+                Value::Null
+            } else {
+                Value::Bool(false)
+            }
+        }
         _ => Value::Null,
     }
 }
