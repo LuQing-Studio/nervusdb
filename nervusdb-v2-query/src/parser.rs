@@ -839,11 +839,7 @@ impl TokenParser {
                 self.consume(&TokenType::Null, "Expected NULL after IS")?;
                 BinaryOperator::IsNull
             };
-            lhs = Expression::Binary(Box::new(BinaryExpression {
-                left: lhs,
-                operator: op,
-                right: Expression::Literal(Literal::Null),
-            }));
+            lhs = Self::binary_expr(lhs, op, Expression::Literal(Literal::Null));
         }
 
         loop {
@@ -861,14 +857,57 @@ impl TokenParser {
             }
 
             let rhs = self.parse_expression_bp(rbp)?;
-            lhs = Expression::Binary(Box::new(BinaryExpression {
-                left: lhs,
-                operator: op,
-                right: rhs,
-            }));
+            if Self::is_chainable_comparison_operator(&op) {
+                // Comparison chains are equivalent to pairwise comparisons joined by AND:
+                // a < b <= c     => (a < b) AND (b <= c)
+                // a < b = c <> d => (a < b) AND (b = c) AND (c <> d)
+                let mut combined = Self::binary_expr(lhs, op, rhs.clone());
+                let mut chain_left = rhs;
+
+                while let Some((next_op, next_lbp, next_rbp, next_needs_with)) =
+                    self.peek_infix_operator()
+                {
+                    if next_lbp != lbp || !Self::is_chainable_comparison_operator(&next_op) {
+                        break;
+                    }
+                    self.advance();
+                    if next_needs_with {
+                        self.consume(&TokenType::With, "Expected WITH after STARTS/ENDS")?;
+                    }
+                    let next_rhs = self.parse_expression_bp(next_rbp)?;
+                    let chained_cmp = Self::binary_expr(chain_left, next_op, next_rhs.clone());
+                    combined = Self::binary_expr(combined, BinaryOperator::And, chained_cmp);
+                    chain_left = next_rhs;
+                }
+
+                lhs = combined;
+                continue;
+            }
+
+            lhs = Self::binary_expr(lhs, op, rhs);
         }
 
         Ok(lhs)
+    }
+
+    fn binary_expr(left: Expression, operator: BinaryOperator, right: Expression) -> Expression {
+        Expression::Binary(Box::new(BinaryExpression {
+            left,
+            operator,
+            right,
+        }))
+    }
+
+    fn is_chainable_comparison_operator(op: &BinaryOperator) -> bool {
+        matches!(
+            op,
+            BinaryOperator::Equals
+                | BinaryOperator::NotEquals
+                | BinaryOperator::LessThan
+                | BinaryOperator::LessEqual
+                | BinaryOperator::GreaterThan
+                | BinaryOperator::GreaterEqual
+        )
     }
 
     fn parse_prefix_expression(&mut self) -> Result<Expression, Error> {

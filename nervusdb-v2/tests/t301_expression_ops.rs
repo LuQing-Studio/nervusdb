@@ -311,6 +311,98 @@ fn test_range_comparison_cross_type_returns_null_except_numbers() -> nervusdb_v2
 }
 
 #[test]
+fn test_full_bound_range_comparison_chain_in_where_clause() -> nervusdb_v2::Result<()> {
+    let dir = tempdir()?;
+    let db = Db::open(dir.path().join("t301_full_bound_range_chain.ndb"))?;
+    let params = Params::default();
+
+    {
+        let mut txn = db.begin_write();
+        nervusdb_v2::query::prepare("UNWIND [1, 2, 3] AS i CREATE (:Num {num: i})")?
+            .execute_write(&db.snapshot(), &mut txn, &params)?;
+        nervusdb_v2::query::prepare("UNWIND ['a', 'b', 'c'] AS c CREATE (:Str {name: c})")?
+            .execute_write(&db.snapshot(), &mut txn, &params)?;
+        txn.commit()?;
+    }
+
+    let snapshot = db.snapshot();
+
+    let numeric_rows: Vec<_> =
+        nervusdb_v2::query::prepare("MATCH (n:Num) WHERE 1 < n.num <= 3 RETURN n.num AS v")?
+            .execute_streaming(&snapshot, &params)
+            .collect::<Result<Vec<_>, _>>()?;
+    let mut numeric_values = numeric_rows
+        .iter()
+        .map(|row| row.get("v").cloned().unwrap_or(Value::Null))
+        .collect::<Vec<_>>();
+    numeric_values.sort_by(|a, b| format!("{a:?}").cmp(&format!("{b:?}")));
+    assert_eq!(numeric_values, vec![Value::Int(2), Value::Int(3)]);
+
+    let string_rows: Vec<_> =
+        nervusdb_v2::query::prepare("MATCH (n:Str) WHERE 'a' <= n.name < 'c' RETURN n.name AS v")?
+            .execute_streaming(&snapshot, &params)
+            .collect::<Result<Vec<_>, _>>()?;
+    let mut string_values = string_rows
+        .iter()
+        .map(|row| row.get("v").cloned().unwrap_or(Value::Null))
+        .collect::<Vec<_>>();
+    string_values.sort_by(|a, b| format!("{a:?}").cmp(&format!("{b:?}")));
+    assert_eq!(
+        string_values,
+        vec![
+            Value::String("a".to_string()),
+            Value::String("b".to_string()),
+        ]
+    );
+
+    let empty_rows: Vec<_> =
+        nervusdb_v2::query::prepare("MATCH (n:Num) WHERE 10 < n.num <= 3 RETURN n.num AS v")?
+            .execute_streaming(&snapshot, &params)
+            .collect::<Result<Vec<_>, _>>()?;
+    assert!(empty_rows.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn test_comparison_chain_with_mixed_operators_reuses_middle_operand() -> nervusdb_v2::Result<()> {
+    let dir = tempdir()?;
+    let db = Db::open(dir.path().join("t301_mixed_compare_chain.ndb"))?;
+    let params = Params::default();
+
+    {
+        let mut txn = db.begin_write();
+        nervusdb_v2::query::prepare(
+            "CREATE (a:A {prop1: 3, prop2: 4}) \
+             CREATE (b:B {prop1: 4, prop2: 5}) \
+             CREATE (c:C {prop1: 4, prop2: 4}) \
+             CREATE (a)-[:R]->(b) \
+             CREATE (b)-[:R]->(c) \
+             CREATE (c)-[:R]->(a)",
+        )?
+        .execute_write(&db.snapshot(), &mut txn, &params)?;
+        txn.commit()?;
+    }
+
+    let snapshot = db.snapshot();
+    let rows: Vec<_> = nervusdb_v2::query::prepare(
+        "MATCH (n)-->(m) \
+         WHERE n.prop1 < m.prop1 = n.prop2 <> m.prop2 \
+         RETURN labels(m) AS labels",
+    )?
+    .execute_streaming(&snapshot, &params)
+    .collect::<Result<Vec<_>, _>>()?;
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0].get("labels"),
+        Some(&Value::List(vec![Value::String("B".to_string())]))
+    );
+
+    Ok(())
+}
+
+#[test]
 fn test_range_comparison_list_and_nan_semantics() -> nervusdb_v2::Result<()> {
     let dir = tempdir()?;
     let db = Db::open(dir.path().join("t301_range_list_nan.ndb"))?;
