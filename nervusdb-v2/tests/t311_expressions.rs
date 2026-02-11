@@ -1141,6 +1141,78 @@ fn test_temporal10_inseconds_no_diff_with_now_functions_is_zero() {
 }
 
 #[test]
+fn test_temporal6_duration_roundtrip_minutes_borrow() {
+    let dir = tempdir().unwrap();
+    let db = Db::open(dir.path().join("test.ndb")).unwrap();
+    let snapshot = db.snapshot();
+    let params = Params::new();
+
+    let pq = prepare(
+        "WITH duration({minutes: 12, seconds: -60}) AS d \
+         RETURN toString(d) AS ts, duration(toString(d)) = d AS b",
+    )
+    .unwrap();
+    let rows: Vec<_> = pq
+        .execute_streaming(&snapshot, &params)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get("ts"), Some(&Value::String("PT11M".to_string())));
+    assert_eq!(rows[0].get("b"), Some(&Value::Bool(true)));
+}
+
+#[test]
+fn test_temporal6_duration_roundtrip_fractional_second() {
+    let dir = tempdir().unwrap();
+    let db = Db::open(dir.path().join("test.ndb")).unwrap();
+    let snapshot = db.snapshot();
+    let params = Params::new();
+
+    let pq = prepare(
+        "WITH duration({seconds: 2, milliseconds: -1}) AS d \
+         RETURN toString(d) AS ts, duration(toString(d)) = d AS b",
+    )
+    .unwrap();
+    let rows: Vec<_> = pq
+        .execute_streaming(&snapshot, &params)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0].get("ts"),
+        Some(&Value::String("PT1.999S".to_string()))
+    );
+    assert_eq!(rows[0].get("b"), Some(&Value::Bool(true)));
+}
+
+#[test]
+fn test_temporal6_duration_roundtrip_negative_minute_and_millis() {
+    let dir = tempdir().unwrap();
+    let db = Db::open(dir.path().join("test.ndb")).unwrap();
+    let snapshot = db.snapshot();
+    let params = Params::new();
+
+    let pq = prepare(
+        "WITH duration({seconds: -60, milliseconds: -1}) AS d \
+         RETURN toString(d) AS ts, duration(toString(d)) = d AS b",
+    )
+    .unwrap();
+    let rows: Vec<_> = pq
+        .execute_streaming(&snapshot, &params)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0].get("ts"),
+        Some(&Value::String("PT-1M-0.001S".to_string()))
+    );
+    assert_eq!(rows[0].get("b"), Some(&Value::Bool(true)));
+}
+
+#[test]
 fn test_pattern_predicate_directed_and_undirected_filters() {
     let dir = tempdir().unwrap();
     let db = Db::open(dir.path().join("test.ndb")).unwrap();

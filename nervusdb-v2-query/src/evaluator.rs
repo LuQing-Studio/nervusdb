@@ -808,7 +808,15 @@ fn evaluate_function<S: GraphSnapshot>(
                     Value::Int(i) => Value::String(i.to_string()),
                     Value::Float(f) => Value::String(f.to_string()),
                     Value::Bool(b) => Value::String(b.to_string()),
-                    _ => Value::Null,
+                    _ => duration_from_value(arg)
+                        .map(|parts| {
+                            Value::String(duration_iso_components(
+                                parts.months as i64,
+                                parts.days,
+                                parts.nanos,
+                            ))
+                        })
+                        .unwrap_or(Value::Null),
                 }
             } else {
                 Value::Null
@@ -3130,10 +3138,13 @@ fn construct_datetime_from_epoch_millis(args: &[Value]) -> Value {
 }
 
 fn construct_duration(arg: Option<&Value>) -> Value {
-    let Some(Value::Map(map)) = arg else {
-        return Value::Null;
-    };
-    duration_value(duration_from_map(map))
+    match arg {
+        Some(Value::Map(map)) => duration_value(duration_from_map(map)),
+        Some(Value::String(s)) => parse_duration_literal(s)
+            .map(duration_value)
+            .unwrap_or(Value::Null),
+        _ => Value::Null,
+    }
 }
 
 fn add_temporal_string_with_duration(base: &str, duration: &Value) -> Option<String> {
@@ -3412,6 +3423,192 @@ fn duration_from_map(map: &std::collections::BTreeMap<String, Value>) -> Duratio
         days: (whole_days + month_fraction_days) as i64,
         nanos: nanos_total.trunc() as i64,
     }
+}
+
+fn parse_duration_literal(input: &str) -> Option<DurationParts> {
+    const HOUR_NANOS: i128 = 3_600_000_000_000;
+    const MINUTE_NANOS: i128 = 60_000_000_000;
+
+    let s = input.trim();
+    if !s.starts_with('P') {
+        return None;
+    }
+    let body = &s[1..];
+    if body.is_empty() {
+        return None;
+    }
+
+    let (date_part, time_part) = if let Some(idx) = body.find('T') {
+        (&body[..idx], Some(&body[idx + 1..]))
+    } else {
+        (body, None)
+    };
+
+    let mut months: i64 = 0;
+    let mut days: i64 = 0;
+    let mut nanos: i128 = 0;
+    let mut saw_component = false;
+
+    let mut idx = 0usize;
+    while idx < date_part.len() {
+        let (next, number, has_fraction) = parse_duration_number(date_part, idx)?;
+        if has_fraction || next >= date_part.len() {
+            return None;
+        }
+        let unit = date_part.as_bytes()[next];
+        let value = number.parse::<i64>().ok()?;
+        match unit {
+            b'Y' => months = months.checked_add(value.checked_mul(12)?)?,
+            b'M' => months = months.checked_add(value)?,
+            b'W' => days = days.checked_add(value.checked_mul(7)?)?,
+            b'D' => days = days.checked_add(value)?,
+            _ => return None,
+        }
+        saw_component = true;
+        idx = next + 1;
+    }
+
+    if let Some(time_part) = time_part {
+        if time_part.is_empty() && !saw_component {
+            return None;
+        }
+        let mut idx = 0usize;
+        while idx < time_part.len() {
+            let (next, number, has_fraction) = parse_duration_number(time_part, idx)?;
+            if next >= time_part.len() {
+                return None;
+            }
+            let unit = time_part.as_bytes()[next];
+            match unit {
+                b'H' => {
+                    if has_fraction {
+                        return None;
+                    }
+                    let value = number.parse::<i128>().ok()?;
+                    nanos = nanos.checked_add(value.checked_mul(HOUR_NANOS)?)?;
+                }
+                b'M' => {
+                    if has_fraction {
+                        return None;
+                    }
+                    let value = number.parse::<i128>().ok()?;
+                    nanos = nanos.checked_add(value.checked_mul(MINUTE_NANOS)?)?;
+                }
+                b'S' => {
+                    nanos = nanos.checked_add(parse_duration_seconds_to_nanos(number)?)?;
+                }
+                _ => return None,
+            }
+            saw_component = true;
+            idx = next + 1;
+        }
+    }
+
+    if !saw_component {
+        return None;
+    }
+
+    Some(DurationParts {
+        months: i32::try_from(months).ok()?,
+        days,
+        nanos: i64::try_from(nanos).ok()?,
+    })
+}
+
+fn parse_duration_number(s: &str, start: usize) -> Option<(usize, &str, bool)> {
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+    if start >= len {
+        return None;
+    }
+
+    let mut idx = start;
+    if bytes[idx] == b'+' || bytes[idx] == b'-' {
+        idx += 1;
+    }
+    let digits_start = idx;
+    while idx < len && bytes[idx].is_ascii_digit() {
+        idx += 1;
+    }
+    if idx == digits_start {
+        return None;
+    }
+
+    let mut has_fraction = false;
+    if idx < len && bytes[idx] == b'.' {
+        has_fraction = true;
+        idx += 1;
+        let fraction_start = idx;
+        while idx < len && bytes[idx].is_ascii_digit() {
+            idx += 1;
+        }
+        if idx == fraction_start {
+            return None;
+        }
+    }
+
+    Some((idx, &s[start..idx], has_fraction))
+}
+
+fn parse_duration_seconds_to_nanos(number: &str) -> Option<i128> {
+    const SECOND_NANOS: i128 = 1_000_000_000;
+
+    let bytes = number.as_bytes();
+    if bytes.is_empty() {
+        return None;
+    }
+
+    let mut idx = 0usize;
+    let mut sign = 1i128;
+    if bytes[idx] == b'+' {
+        idx += 1;
+    } else if bytes[idx] == b'-' {
+        sign = -1;
+        idx += 1;
+    }
+    if idx >= bytes.len() {
+        return None;
+    }
+
+    let digits_start = idx;
+    while idx < bytes.len() && bytes[idx].is_ascii_digit() {
+        idx += 1;
+    }
+    if idx == digits_start {
+        return None;
+    }
+
+    let int_part = number[digits_start..idx].parse::<i128>().ok()?;
+    let mut frac_nanos = 0i128;
+    if idx < bytes.len() {
+        if bytes[idx] != b'.' {
+            return None;
+        }
+        idx += 1;
+        let frac_start = idx;
+        while idx < bytes.len() && bytes[idx].is_ascii_digit() {
+            idx += 1;
+        }
+        if idx == frac_start {
+            return None;
+        }
+        let frac_digits = &number[frac_start..idx];
+        if frac_digits.len() > 9 {
+            return None;
+        }
+        let frac_value = frac_digits.parse::<i128>().ok()?;
+        let scale = 10i128.pow((9 - frac_digits.len()) as u32);
+        frac_nanos = frac_value.checked_mul(scale)?;
+    }
+
+    if idx != bytes.len() {
+        return None;
+    }
+
+    let nanos = int_part
+        .checked_mul(SECOND_NANOS)?
+        .checked_add(frac_nanos)?;
+    nanos.checked_mul(sign)
 }
 
 fn make_date_from_map(map: &std::collections::BTreeMap<String, Value>) -> Option<NaiveDate> {
