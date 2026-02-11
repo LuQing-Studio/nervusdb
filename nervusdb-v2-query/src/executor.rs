@@ -4412,13 +4412,173 @@ fn execute_create_from_rows<S: GraphSnapshot>(
     Ok((created_count, output_rows))
 }
 
+fn push_delete_node_target(
+    node_id: InternalNodeId,
+    nodes_to_delete: &mut Vec<InternalNodeId>,
+    seen_nodes: &mut std::collections::HashSet<InternalNodeId>,
+    edges_to_delete: &[EdgeKey],
+    max_delete_targets: usize,
+) -> Result<()> {
+    if seen_nodes.insert(node_id) {
+        nodes_to_delete.push(node_id);
+    }
+
+    if nodes_to_delete.len() + edges_to_delete.len() > max_delete_targets {
+        return Err(Error::Other(format!(
+            "DELETE target limit exceeded ({max_delete_targets}); batch your deletes"
+        )));
+    }
+
+    Ok(())
+}
+
+fn push_delete_edge_target(
+    edge: EdgeKey,
+    nodes_to_delete: &[InternalNodeId],
+    edges_to_delete: &mut Vec<EdgeKey>,
+    seen_edges: &mut std::collections::HashSet<EdgeKey>,
+    max_delete_targets: usize,
+) -> Result<()> {
+    if seen_edges.insert(edge) {
+        edges_to_delete.push(edge);
+    }
+
+    if nodes_to_delete.len() + edges_to_delete.len() > max_delete_targets {
+        return Err(Error::Other(format!(
+            "DELETE target limit exceeded ({max_delete_targets}); batch your deletes"
+        )));
+    }
+
+    Ok(())
+}
+
+fn collect_delete_targets_from_value(
+    value: &Value,
+    nodes_to_delete: &mut Vec<InternalNodeId>,
+    seen_nodes: &mut std::collections::HashSet<InternalNodeId>,
+    edges_to_delete: &mut Vec<EdgeKey>,
+    seen_edges: &mut std::collections::HashSet<EdgeKey>,
+    max_delete_targets: usize,
+) -> Result<()> {
+    match value {
+        Value::Null => {}
+        Value::NodeId(node_id) => {
+            push_delete_node_target(
+                *node_id,
+                nodes_to_delete,
+                seen_nodes,
+                edges_to_delete,
+                max_delete_targets,
+            )?;
+        }
+        Value::Node(node) => {
+            push_delete_node_target(
+                node.id,
+                nodes_to_delete,
+                seen_nodes,
+                edges_to_delete,
+                max_delete_targets,
+            )?;
+        }
+        Value::EdgeKey(edge) => {
+            push_delete_edge_target(
+                *edge,
+                nodes_to_delete,
+                edges_to_delete,
+                seen_edges,
+                max_delete_targets,
+            )?;
+        }
+        Value::Relationship(rel) => {
+            push_delete_edge_target(
+                rel.key,
+                nodes_to_delete,
+                edges_to_delete,
+                seen_edges,
+                max_delete_targets,
+            )?;
+        }
+        Value::Path(path) => {
+            for edge in &path.edges {
+                push_delete_edge_target(
+                    *edge,
+                    nodes_to_delete,
+                    edges_to_delete,
+                    seen_edges,
+                    max_delete_targets,
+                )?;
+            }
+            for node_id in &path.nodes {
+                push_delete_node_target(
+                    *node_id,
+                    nodes_to_delete,
+                    seen_nodes,
+                    edges_to_delete,
+                    max_delete_targets,
+                )?;
+            }
+        }
+        Value::ReifiedPath(path) => {
+            for rel in &path.relationships {
+                push_delete_edge_target(
+                    rel.key,
+                    nodes_to_delete,
+                    edges_to_delete,
+                    seen_edges,
+                    max_delete_targets,
+                )?;
+            }
+            for node in &path.nodes {
+                push_delete_node_target(
+                    node.id,
+                    nodes_to_delete,
+                    seen_nodes,
+                    edges_to_delete,
+                    max_delete_targets,
+                )?;
+            }
+        }
+        Value::List(list) => {
+            for item in list {
+                collect_delete_targets_from_value(
+                    item,
+                    nodes_to_delete,
+                    seen_nodes,
+                    edges_to_delete,
+                    seen_edges,
+                    max_delete_targets,
+                )?;
+            }
+        }
+        Value::Map(map) => {
+            for item in map.values() {
+                collect_delete_targets_from_value(
+                    item,
+                    nodes_to_delete,
+                    seen_nodes,
+                    edges_to_delete,
+                    seen_edges,
+                    max_delete_targets,
+                )?;
+            }
+        }
+        _ => {
+            return Err(Error::Other(
+                "DELETE only supports node, relationship, or path values".to_string(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 fn execute_delete_on_rows<S: GraphSnapshot>(
     snapshot: &S,
     rows: &[Row],
     txn: &mut dyn WriteableGraph,
     detach: bool,
     expressions: &[Expression],
-    _params: &crate::query_api::Params,
+    params: &crate::query_api::Params,
 ) -> Result<u32> {
     const MAX_DELETE_TARGETS: usize = 100_000;
 
@@ -4431,40 +4591,15 @@ fn execute_delete_on_rows<S: GraphSnapshot>(
 
     for row in rows {
         for expr in expressions {
-            match expr {
-                Expression::Variable(var_name) => {
-                    if let Some(node_id) = row.get_node(var_name) {
-                        if seen_nodes.insert(node_id) {
-                            nodes_to_delete.push(node_id);
-                        }
-                    } else if let Some(edge) = row.get_edge(var_name) {
-                        if seen_edges.insert(edge) {
-                            edges_to_delete.push(edge);
-                        }
-                    } else {
-                        return Err(Error::Other(format!(
-                            "Variable {} not found in row",
-                            var_name
-                        )));
-                    }
-
-                    if nodes_to_delete.len() + edges_to_delete.len() > MAX_DELETE_TARGETS {
-                        return Err(Error::Other(format!(
-                            "DELETE target limit exceeded ({MAX_DELETE_TARGETS}); batch your deletes"
-                        )));
-                    }
-                }
-                Expression::PropertyAccess(_pa) => {
-                    return Err(Error::NotImplemented(
-                        "DELETE property not implemented in v2 M3",
-                    ));
-                }
-                _ => {
-                    return Err(Error::Other(
-                        "DELETE only supports variable expressions in v2 M3".to_string(),
-                    ));
-                }
-            }
+            let value = evaluate_expression_value(expr, row, snapshot, params);
+            collect_delete_targets_from_value(
+                &value,
+                &mut nodes_to_delete,
+                &mut seen_nodes,
+                &mut edges_to_delete,
+                &mut seen_edges,
+                MAX_DELETE_TARGETS,
+            )?;
         }
     }
 
@@ -4581,40 +4716,15 @@ fn execute_delete<S: GraphSnapshot>(
     for row in execute_plan(snapshot, input, params) {
         let row = row?;
         for expr in expressions {
-            match expr {
-                Expression::Variable(var_name) => {
-                    if let Some(node_id) = row.get_node(var_name) {
-                        if seen_nodes.insert(node_id) {
-                            nodes_to_delete.push(node_id);
-                        }
-                    } else if let Some(edge) = row.get_edge(var_name) {
-                        if seen_edges.insert(edge) {
-                            edges_to_delete.push(edge);
-                        }
-                    } else {
-                        return Err(Error::Other(format!(
-                            "Variable {} not found in row",
-                            var_name
-                        )));
-                    }
-
-                    if nodes_to_delete.len() + edges_to_delete.len() > MAX_DELETE_TARGETS {
-                        return Err(Error::Other(format!(
-                            "DELETE target limit exceeded ({MAX_DELETE_TARGETS}); batch your deletes"
-                        )));
-                    }
-                }
-                Expression::PropertyAccess(_pa) => {
-                    return Err(Error::NotImplemented(
-                        "DELETE property not implemented in v2 M3",
-                    ));
-                }
-                _ => {
-                    return Err(Error::Other(
-                        "DELETE only supports variable expressions in v2 M3".to_string(),
-                    ));
-                }
-            }
+            let value = evaluate_expression_value(expr, &row, snapshot, params);
+            collect_delete_targets_from_value(
+                &value,
+                &mut nodes_to_delete,
+                &mut seen_nodes,
+                &mut edges_to_delete,
+                &mut seen_edges,
+                MAX_DELETE_TARGETS,
+            )?;
         }
     }
 

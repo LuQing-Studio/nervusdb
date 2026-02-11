@@ -392,3 +392,68 @@ fn test_create_reuses_bound_variables_across_create_clauses() {
         Some(&Value::String("n1".to_string()))
     );
 }
+
+#[test]
+fn test_delete_optional_null_node_keeps_row() {
+    let dir = tempdir().unwrap();
+    let db = Db::open(dir.path()).unwrap();
+    let snapshot = db.snapshot();
+
+    let query = prepare("OPTIONAL MATCH (a:DoesNotExist) DELETE a RETURN a").unwrap();
+    let mut txn = db.begin_write();
+    let (rows, count) = query
+        .execute_mixed(&snapshot, &mut txn, &nervusdb_v2_query::Params::new())
+        .unwrap();
+    txn.commit().unwrap();
+
+    assert_eq!(count, 0);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get("a"), Some(&Value::Null));
+}
+
+#[test]
+fn test_delete_optional_null_relationship_keeps_row() {
+    let dir = tempdir().unwrap();
+    let db = Db::open(dir.path()).unwrap();
+    let snapshot = db.snapshot();
+
+    let query = prepare("OPTIONAL MATCH ()-[r:DoesNotExist]-() DELETE r RETURN r").unwrap();
+    let mut txn = db.begin_write();
+    let (rows, count) = query
+        .execute_mixed(&snapshot, &mut txn, &nervusdb_v2_query::Params::new())
+        .unwrap();
+    txn.commit().unwrap();
+
+    assert_eq!(count, 0);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get("r"), Some(&Value::Null));
+}
+
+#[test]
+fn test_delete_label_predicate_rejected_at_compile_time() {
+    let err = prepare("MATCH (n) DELETE n:Person")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("syntax error: InvalidDelete"),
+        "unexpected compile error: {err}"
+    );
+}
+
+#[test]
+fn test_delete_undefined_variable_rejected_at_compile_time() {
+    let err = prepare("MATCH (a) DELETE x").unwrap_err().to_string();
+    assert!(
+        err.contains("syntax error: UndefinedVariable (x)"),
+        "unexpected compile error: {err}"
+    );
+}
+
+#[test]
+fn test_delete_scalar_expression_rejected_at_compile_time() {
+    let err = prepare("MATCH () DELETE 1 + 1").unwrap_err().to_string();
+    assert!(
+        err.contains("syntax error: InvalidArgumentType"),
+        "unexpected compile error: {err}"
+    );
+}
