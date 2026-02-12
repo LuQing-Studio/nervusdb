@@ -27,11 +27,19 @@
 - `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_duration.rs`
 - `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_timezone.rs`
 - `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_large_temporal.rs`
+- `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_materialize.rs`
 - `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_temporal_parse.rs`
 - `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_temporal_math.rs`
 - `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_temporal_map.rs`
 - `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_temporal_format.rs`
+- `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_temporal_overrides.rs`
 - `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_numeric.rs`
+- `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_comprehension.rs`
+- `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_constructors.rs`
+- `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_duration_between.rs`
+- `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_duration_core.rs`
+- `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_pattern.rs`
+- `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_temporal_shift.rs`
 - `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/mod.rs`
 - `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/temporal.rs`
 - `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/duration.rs`
@@ -119,7 +127,87 @@
      `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_equality.rs`
    - `BinaryOperator::{=,<>}` 与 `IN` 语义调用点保持不变，统一复用 `evaluator_equality::cypher_equals`。
    - 当前 `evaluator.rs` 行数从 `3127` 进一步降到 `3053`。
-15. 回归结果
+15. 已完成切片-15（Temporal constructor helper 簇抽离-低风险子集）
+   - 从 `evaluator.rs` 抽离 `construct_datetime_from_epoch / construct_datetime_from_epoch_millis / construct_duration` 到：
+     `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_constructors.rs`
+   - `evaluate_function` 中 `datetime.fromEpoch` / `datetime.fromEpochMillis` / `duration` 调用入口保持不变，仅改为模块导入。
+   - 当前 `evaluator.rs` 行数从 `3053` 进一步降到 `3012`。
+16. 已完成切片-16（Temporal shift helper 簇抽离）
+   - 从 `evaluator.rs` 抽离 `add_temporal_string_with_duration / subtract_temporal_string_with_duration / shift_temporal_string_with_duration` 到：
+     `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_temporal_shift.rs`
+   - `Arithmetic` 模块调用路径保持不变，仍通过 `add/subtract_temporal_string_with_duration` 入口完成时态字符串与 duration 的运算。
+   - 当前 `evaluator.rs` 行数从 `3012` 进一步降到 `2956`。
+17. 已完成切片-17（Temporal constructor helper 簇抽离-第二批）
+   - 从 `evaluator.rs` 抽离 `construct_date / construct_local_time / construct_time` 到：
+     `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_constructors.rs`
+   - `evaluate_function` 中 `date/localtime/time` 调用入口保持不变，仅替换为模块导入。
+   - 当前 `evaluator.rs` 行数从 `2956` 进一步降到 `2796`。
+18. 已完成切片-18（Temporal constructor helper 簇抽离-第三批）
+   - 从 `evaluator.rs` 抽离 `construct_local_datetime` 到：
+     `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_constructors.rs`
+   - `evaluate_function` 中 `localdatetime` 调用入口保持不变，仅替换为模块导入。
+   - 当前 `evaluator.rs` 行数从 `2796` 进一步降到 `2738`。
+19. 已完成切片-19（Temporal constructor helper 簇抽离-第四批）
+   - 从 `evaluator.rs` 抽离 `construct_datetime` 到：
+     `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_constructors.rs`
+   - `evaluate_function` 中 `datetime` 调用入口保持不变，仅替换为模块导入。
+   - 当前 `evaluator.rs` 行数从 `2738` 进一步降到 `2557`。
+20. 已完成切片-20（Temporal override/truncate helper 簇抽离）
+   - 从 `evaluator.rs` 抽离 `apply_date_overrides / apply_time_overrides / apply_datetime_overrides / truncate_date_literal / truncate_time_literal / truncate_naive_datetime_literal` 到：
+     `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_temporal_overrides.rs`
+   - `evaluate_temporal_truncate` 与 `evaluator_constructors` 调用入口保持不变，仅替换为模块导入。
+   - 当前 `evaluator.rs` 行数从 `2557` 进一步降到 `2379`。
+21. 已完成切片-21（Duration between helper 簇抽离）
+   - 从 `evaluator.rs` 抽离 `evaluate_duration_between / duration_mode_from_name / parse_temporal_arg / parse_temporal_operand / parse_large_temporal_arg / evaluate_large_duration_between` 到：
+     `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_duration_between.rs`
+   - `evaluate_function` 与 `evaluate_temporal_truncate` 调用入口保持不变，仅替换为模块导入。
+   - 当前 `evaluator.rs` 行数从 `2379` 进一步降到 `2283`。
+22. 已完成切片-22（Numeric cast helper 内聚）
+   - 将 `cast_to_integer` 从 `evaluator.rs` 迁移到：
+     `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_numeric.rs`
+   - `evaluate_function` 中 `toInteger` 调用入口保持不变，仅替换为模块导入。
+   - 当前 `evaluator.rs` 行数从 `2283` 进一步降到 `2252`。
+23. 已完成切片-23（Node materialize helper 抽离）
+   - 从 `evaluator.rs` 抽离 `materialize_node_from_row_or_snapshot` 到：
+     `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_materialize.rs`
+   - `evaluate_function` 中 `properties` 分支调用入口保持不变，仅替换为模块导入。
+   - 当前 `evaluator.rs` 行数从 `2252` 进一步降到 `2217`。
+24. 已完成切片-24（List comprehension / quantifier helper 抽离）
+   - 从 `evaluator.rs` 抽离 `evaluate_list_comprehension / evaluate_quantifier` 到：
+     `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_comprehension.rs`
+   - `evaluate_function` 中 `__list_comp` 与 `__quant_*` 调用入口保持不变，仅替换为模块导入。
+   - 当前 `evaluator.rs` 行数从 `2217` 进一步降到 `2073`。
+25. 已完成切片-25（Duration core helper 簇抽离）
+   - 从 `evaluator.rs` 抽离 `build_duration_parts / temporal_anchor / resolve_anchor_offset / calendar_months_and_remainder_with_offsets / add_months_to_naive_datetime` 到：
+     `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_duration_core.rs`
+   - `duration.between` 系列计算调用入口保持不变，仅替换为模块导入。
+   - 当前 `evaluator.rs` 行数从 `2073` 进一步降到 `1831`。
+26. 已完成切片-26（Pattern predicate/comprehension/match helper 簇抽离）
+   - 从 `evaluator.rs` 抽离 `evaluate_has_label / evaluate_pattern_exists / evaluate_pattern_comprehension / match_pattern_from / match_variable_length_pattern / node_pattern_matches / relationship_pattern_matches` 及其辅助函数到：
+     `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_pattern.rs`
+   - `Expression::{Exists, PatternComprehension}` 与 `BinaryOperator::HasLabel` 调用入口保持不变，仅替换为模块导入。
+   - 当前 `evaluator.rs` 行数从 `1831` 进一步降到 `1135`。
+27. 已完成切片-27（Collection/Property function 簇抽离）
+   - 从 `evaluator.rs` 抽离 `size / head / tail / last / keys / length / nodes / relationships / range / __index / __slice / __getprop / properties` 到：
+     `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_collections.rs`
+   - `evaluate_function` 保留原分派入口，仅新增 `evaluate_collection_function` 前置分流，不改变函数名匹配、参数判定和返回值语义。
+   - 当前 `evaluator.rs` 行数从 `1135` 进一步降到 `642`。
+28. 已完成切片-28（Scalar/String function 簇抽离）
+   - 从 `evaluator.rs` 抽离 `__nervus_singleton_path / rand / abs / tolower / toupper / reverse / tostring / trim / ltrim / rtrim / substring / replace / split / coalesce / sqrt` 到：
+     `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_scalars.rs`
+   - `evaluate_function` 保留原入口，仅新增 `evaluate_scalar_function` 前置分流；`evaluator_temporal_shift` 仍通过 `super::duration_from_value` 路径取值，未改行为依赖关系。
+   - 当前 `evaluator.rs` 行数从 `642` 进一步降到 `481`。
+29. 已完成切片-29（Graph-entity function 簇抽离）
+   - 从 `evaluator.rs` 抽离 `startnode / endnode / labels / type / id` 到：
+     `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_graph_functions.rs`
+   - `evaluate_function` 保留原入口，仅新增 `evaluate_graph_function` 前置分流；`startnode/endnode` 仍复用 `materialize_node_from_row_or_snapshot`，行为不变。
+   - 当前 `evaluator.rs` 行数从 `481` 进一步降到 `396`。
+30. 已完成切片-30（Temporal function dispatch 抽离）
+   - 从 `evaluator.rs` 抽离 `date / localtime / time / localdatetime / datetime / datetime.fromepoch / datetime.fromepochmillis / duration / *.truncate / duration.*` 分派逻辑到：
+     `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/evaluator/evaluator_temporal_functions.rs`
+   - `evaluate_function` 仅新增 `evaluate_temporal_function` 前置分流，构造器与 truncate/between 具体实现仍复用原模块，不变更行为路径。
+   - 当前 `evaluator.rs` 行数从 `396` 进一步降到 `378`。
+31. 回归结果
    - `cargo test -p nervusdb-v2-query --lib`（切片-1后）通过。
    - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-1后）通过。
    - `cargo test -p nervusdb-v2 --test t313_functions`（切片-1后）通过。
@@ -182,9 +270,82 @@
    - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-14后）通过。
    - `cargo test -p nervusdb-v2 --test t313_functions`（切片-14后）通过。
    - `cargo test -p nervusdb-v2 --test t333_varlen_direction`（切片-14后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-15后）通过。
+   - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-15后）通过。
+   - `cargo test -p nervusdb-v2 --test t313_functions`（切片-15后）通过。
+   - `cargo test -p nervusdb-v2 --test t333_varlen_direction`（切片-15后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-16后）通过。
+   - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-16后）通过。
+   - `cargo test -p nervusdb-v2 --test t313_functions`（切片-16后）通过。
+   - `cargo test -p nervusdb-v2 --test t333_varlen_direction`（切片-16后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-17后）通过。
+   - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-17后）通过。
+   - `cargo test -p nervusdb-v2 --test t313_functions`（切片-17后）通过。
+   - `cargo test -p nervusdb-v2 --test t333_varlen_direction`（切片-17后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-18后）通过。
+   - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-18后）通过。
+   - `cargo test -p nervusdb-v2 --test t313_functions`（切片-18后）通过。
+   - `cargo test -p nervusdb-v2 --test t333_varlen_direction`（切片-18后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-19后）通过。
+   - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-19后）通过。
+   - `cargo test -p nervusdb-v2 --test t313_functions`（切片-19后）通过。
+   - `cargo test -p nervusdb-v2 --test t333_varlen_direction`（切片-19后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-20后）通过。
+   - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-20后）通过。
+   - `cargo test -p nervusdb-v2 --test t313_functions`（切片-20后）通过。
+   - `cargo test -p nervusdb-v2 --test t333_varlen_direction`（切片-20后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-21后）通过。
+   - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-21后）通过。
+   - `cargo test -p nervusdb-v2 --test t313_functions`（切片-21后）通过。
+   - `cargo test -p nervusdb-v2 --test t333_varlen_direction`（切片-21后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-22后）通过。
+   - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-22后）通过。
+   - `cargo test -p nervusdb-v2 --test t313_functions`（切片-22后）通过。
+   - `cargo test -p nervusdb-v2 --test t333_varlen_direction`（切片-22后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-23后）通过。
+   - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-23后）通过。
+   - `cargo test -p nervusdb-v2 --test t313_functions`（切片-23后）通过。
+   - `cargo test -p nervusdb-v2 --test t333_varlen_direction`（切片-23后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-24后）通过。
+   - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-24后）通过。
+   - `cargo test -p nervusdb-v2 --test t313_functions`（切片-24后）通过。
+   - `cargo test -p nervusdb-v2 --test t333_varlen_direction`（切片-24后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-25后）通过。
+   - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-25后）通过。
+   - `cargo test -p nervusdb-v2 --test t313_functions`（切片-25后）通过。
+   - `cargo test -p nervusdb-v2 --test t333_varlen_direction`（切片-25后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-26后）通过。
+   - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-26后）通过。
+   - `cargo test -p nervusdb-v2 --test t313_functions`（切片-26后）通过。
+   - `cargo test -p nervusdb-v2 --test t333_varlen_direction`（切片-26后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-27后）通过。
+   - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-27后）通过。
+   - `cargo test -p nervusdb-v2 --test t313_functions`（切片-27后）通过。
+   - `cargo test -p nervusdb-v2 --test t333_varlen_direction`（切片-27后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-28后）通过。
+   - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-28后）通过。
+   - `cargo test -p nervusdb-v2 --test t313_functions`（切片-28后）通过。
+   - `cargo test -p nervusdb-v2 --test t333_varlen_direction`（切片-28后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-29后）通过。
+   - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-29后）通过。
+   - `cargo test -p nervusdb-v2 --test t313_functions`（切片-29后）通过。
+   - `cargo test -p nervusdb-v2 --test t333_varlen_direction`（切片-29后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-30后）通过。
+   - `cargo test -p nervusdb-v2 --test t311_expressions`（切片-30后）通过。
+   - `cargo test -p nervusdb-v2 --test t313_functions`（切片-30后）通过。
+   - `cargo test -p nervusdb-v2 --test t333_varlen_direction`（切片-30后）通过。
    - `bash scripts/workspace_quick_test.sh`（切片-12/13/14后阶段门禁）通过。
    - `bash scripts/contract_smoke.sh`（切片-12/13/14后阶段门禁）通过。
    - `bash scripts/binding_smoke.sh`（切片-12/13/14后阶段门禁）通过（含既有 `pyo3 gil-refs` warning）。
+   - `bash scripts/workspace_quick_test.sh`（切片-18/19后阶段门禁）通过。
+   - `bash scripts/contract_smoke.sh`（切片-18/19后阶段门禁）通过。
+   - `bash scripts/binding_smoke.sh`（切片-18/19后阶段门禁）通过（含既有 `pyo3 gil-refs` warning）。
+   - `bash scripts/workspace_quick_test.sh`（切片-20/21/22后阶段门禁）通过。
+   - `bash scripts/contract_smoke.sh`（切片-20/21/22后阶段门禁）通过。
+   - `bash scripts/binding_smoke.sh`（切片-20/21/22后阶段门禁）通过（含既有 `pyo3 gil-refs` warning）。
+   - `bash scripts/workspace_quick_test.sh`（切片-27/28/29/30后阶段门禁）通过。
+   - `bash scripts/contract_smoke.sh`（切片-27/28/29/30后阶段门禁）通过。
+   - `bash scripts/binding_smoke.sh`（切片-27/28/29/30后阶段门禁）通过（含既有 `pyo3 gil-refs` warning）。
 
 ## 5. 测试清单
 

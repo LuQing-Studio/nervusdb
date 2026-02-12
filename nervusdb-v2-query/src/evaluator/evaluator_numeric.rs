@@ -18,6 +18,37 @@ pub(super) fn value_as_i64(value: &Value) -> Option<i64> {
     }
 }
 
+pub(super) fn cast_to_integer(value: Option<&Value>) -> Value {
+    let Some(value) = value else {
+        return Value::Null;
+    };
+    match value {
+        Value::Null => Value::Null,
+        Value::Int(i) => Value::Int(*i),
+        Value::Float(f) => {
+            if !f.is_finite() {
+                return Value::Null;
+            }
+            let truncated = f.trunc();
+            if truncated < i64::MIN as f64 || truncated > i64::MAX as f64 {
+                Value::Null
+            } else {
+                Value::Int(truncated as i64)
+            }
+        }
+        Value::String(s) => {
+            if let Ok(i) = s.parse::<i64>() {
+                return Value::Int(i);
+            }
+            if let Ok(f) = s.parse::<f64>() {
+                return cast_to_integer(Some(&Value::Float(f)));
+            }
+            Value::Null
+        }
+        _ => Value::Null,
+    }
+}
+
 pub(super) fn numeric_binop<FInt, FFloat>(
     left: &Value,
     right: &Value,

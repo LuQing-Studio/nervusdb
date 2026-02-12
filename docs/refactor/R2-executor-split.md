@@ -51,6 +51,10 @@
 - `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/executor/match_in_undirected_plan.rs`（已完成）
 - `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/executor/match_out_plan.rs`（已完成）
 - `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/executor/plan_iterators.rs`（已完成）
+- `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/executor/write_forwarders.rs`（已完成）
+- `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/executor/plan_types.rs`（已完成）
+- `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/executor/core_types.rs`（已完成）
+- `/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-query/src/executor/plan_dispatch.rs`（已完成）
 
 ## 4. 当前进展（2026-02-12）
 
@@ -160,7 +164,19 @@
    - 将 `NodeScanIter / FilterIter / CartesianProductIter` 从 `executor.rs` 抽离到 `executor/plan_iterators.rs`。
    - `PlanIterator` 与 `plan_head/plan_mid` 的调用面保持不变，仅迁移类型与迭代实现。
    - 当前 `executor.rs` 行数已进一步降到 `1155`。
-30. 回归结果
+30. 已完成切片-30（Plan 类型与迭代器定义抽离）
+   - 将 `Plan / PlanIterator` 从 `executor.rs` 抽离到 `executor/plan_types.rs`。
+   - `executor.rs` 通过 `pub use` 保持原有对外类型路径与调用面不变，仅迁移定义位置。
+   - 当前 `executor.rs` 行数已进一步降到 `836`。
+31. 已完成切片-31（Value/Row 核心类型抽离）
+   - 将 `NodeValue / RelationshipValue / PathValue / ReifiedPathValue / Value / Row` 从 `executor.rs` 抽离到 `executor/core_types.rs`。
+   - `executor.rs` 通过 `pub use` 保持原有类型路径不变，`Row.cols` 调整为 `pub(crate)` 以维持既有同 crate 访问面。
+   - 当前 `executor.rs` 行数已进一步降到 `415`。
+32. 已完成切片-32（Plan 分发主函数抽离）
+   - 将 `execute_plan` 的主 `match` 分发体从 `executor.rs` 抽离到 `executor/plan_dispatch.rs`。
+   - `executor.rs` 保留原入口函数签名并转发到新模块，外部调用路径与行为保持不变。
+   - 当前 `executor.rs` 行数已进一步降到 `196`。
+33. 回归结果
    - `cargo test -p nervusdb-v2-query executor::property_bridge::tests --lib` 通过。
    - `cargo test -p nervusdb-v2-query executor::binding_utils::tests --lib` 通过。
    - `cargo test -p nervusdb-v2-query --lib` 通过。
@@ -267,6 +283,24 @@
    - `bash scripts/tck_tier_gate.sh tier0`（切片-29后）通过。
    - `bash scripts/tck_tier_gate.sh tier1`（切片-29后）通过。
    - `bash scripts/tck_tier_gate.sh tier2`（切片-29后）通过。
+   - `cargo fmt --all`（切片-30后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-30后）通过。
+   - `cargo test -p nervusdb-v2 --test create_test`（切片-30后）通过。
+   - `cargo test -p nervusdb-v2 --test t324_foreach`（切片-30后）通过。
+   - `cargo test -p nervusdb-v2 --test t323_merge_semantics`（切片-30后）通过。
+   - `cargo fmt --all`（切片-31后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-31后）通过。
+   - `cargo test -p nervusdb-v2 --test create_test`（切片-31后）通过。
+   - `cargo test -p nervusdb-v2 --test t324_foreach`（切片-31后）通过。
+   - `cargo test -p nervusdb-v2 --test t323_merge_semantics`（切片-31后）通过。
+   - `cargo fmt --all`（切片-32后）通过。
+   - `cargo test -p nervusdb-v2-query --lib`（切片-32后）通过。
+   - `cargo test -p nervusdb-v2 --test create_test`（切片-32后）通过。
+   - `cargo test -p nervusdb-v2 --test t324_foreach`（切片-32后）通过。
+   - `cargo test -p nervusdb-v2 --test t323_merge_semantics`（切片-32后）通过。
+   - `bash scripts/workspace_quick_test.sh`（切片-32后）通过（全绿）。
+   - `bash scripts/contract_smoke.sh`（切片-32后）通过。
+   - `bash scripts/binding_smoke.sh`（切片-32后）通过（保留既有 `pyo3 gil-refs` warning）。
 
 ## 5. TDD 拆分步骤
 
