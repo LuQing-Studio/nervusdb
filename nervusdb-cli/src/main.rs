@@ -1,9 +1,8 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use nervusdb_v2::Db;
-use nervusdb_v2_api::{GraphSnapshot, GraphStore};
+use nervusdb_v2_api::GraphSnapshot;
 use nervusdb_v2_query::Value as V2Value;
 use nervusdb_v2_query::prepare;
-use nervusdb_v2_storage::engine::GraphEngine;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
@@ -208,8 +207,7 @@ fn run_v2_query(args: V2QueryArgs) -> Result<(), String> {
     let params = parse_params_json_v2(args.params_json)?;
 
     let db = Db::open(&args.db).map_err(|e| e.to_string())?;
-    let engine = GraphEngine::open(db.ndb_path(), db.wal_path()).map_err(|e| e.to_string())?;
-    let graph_snap = engine.snapshot();
+    let graph_snap = db.snapshot();
 
     let prepared = prepare(query.as_str()).map_err(|e| e.to_string())?;
 
@@ -239,8 +237,7 @@ fn run_v2_write(args: V2WriteArgs) -> Result<(), String> {
     let params = parse_params_json_v2(args.params_json)?;
 
     let db = Db::open(&args.db).map_err(|e| e.to_string())?;
-    let engine = GraphEngine::open(db.ndb_path(), db.wal_path()).map_err(|e| e.to_string())?;
-    let graph_snap = engine.snapshot();
+    let graph_snap = db.snapshot();
 
     let prepared = prepare(query.as_str()).map_err(|e| e.to_string())?;
 
