@@ -19,6 +19,7 @@ mod read_path_labels;
 mod read_path_neighbors;
 mod read_path_nodes;
 mod read_path_overlay;
+mod read_path_property_store;
 mod read_path_run_edges;
 mod read_path_run_iters;
 mod read_path_run_property_maps;

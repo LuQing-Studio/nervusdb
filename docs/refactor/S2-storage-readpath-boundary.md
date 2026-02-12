@@ -1,6 +1,6 @@
 # S2：Storage 读路径边界治理（结构解耦）
 
-更新时间：2026-02-12  
+更新时间：2026-02-13  
 任务类型：Phase 2  
 任务状态：In Progress
 
@@ -267,4 +267,18 @@
    - `cargo test -p nervusdb-v2-storage read_path_api_props --lib`（先红后绿）
    - `cargo test -p nervusdb-v2-storage --test t47_api_trait`
    - `cargo test -p nervusdb-v2 --test t53_integration_storage`
+   - `bash scripts/workspace_quick_test.sh`
+
+36. 已完成切片-18（持久化属性树读取 helper 下沉 + api.rs 读路径收敛）
+   - 新增模块：`/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-storage/src/read_path_property_store.rs`。
+   - 将 `properties_root` 的 BTree/BlobStore 查询逻辑抽离为 helper：
+     `read_node_property_from_store / read_edge_property_from_store / extend_node_properties_from_store / extend_edge_properties_from_store`。
+   - `api.rs` 改为委托 helper，并复用 `read_path_convert` 的转换函数：
+     `internal_edge_to_api / api_edge_to_internal / convert_property_to_api / convert_property_map_to_api`，删除重复转换实现点。
+   - 新增模块测试 4 条，覆盖 node/edge 单值读取与 map 扩展“既有 key 不覆盖”的语义。
+37. 切片-18 验证通过
+   - `cargo test -p nervusdb-v2-storage read_path_property_store --lib`
+   - `cargo test -p nervusdb-v2-storage --test t47_api_trait`
+   - `cargo test -p nervusdb-v2-storage --test t51_snapshot_scan`
+   - `cargo test -p nervusdb-v2-storage --test m1_graph`
    - `bash scripts/workspace_quick_test.sh`
