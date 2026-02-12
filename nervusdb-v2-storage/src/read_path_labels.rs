@@ -1,7 +1,10 @@
 use crate::idmap::{InternalNodeId, LabelId};
 use crate::label_interner::LabelSnapshot;
 
-pub(crate) fn node_primary_label(node_labels: &[Vec<LabelId>], iid: InternalNodeId) -> Option<LabelId> {
+pub(crate) fn node_primary_label(
+    node_labels: &[Vec<LabelId>],
+    iid: InternalNodeId,
+) -> Option<LabelId> {
     node_labels.get(iid as usize)?.first().copied()
 }
 
@@ -51,8 +54,14 @@ mod tests {
         assert_eq!(resolve_label_id(&snapshot, "Post"), Some(post_id));
         assert_eq!(resolve_label_id(&snapshot, "Comment"), None);
 
-        assert_eq!(resolve_label_name(&snapshot, user_id), Some("User".to_string()));
-        assert_eq!(resolve_label_name(&snapshot, post_id), Some("Post".to_string()));
+        assert_eq!(
+            resolve_label_name(&snapshot, user_id),
+            Some("User".to_string())
+        );
+        assert_eq!(
+            resolve_label_name(&snapshot, post_id),
+            Some("Post".to_string())
+        );
         assert_eq!(resolve_label_name(&snapshot, 99), None);
     }
 }

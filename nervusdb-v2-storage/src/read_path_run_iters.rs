@@ -5,7 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(crate) fn iter_edges(
     edges_by_src: &BTreeMap<InternalNodeId, Vec<EdgeKey>>,
 ) -> impl Iterator<Item = EdgeKey> + '_ {
-    edges_by_src.values().flat_map(|edges| edges.iter().copied())
+    edges_by_src
+        .values()
+        .flat_map(|edges| edges.iter().copied())
 }
 
 pub(crate) fn iter_tombstoned_nodes(

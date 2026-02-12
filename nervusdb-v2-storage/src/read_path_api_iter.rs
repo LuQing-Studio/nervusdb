@@ -40,7 +40,8 @@ mod tests {
         ]
         .into_iter();
 
-        let api_edges: Vec<nervusdb_v2_api::EdgeKey> = ApiNeighborsIter::new(Box::new(iter)).collect();
+        let api_edges: Vec<nervusdb_v2_api::EdgeKey> =
+            ApiNeighborsIter::new(Box::new(iter)).collect();
         assert_eq!(
             api_edges,
             vec![

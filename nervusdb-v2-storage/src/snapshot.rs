@@ -2,29 +2,28 @@ use crate::csr::CsrSegment;
 use crate::idmap::InternalNodeId;
 use crate::property::PropertyValue;
 use crate::read_path_api_iter::ApiNeighborsIter;
-use crate::read_path_convert::{
-    api_edge_to_internal, convert_property_map_to_api, convert_property_to_api,
+use crate::read_path_api_props::{
+    edge_properties_as_api, edge_property_as_api, node_properties_as_api, node_property_as_api,
 };
 use crate::read_path_iters::{IncomingNeighborsIter, NeighborsIter};
-use crate::read_path_labels::{
-    node_all_labels, node_primary_label,
-};
+use crate::read_path_labels::{node_all_labels, node_primary_label};
 use crate::read_path_nodes::{is_tombstoned_node_in_runs, live_node_ids};
 use crate::read_path_overlay::{
     edge_property_from_runs, merge_edge_properties_from_runs, merge_node_properties_from_runs,
     node_property_from_runs,
 };
-use crate::read_path_run_props::{edge_property_in_run, node_property_in_run};
-use crate::read_path_run_edges::{edges_for_dst as run_edges_for_dst, edges_for_src as run_edges_for_src};
+use crate::read_path_run_edges::{
+    edges_for_dst as run_edges_for_dst, edges_for_src as run_edges_for_src,
+};
 use crate::read_path_run_iters::{
     iter_edges as run_iter_edges, iter_tombstoned_edges as run_iter_tombstoned_edges,
     iter_tombstoned_nodes as run_iter_tombstoned_nodes,
 };
-use crate::read_path_run_property_maps::{
-    edge_properties_in_run, node_properties_in_run,
-};
-use crate::read_path_symbols::{resolve_symbol_id, resolve_symbol_name};
+use crate::read_path_run_property_maps::{edge_properties_in_run, node_properties_in_run};
+use crate::read_path_run_props::{edge_property_in_run, node_property_in_run};
 use crate::read_path_run_state::{run_has_properties, run_is_empty};
+use crate::read_path_stats::read_statistics;
+use crate::read_path_symbols::{resolve_symbol_id, resolve_symbol_name};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -198,13 +197,7 @@ impl Snapshot {
         &self,
         pager: &crate::pager::Pager,
     ) -> crate::Result<crate::stats::GraphStatistics> {
-        if self.stats_root == 0 {
-            return Ok(crate::stats::GraphStatistics::default());
-        }
-        let bytes = crate::blob_store::BlobStore::read(pager, self.stats_root)?;
-        crate::stats::GraphStatistics::decode(&bytes).ok_or(crate::Error::StorageCorrupted(
-            "failed to decode statistics",
-        ))
+        read_statistics(pager, self.stats_root)
     }
 
     /// Get the label ID for a node.
@@ -307,7 +300,7 @@ impl nervusdb_v2_api::GraphSnapshot for Snapshot {
         iid: InternalNodeId,
         key: &str,
     ) -> Option<nervusdb_v2_api::PropertyValue> {
-        self.node_property(iid, key).map(convert_property_to_api)
+        node_property_as_api(self, iid, key)
     }
 
     fn edge_property(
@@ -315,25 +308,21 @@ impl nervusdb_v2_api::GraphSnapshot for Snapshot {
         edge: nervusdb_v2_api::EdgeKey,
         key: &str,
     ) -> Option<nervusdb_v2_api::PropertyValue> {
-        let internal_edge = api_edge_to_internal(edge);
-        self.edge_property(internal_edge, key)
-            .map(convert_property_to_api)
+        edge_property_as_api(self, edge, key)
     }
 
     fn node_properties(
         &self,
         iid: InternalNodeId,
     ) -> Option<BTreeMap<String, nervusdb_v2_api::PropertyValue>> {
-        self.node_properties(iid).map(convert_property_map_to_api)
+        node_properties_as_api(self, iid)
     }
 
     fn edge_properties(
         &self,
         edge: nervusdb_v2_api::EdgeKey,
     ) -> Option<BTreeMap<String, nervusdb_v2_api::PropertyValue>> {
-        let internal_edge = api_edge_to_internal(edge);
-        self.edge_properties(internal_edge)
-            .map(convert_property_map_to_api)
+        edge_properties_as_api(self, edge)
     }
 
     fn resolve_label_id(&self, name: &str) -> Option<crate::idmap::LabelId> {

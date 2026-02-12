@@ -102,7 +102,10 @@ mod tests {
 
         let non_empty_node_props = BTreeMap::from([(
             1,
-            BTreeMap::from([("name".to_string(), PropertyValue::String("alice".to_string()))]),
+            BTreeMap::from([(
+                "name".to_string(),
+                PropertyValue::String("alice".to_string()),
+            )]),
         )]);
         assert!(run_has_properties(
             &non_empty_node_props,

@@ -232,13 +232,39 @@
    - `cargo test -p nervusdb-v2-storage --test m1_graph`
    - `bash scripts/workspace_quick_test.sh`
 
-30. 切片-15 进行中（Label/RelType 符号解析路径收敛）
+30. 已完成切片-15（Label/RelType 符号解析路径收敛）
    - 新增模块：`/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-storage/src/read_path_symbols.rs`。
    - `Snapshot::{resolve_label_id, resolve_rel_type_id, resolve_label_name, resolve_rel_type_name}` 已改为委托统一 helper。
-   - 已完成定向验证：
-     `cargo test -p nervusdb-v2-storage read_path_symbols --lib`（先红后绿）、
-     `cargo test -p nervusdb-v2-storage --test t59_label_interning`、
-     `cargo test -p nervusdb-v2-storage --test t51_snapshot_scan`、
-     `cargo test -p nervusdb-v2-storage --test t47_api_trait`、
-     `cargo test -p nervusdb-v2-storage --test m1_graph`。
-   - 待补：`bash scripts/workspace_quick_test.sh`（通过后升级为“切片-15 验证通过”）。
+   - 解析实现复用 `read_path_labels` 既有 helper，避免新增重复语义分支。
+31. 切片-15 验证通过
+   - `cargo test -p nervusdb-v2-storage read_path_symbols --lib`（先红后绿）
+   - `cargo test -p nervusdb-v2-storage --test t59_label_interning`
+   - `cargo test -p nervusdb-v2-storage --test t51_snapshot_scan`
+   - `cargo test -p nervusdb-v2-storage --test t47_api_trait`
+   - `cargo test -p nervusdb-v2-storage --test m1_graph`
+   - `bash scripts/workspace_quick_test.sh`
+
+32. 已完成切片-16（Snapshot 统计读取 helper 下沉）
+   - 新增模块：`/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-storage/src/read_path_stats.rs`。
+   - 将 `Snapshot::get_statistics` 的 “stats_root=0 返回默认值 + 读取 blob + decode + corrupted 报错” 逻辑下沉为：
+     `read_statistics(pager, stats_root)`。
+   - 新增模块测试 3 条，覆盖 root=0、正常 roundtrip、损坏 payload 报错三种路径。
+33. 切片-16 验证通过
+   - `cargo test -p nervusdb-v2-storage read_path_stats --lib`（先红后绿）
+   - `cargo test -p nervusdb-v2-storage --test t51_snapshot_scan`
+   - `cargo test -p nervusdb-v2-storage --test t47_api_trait`
+   - `cargo test -p nervusdb-v2-storage --test m1_graph`
+   - `cargo test -p nervusdb-v2 --test t156_optimizer`
+   - `bash scripts/workspace_quick_test.sh`
+
+34. 已完成切片-17（GraphSnapshot 属性桥接 helper 下沉）
+   - 新增模块：`/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-storage/src/read_path_api_props.rs`。
+   - 将 `GraphSnapshot` 的四个属性桥接方法收敛为 helper：
+     `node_property_as_api / edge_property_as_api / node_properties_as_api / edge_properties_as_api`。
+   - `snapshot.rs` 中 `GraphSnapshot` trait impl 对外签名保持不变，仅委托 helper，避免重复转换逻辑散落。
+   - 新增模块测试 2 条，锁定 node/edge 的单值与 map 转换路径语义。
+35. 切片-17 验证通过
+   - `cargo test -p nervusdb-v2-storage read_path_api_props --lib`（先红后绿）
+   - `cargo test -p nervusdb-v2-storage --test t47_api_trait`
+   - `cargo test -p nervusdb-v2 --test t53_integration_storage`
+   - `bash scripts/workspace_quick_test.sh`

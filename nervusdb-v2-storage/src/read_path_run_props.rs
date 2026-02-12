@@ -12,7 +12,9 @@ pub(crate) fn node_property_in_run<'a>(
     {
         return None;
     }
-    run.node_properties.get(&node).and_then(|props| props.get(key))
+    run.node_properties
+        .get(&node)
+        .and_then(|props| props.get(key))
 }
 
 pub(crate) fn edge_property_in_run<'a>(
@@ -25,7 +27,9 @@ pub(crate) fn edge_property_in_run<'a>(
     {
         return None;
     }
-    run.edge_properties.get(&edge).and_then(|props| props.get(key))
+    run.edge_properties
+        .get(&edge)
+        .and_then(|props| props.get(key))
 }
 
 #[cfg(test)]
@@ -59,7 +63,10 @@ mod tests {
         let run = build_run(
             BTreeMap::from([(
                 1,
-                BTreeMap::from([("name".to_string(), PropertyValue::String("alice".to_string()))]),
+                BTreeMap::from([(
+                    "name".to_string(),
+                    PropertyValue::String("alice".to_string()),
+                )]),
             )]),
             BTreeMap::new(),
             BTreeMap::from([(1, BTreeSet::from(["name".to_string()]))]),
@@ -86,6 +93,9 @@ mod tests {
             BTreeMap::new(),
         );
 
-        assert_eq!(edge_property_in_run(&run, edge, "weight"), Some(&PropertyValue::Int(9)));
+        assert_eq!(
+            edge_property_in_run(&run, edge, "weight"),
+            Some(&PropertyValue::Int(9))
+        );
     }
 }

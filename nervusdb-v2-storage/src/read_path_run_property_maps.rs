@@ -28,7 +28,10 @@ mod tests {
     fn node_properties_helper_reads_bucket_or_none() {
         let node_properties = BTreeMap::from([(
             1,
-            BTreeMap::from([("name".to_string(), PropertyValue::String("alice".to_string()))]),
+            BTreeMap::from([(
+                "name".to_string(),
+                PropertyValue::String("alice".to_string()),
+            )]),
         )]);
 
         assert!(node_properties_in_run(&node_properties, 1).is_some());

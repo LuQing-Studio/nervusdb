@@ -2,10 +2,7 @@ use crate::idmap::InternalNodeId;
 use crate::snapshot::L0Run;
 use std::sync::Arc;
 
-pub(crate) fn is_tombstoned_node_in_runs(
-    runs: &Arc<Vec<Arc<L0Run>>>,
-    iid: InternalNodeId,
-) -> bool {
+pub(crate) fn is_tombstoned_node_in_runs(runs: &Arc<Vec<Arc<L0Run>>>, iid: InternalNodeId) -> bool {
     runs.iter()
         .any(|run| run.iter_tombstoned_nodes().any(|node| node == iid))
 }
