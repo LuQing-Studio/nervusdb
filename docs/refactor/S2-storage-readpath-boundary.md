@@ -282,3 +282,16 @@
    - `cargo test -p nervusdb-v2-storage --test t51_snapshot_scan`
    - `cargo test -p nervusdb-v2-storage --test m1_graph`
    - `bash scripts/workspace_quick_test.sh`
+
+38. 已完成切片-19（StorageSnapshot 统计计数路径收敛）
+   - 新增模块：`/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-storage/src/read_path_api_stats.rs`。
+   - 先补失败测试，再实现计数 helper：
+     `node_count_from_stats / edge_count_from_stats`，固定 total/bucket/miss/null-cache 语义。
+   - `api.rs` 中 `node_count/edge_count` 改为复用 helper，并通过 `ensure_stats_cache_loaded` 统一缓存装载逻辑，去除重复分支。
+   - 对外 `GraphSnapshot` 接口与返回语义保持不变。
+39. 切片-19 验证通过
+   - `cargo test -p nervusdb-v2-storage read_path_api_stats --lib`（先红后绿）
+   - `cargo test -p nervusdb-v2-storage --test t47_api_trait`
+   - `cargo test -p nervusdb-v2-storage --test t51_snapshot_scan`
+   - `cargo test -p nervusdb-v2-storage --test m1_graph`
+   - `bash scripts/workspace_quick_test.sh`

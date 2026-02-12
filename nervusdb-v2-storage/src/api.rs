@@ -4,6 +4,7 @@ use crate::index::btree::BTree;
 use crate::index::catalog::IndexCatalog;
 use crate::index::ordered_key::encode_ordered_value;
 use crate::pager::Pager;
+use crate::read_path_api_stats::{edge_count_from_stats, node_count_from_stats};
 use crate::read_path_convert::{
     api_edge_to_internal, convert_property_map_to_api, convert_property_to_api,
     internal_edge_to_api,
@@ -28,6 +29,23 @@ pub struct StorageSnapshot {
     pager: Arc<RwLock<Pager>>,
     index_catalog: Arc<Mutex<IndexCatalog>>,
     stats_cache: Mutex<Option<crate::stats::GraphStatistics>>,
+}
+
+impl StorageSnapshot {
+    fn ensure_stats_cache_loaded(&self) {
+        let mut cache = self.stats_cache.lock().unwrap();
+        if cache.is_none() {
+            let pager = self.pager.read().unwrap();
+            if let Ok(stats) = self.inner.get_statistics(&pager) {
+                *cache = Some(stats);
+            }
+        }
+    }
+
+    fn cached_stats_clone(&self) -> Option<crate::stats::GraphStatistics> {
+        self.ensure_stats_cache_loaded();
+        self.stats_cache.lock().unwrap().clone()
+    }
 }
 
 impl GraphStore for GraphEngine {
@@ -248,43 +266,13 @@ impl GraphSnapshot for StorageSnapshot {
     }
 
     fn node_count(&self, label: Option<LabelId>) -> u64 {
-        let mut cache = self.stats_cache.lock().unwrap();
-        if cache.is_none() {
-            let pager = self.pager.read().unwrap();
-            if let Ok(stats) = self.inner.get_statistics(&pager) {
-                *cache = Some(stats);
-            }
-        }
-
-        if let Some(stats) = cache.as_ref() {
-            if let Some(lid) = label {
-                stats.node_counts_by_label.get(&lid).copied().unwrap_or(0)
-            } else {
-                stats.total_nodes
-            }
-        } else {
-            0
-        }
+        let stats = self.cached_stats_clone();
+        node_count_from_stats(stats.as_ref(), label)
     }
 
     fn edge_count(&self, rel: Option<RelTypeId>) -> u64 {
-        let mut cache = self.stats_cache.lock().unwrap();
-        if cache.is_none() {
-            let pager = self.pager.read().unwrap();
-            if let Ok(stats) = self.inner.get_statistics(&pager) {
-                *cache = Some(stats);
-            }
-        }
-
-        if let Some(stats) = cache.as_ref() {
-            if let Some(rid) = rel {
-                stats.edge_counts_by_type.get(&rid).copied().unwrap_or(0)
-            } else {
-                stats.total_edges
-            }
-        } else {
-            0
-        }
+        let stats = self.cached_stats_clone();
+        edge_count_from_stats(stats.as_ref(), rel)
     }
 }
 
