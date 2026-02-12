@@ -9,6 +9,9 @@ use crate::index::ordered_key::encode_ordered_value;
 use crate::label_interner::{LabelInterner, LabelSnapshot};
 use crate::memtable::MemTable;
 use crate::pager::{PageId, Pager};
+use crate::read_path_engine_labels::{
+    lookup_label_id, lookup_label_name, published_label_snapshot,
+};
 use crate::read_path_engine_view::{
     build_snapshot_from_published, load_properties_and_stats_roots,
 };
@@ -273,21 +276,17 @@ impl GraphEngine {
 
     /// Get a snapshot of the current label state for reading.
     pub fn label_snapshot(&self) -> Arc<LabelSnapshot> {
-        self.published_labels.read().unwrap().clone()
+        published_label_snapshot(&self.published_labels)
     }
 
     /// Get label ID by name, returns None if not found.
     pub fn get_label_id(&self, name: &str) -> Option<LabelId> {
-        self.label_interner.lock().unwrap().get_id(name)
+        lookup_label_id(&self.label_interner, name)
     }
 
     /// Get label name by ID, returns None if not found.
     pub fn get_label_name(&self, id: LabelId) -> Option<String> {
-        self.label_interner
-            .lock()
-            .unwrap()
-            .get_name(id)
-            .map(String::from)
+        lookup_label_name(&self.label_interner, id)
     }
 
     // T203: HNSW Public API

@@ -330,3 +330,16 @@
    - `cargo test -p nervusdb-v2-storage --test t51_snapshot_scan`
    - `cargo test -p nervusdb-v2-storage --test m1_graph`
    - `bash scripts/workspace_quick_test.sh`
+
+46. 已完成切片-23（Engine 标签读取 helper 下沉）
+   - 新增模块：`/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-storage/src/read_path_engine_labels.rs`。
+   - 先补失败测试，再实现：
+     `published_label_snapshot / lookup_label_id / lookup_label_name`。
+   - `engine.rs` 中 `label_snapshot/get_label_id/get_label_name` 改为统一委托 helper，读路径锁访问逻辑集中化。
+   - 对外接口行为保持不变。
+47. 切片-23 验证通过
+   - `cargo test -p nervusdb-v2-storage read_path_engine_labels --lib`（先红后绿）
+   - `cargo test -p nervusdb-v2-storage --test t59_label_interning`
+   - `cargo test -p nervusdb-v2-storage --test t47_api_trait`
+   - `cargo test -p nervusdb-v2-storage --test m1_graph`
+   - `bash scripts/workspace_quick_test.sh`
