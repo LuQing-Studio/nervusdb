@@ -295,3 +295,15 @@
    - `cargo test -p nervusdb-v2-storage --test t51_snapshot_scan`
    - `cargo test -p nervusdb-v2-storage --test m1_graph`
    - `bash scripts/workspace_quick_test.sh`
+
+40. 已完成切片-20（Engine 读视图装配 helper 下沉）
+   - 新增模块：`/Volumes/WorkDrive/Code/github.com/LuQing-Studio/rust/nervusdb/nervusdb-v2-storage/src/read_path_engine_view.rs`。
+   - 先补失败测试，再实现：
+     `load_properties_and_stats_roots / build_snapshot_from_published`。
+   - `engine.rs` 的 `begin_read` 与 `checkpoint_on_close` 改为复用 helper，收敛 roots 读取与 snapshot 组装路径，保持现有行为与对外接口不变。
+41. 切片-20 验证通过
+   - `cargo test -p nervusdb-v2-storage read_path_engine_view --lib`（先红后绿）
+   - `cargo test -p nervusdb-v2-storage --test t51_snapshot_scan`
+   - `cargo test -p nervusdb-v2-storage --test m1_graph`
+   - `cargo test -p nervusdb-v2 --test t106_checkpoint_on_close`
+   - `bash scripts/workspace_quick_test.sh`

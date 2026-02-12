@@ -9,6 +9,9 @@ use crate::index::ordered_key::encode_ordered_value;
 use crate::label_interner::{LabelInterner, LabelSnapshot};
 use crate::memtable::MemTable;
 use crate::pager::{PageId, Pager};
+use crate::read_path_engine_view::{
+    build_snapshot_from_published, load_properties_and_stats_roots,
+};
 use crate::snapshot::{L0Run, RelTypeId, Snapshot};
 use crate::wal::{CommittedTx, SegmentPointer, Wal, WalRecord};
 use crate::{Error, Result};
@@ -181,9 +184,9 @@ impl GraphEngine {
         let segments = self.published_segments.read().unwrap().clone();
         let labels = self.published_labels.read().unwrap().clone();
         let node_labels = self.published_node_labels.read().unwrap().clone();
-        let properties_root = self.properties_root.load(Ordering::Relaxed);
-        let stats_root = self.stats_root.load(Ordering::Relaxed);
-        Snapshot::new(
+        let (properties_root, stats_root) =
+            load_properties_and_stats_roots(&self.properties_root, &self.stats_root);
+        build_snapshot_from_published(
             runs,
             segments,
             labels,
@@ -548,8 +551,8 @@ impl GraphEngine {
             }
         }
 
-        let properties_root = self.properties_root.load(Ordering::Relaxed);
-        let stats_root = self.stats_root.load(Ordering::Relaxed);
+        let (properties_root, stats_root) =
+            load_properties_and_stats_roots(&self.properties_root, &self.stats_root);
         ops.push(WalRecord::ManifestSwitch {
             epoch,
             segments: pointers,
