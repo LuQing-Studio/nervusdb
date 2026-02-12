@@ -7,7 +7,7 @@ use crate::pager::Pager;
 use crate::read_path_api_stats::{edge_count_from_stats, node_count_from_stats};
 use crate::read_path_convert::{
     api_edge_to_internal, convert_property_map_to_api, convert_property_to_api,
-    internal_edge_to_api,
+    convert_property_to_storage, internal_edge_to_api,
 };
 use crate::read_path_property_store::{
     extend_edge_properties_from_store, extend_node_properties_from_store,
@@ -109,7 +109,7 @@ impl GraphSnapshot for StorageSnapshot {
         let tree = BTree::load(def.root);
 
         // Use storage-level PropertyValue for encoding
-        let storage_value = to_storage(value.clone());
+        let storage_value = convert_property_to_storage(value.clone());
 
         // Construct prefix: [index_id (4B)] [encoded_value]
         let mut prefix = Vec::new();
@@ -270,23 +270,5 @@ impl GraphSnapshot for StorageSnapshot {
     fn edge_count(&self, rel: Option<RelTypeId>) -> u64 {
         let stats = self.cached_stats_clone();
         edge_count_from_stats(stats.as_ref(), rel)
-    }
-}
-
-pub(crate) fn to_storage(v: PropertyValue) -> crate::property::PropertyValue {
-    match v {
-        PropertyValue::Null => crate::property::PropertyValue::Null,
-        PropertyValue::Bool(b) => crate::property::PropertyValue::Bool(b),
-        PropertyValue::Int(i) => crate::property::PropertyValue::Int(i),
-        PropertyValue::Float(f) => crate::property::PropertyValue::Float(f),
-        PropertyValue::String(s) => crate::property::PropertyValue::String(s),
-        PropertyValue::DateTime(i) => crate::property::PropertyValue::DateTime(i),
-        PropertyValue::Blob(b) => crate::property::PropertyValue::Blob(b),
-        PropertyValue::List(l) => {
-            crate::property::PropertyValue::List(l.into_iter().map(to_storage).collect())
-        }
-        PropertyValue::Map(m) => crate::property::PropertyValue::Map(
-            m.into_iter().map(|(k, v)| (k, to_storage(v))).collect(),
-        ),
     }
 }

@@ -45,11 +45,37 @@ pub(crate) fn internal_edge_to_api(edge: EdgeKey) -> nervusdb_v2_api::EdgeKey {
     }
 }
 
+pub(crate) fn convert_property_to_storage(
+    value: nervusdb_v2_api::PropertyValue,
+) -> crate::property::PropertyValue {
+    match value {
+        nervusdb_v2_api::PropertyValue::Null => crate::property::PropertyValue::Null,
+        nervusdb_v2_api::PropertyValue::Bool(v) => crate::property::PropertyValue::Bool(v),
+        nervusdb_v2_api::PropertyValue::Int(v) => crate::property::PropertyValue::Int(v),
+        nervusdb_v2_api::PropertyValue::Float(v) => crate::property::PropertyValue::Float(v),
+        nervusdb_v2_api::PropertyValue::String(v) => crate::property::PropertyValue::String(v),
+        nervusdb_v2_api::PropertyValue::DateTime(v) => crate::property::PropertyValue::DateTime(v),
+        nervusdb_v2_api::PropertyValue::Blob(v) => crate::property::PropertyValue::Blob(v),
+        nervusdb_v2_api::PropertyValue::List(values) => crate::property::PropertyValue::List(
+            values
+                .into_iter()
+                .map(convert_property_to_storage)
+                .collect(),
+        ),
+        nervusdb_v2_api::PropertyValue::Map(values) => crate::property::PropertyValue::Map(
+            values
+                .into_iter()
+                .map(|(key, value)| (key, convert_property_to_storage(value)))
+                .collect(),
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         api_edge_to_internal, convert_property_map_to_api, convert_property_to_api,
-        internal_edge_to_api,
+        convert_property_to_storage, internal_edge_to_api,
     };
     use crate::property::PropertyValue;
     use crate::snapshot::EdgeKey;
@@ -150,5 +176,23 @@ mod tests {
                 dst: 66,
             }
         );
+    }
+
+    #[test]
+    fn convert_property_to_storage_preserves_nested_shape() {
+        let value = nervusdb_v2_api::PropertyValue::Map(BTreeMap::from([(
+            "k".to_string(),
+            nervusdb_v2_api::PropertyValue::List(vec![
+                nervusdb_v2_api::PropertyValue::Int(7),
+                nervusdb_v2_api::PropertyValue::Null,
+            ]),
+        )]));
+
+        let got = convert_property_to_storage(value);
+        let expected = PropertyValue::Map(BTreeMap::from([(
+            "k".to_string(),
+            PropertyValue::List(vec![PropertyValue::Int(7), PropertyValue::Null]),
+        )]));
+        assert_eq!(got, expected);
     }
 }

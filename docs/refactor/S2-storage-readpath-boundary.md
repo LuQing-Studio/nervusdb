@@ -319,3 +319,14 @@
    - `cargo test -p nervusdb-v2-storage --test t51_snapshot_scan`
    - `cargo test -p nervusdb-v2-storage --test m1_graph`
    - `bash scripts/workspace_quick_test.sh`
+
+44. 已完成切片-22（API->Storage 转换逻辑集中）
+   - 在 `read_path_convert.rs` 新增 `convert_property_to_storage`，并补充红绿测试覆盖嵌套 `Map/List` 转换。
+   - `api.rs` 的索引查找路径改为复用 `convert_property_to_storage`，删除本地重复 `to_storage` 实现点。
+   - `engine.rs` 的索引更新路径同步切换到同一 helper，消除对已移除转换函数的依赖。
+45. 切片-22 验证通过
+   - `cargo test -p nervusdb-v2-storage read_path_convert --lib`（先红后绿）
+   - `cargo test -p nervusdb-v2-storage --test t47_api_trait`
+   - `cargo test -p nervusdb-v2-storage --test t51_snapshot_scan`
+   - `cargo test -p nervusdb-v2-storage --test m1_graph`
+   - `bash scripts/workspace_quick_test.sh`

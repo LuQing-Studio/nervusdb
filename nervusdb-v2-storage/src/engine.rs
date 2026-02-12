@@ -869,7 +869,7 @@ impl<'a> WriteTxn<'a> {
             let snapshot = self.engine.snapshot();
 
             // Helper to convert API PropertyValue to Storage PropertyValue
-            use crate::api::to_storage;
+            use crate::read_path_convert::convert_property_to_storage as to_storage;
 
             for (node, key, value) in &node_properties {
                 let is_new = self.created_nodes.iter().any(|(_, _, iid)| iid == node);
