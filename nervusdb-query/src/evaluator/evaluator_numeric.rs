@@ -73,6 +73,26 @@ pub(super) fn cast_to_float(value: Option<&Value>) -> Value {
     }
 }
 
+pub(super) fn cast_to_boolean(value: Option<&Value>) -> Value {
+    let Some(value) = value else {
+        return Value::Null;
+    };
+    match value {
+        Value::Null => Value::Null,
+        Value::Bool(b) => Value::Bool(*b),
+        Value::String(s) => {
+            if s.eq_ignore_ascii_case("true") {
+                Value::Bool(true)
+            } else if s.eq_ignore_ascii_case("false") {
+                Value::Bool(false)
+            } else {
+                Value::Null
+            }
+        }
+        _ => Value::Null,
+    }
+}
+
 pub(super) fn numeric_binop<FInt, FFloat>(
     left: &Value,
     right: &Value,

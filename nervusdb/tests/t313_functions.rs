@@ -149,6 +149,63 @@ fn test_to_float_from_invalid_string_returns_null() -> nervusdb::Result<()> {
 }
 
 #[test]
+fn test_to_boolean_from_boolean() -> nervusdb::Result<()> {
+    let dir = tempdir()?;
+    let db_path = dir.path().join("t313.ndb");
+    let db = Db::open(&db_path)?;
+
+    let query = "RETURN toBoolean(true) AS result";
+    let prep = nervusdb::query::prepare(query)?;
+    let snapshot = db.snapshot();
+    let results: Vec<_> = prep
+        .execute_streaming(&snapshot, &Default::default())
+        .collect::<Result<Vec<_>, _>>()?;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].get("result").unwrap(), &Value::Bool(true));
+
+    Ok(())
+}
+
+#[test]
+fn test_to_boolean_from_valid_string() -> nervusdb::Result<()> {
+    let dir = tempdir()?;
+    let db_path = dir.path().join("t313.ndb");
+    let db = Db::open(&db_path)?;
+
+    let query = "RETURN toBoolean('false') AS result";
+    let prep = nervusdb::query::prepare(query)?;
+    let snapshot = db.snapshot();
+    let results: Vec<_> = prep
+        .execute_streaming(&snapshot, &Default::default())
+        .collect::<Result<Vec<_>, _>>()?;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].get("result").unwrap(), &Value::Bool(false));
+
+    Ok(())
+}
+
+#[test]
+fn test_to_boolean_from_invalid_string_returns_null() -> nervusdb::Result<()> {
+    let dir = tempdir()?;
+    let db_path = dir.path().join("t313.ndb");
+    let db = Db::open(&db_path)?;
+
+    let query = "RETURN toBoolean(' tru ') AS result";
+    let prep = nervusdb::query::prepare(query)?;
+    let snapshot = db.snapshot();
+    let results: Vec<_> = prep
+        .execute_streaming(&snapshot, &Default::default())
+        .collect::<Result<Vec<_>, _>>()?;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].get("result").unwrap(), &Value::Null);
+
+    Ok(())
+}
+
+#[test]
 fn test_coalesce_first_non_null() -> nervusdb::Result<()> {
     let dir = tempdir()?;
     let db_path = dir.path().join("t313.ndb");
