@@ -651,12 +651,47 @@ fn column_name_eq(left: &str, right: &str) -> bool {
     normalize_column_name(left) == normalize_column_name(right)
 }
 
+fn strip_wrapping_parens(mut input: String) -> String {
+    loop {
+        if !(input.starts_with('(') && input.ends_with(')')) {
+            return input;
+        }
+        let mut depth = 0i32;
+        let mut wraps_all = false;
+        let mut valid = true;
+        for (idx, ch) in input.char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth < 0 {
+                        valid = false;
+                        break;
+                    }
+                    if depth == 0 {
+                        wraps_all = idx == input.len() - 1;
+                        if !wraps_all {
+                            valid = false;
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        if !valid || !wraps_all {
+            return input;
+        }
+        input = input[1..input.len() - 1].to_string();
+    }
+}
+
 fn normalize_column_name(input: &str) -> String {
-    input
+    let compact = input
         .chars()
         .filter(|ch| !ch.is_whitespace())
-        .collect::<String>()
-        .to_lowercase()
+        .collect::<String>();
+    strip_wrapping_parens(compact).to_lowercase()
 }
 
 fn list_eq_ignoring_order(a: &[Value], b: &[Value]) -> bool {
@@ -732,6 +767,13 @@ fn value_eq(a: &Value, b: &Value) -> bool {
                 return false;
             }
             a.iter().zip(b.iter()).all(|(a, b)| value_eq(a, b))
+        }
+        (Value::Map(a), Value::Map(b)) => {
+            if a.len() != b.len() {
+                return false;
+            }
+            a.iter()
+                .all(|(key, av)| b.get(key).is_some_and(|bv| value_eq(av, bv)))
         }
         // Handle Node comparisons - normalize to string representation for TCK
         (Value::NodeId(a), Value::NodeId(b)) => a == b,

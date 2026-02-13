@@ -245,6 +245,83 @@ fn validate_quantifier_argument_types(call: &crate::ast::FunctionCall) -> Result
     Ok(())
 }
 
+fn is_supported_function_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    if lower.starts_with("__quant_") {
+        return true;
+    }
+
+    matches!(
+        lower.as_str(),
+        // Aggregates
+        "count"
+            | "sum"
+            | "avg"
+            | "min"
+            | "max"
+            | "collect"
+            // Collections / list / map helpers
+            | "size"
+            | "head"
+            | "tail"
+            | "last"
+            | "keys"
+            | "length"
+            | "nodes"
+            | "relationships"
+            | "range"
+            | "properties"
+            // Scalar helpers
+            | "rand"
+            | "abs"
+            | "tolower"
+            | "toupper"
+            | "reverse"
+            | "tostring"
+            | "trim"
+            | "ltrim"
+            | "rtrim"
+            | "substring"
+            | "replace"
+            | "split"
+            | "coalesce"
+            | "sqrt"
+            | "tointeger"
+            | "tofloat"
+            | "toboolean"
+            // Graph helpers
+            | "startnode"
+            | "endnode"
+            | "labels"
+            | "type"
+            | "id"
+            // Temporal + duration
+            | "date"
+            | "time"
+            | "localtime"
+            | "datetime"
+            | "localdatetime"
+            | "duration"
+            | "date.truncate"
+            | "time.truncate"
+            | "localtime.truncate"
+            | "datetime.truncate"
+            | "localdatetime.truncate"
+            | "datetime.fromepoch"
+            | "datetime.fromepochmillis"
+            | "duration.between"
+            | "duration.inmonths"
+            | "duration.indays"
+            | "duration.inseconds"
+            // Internal planner/parser helpers
+            | "__index"
+            | "__slice"
+            | "__getprop"
+            | "__distinct"
+            | "__nervus_singleton_path"
+    )
+}
+
 pub(super) fn validate_expression_types(expr: &Expression) -> Result<()> {
     match expr {
         Expression::Unary(u) => {
@@ -281,6 +358,9 @@ pub(super) fn validate_expression_types(expr: &Expression) -> Result<()> {
         Expression::FunctionCall(call) => {
             for arg in &call.args {
                 validate_expression_types(arg)?;
+            }
+            if !is_supported_function_name(&call.name) {
+                return Err(Error::Other("syntax error: UnknownFunction".to_string()));
             }
             validate_quantifier_argument_types(call)?;
             if call.name.eq_ignore_ascii_case("properties") {
@@ -484,5 +564,15 @@ mod tests {
             })),
         );
         validate_expression_types(&expr).expect("non-numeric predicate should be accepted");
+    }
+
+    #[test]
+    fn rejects_unknown_function_at_compile_time() {
+        let expr = Expression::FunctionCall(FunctionCall {
+            name: "foo".to_string(),
+            args: vec![Expression::Variable("n".to_string())],
+        });
+        let err = validate_expression_types(&expr).expect_err("expected UnknownFunction");
+        assert_eq!(err.to_string(), "syntax error: UnknownFunction");
     }
 }
