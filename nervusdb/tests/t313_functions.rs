@@ -76,6 +76,17 @@ fn test_size_of_empty_list() -> nervusdb::Result<()> {
     Ok(())
 }
 
+#[test]
+fn test_size_of_path_is_compile_error() {
+    let err = nervusdb::query::prepare("MATCH p = (a)-[*]->(b) RETURN size(p)")
+        .expect_err("size(path) should be rejected at compile time")
+        .to_string();
+    assert!(
+        err.contains("InvalidArgumentType"),
+        "expected InvalidArgumentType, got {err}"
+    );
+}
+
 // ============================================================================
 // coalesce() function tests
 // ============================================================================

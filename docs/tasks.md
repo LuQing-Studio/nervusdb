@@ -100,7 +100,7 @@
 | BETA-03R1     | [Refactor] 拆分 `query_api.rs`（解析/校验/Plan 组装模块化） | High   | Plan   | codex/feat/TBETA-03-refactor-query-api | 仅做结构拆分，不改外部 API 与语义；完成后先回归 `ReturnOrderBy2` |
 | BETA-03R2     | [Refactor] 拆分 `executor.rs`（读路径/写路径/排序投影）      | High   | Plan   | codex/feat/TBETA-03-refactor-executor  | 先抽 write 路径（SET/DELETE/MERGE）再分离 read/sort；保持行为等价 |
 | BETA-03R3     | [Refactor] 拆分 `evaluator.rs` Temporal/Duration 子模块     | High   | Plan   | codex/feat/TBETA-03-refactor-evaluator | 抽离 temporal 计算与构造器逻辑，保留现有入口与错误模型 |
-| BETA-03R4     | [TCK] 重构后恢复推进（ReturnOrderBy2 → Wave2 余簇）         | High   | WIP    | codex/feat/TBETA-03-returnorderby2-fixes | 2026-02-13 继续收敛：修复 Quantifier2（106/106）、Quantifier11（22/22）、List2 场景9（null slicing）、Precedence2（26/26）与 Precedence3（11/11）。核心改动包括量词编译期 `InvalidArgumentType` 校验、`single()` 三值逻辑修正、WHERE 量词变量作用域修正、slice 边界“省略 vs 显式 null”区分，以及 `^` 运算改为左结合；同时增强 TCK 期望值解析器对嵌套 list/map 的解析能力。 |
+| BETA-03R4     | [TCK] 重构后恢复推进（ReturnOrderBy2 → Wave2 余簇）         | High   | WIP    | codex/feat/TBETA-03-returnorderby2-fixes | 2026-02-13 最新 Tier-3：3270/3897=83.91%（failed 94，较本轮前 98 再降 4）。本轮新增修复：MatchWhere1（path 属性访问与 WHERE 聚合校验）、MatchWhere6（OPTIONAL MATCH 反向绑定关系变量可见性）、List6（`size(path)` 编译期 InvalidArgumentType）；同时保留前序已完成项（Quantifier2/11、List2 场景9、Precedence2/3）并通过定向回归。 |
 | BETA-04       | [Stability] 连续 7 天主 CI + nightly 稳定窗                | High   | Plan   | feat/TB1-stability-window   | 任一阻断失败即重置计数 |
 | BETA-05       | [Perf] 大规模 SLO 封板（读120/写180/向量220 ms P99）       | High   | Plan   | feat/TB1-perf-slo           | 达标后方可发布 Beta |
 

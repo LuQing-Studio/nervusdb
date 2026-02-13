@@ -218,6 +218,76 @@ fn test_optional_match_with_bound_relationship_avoids_cartesian_expansion() -> n
 }
 
 #[test]
+fn test_optional_match_bound_rel_reverse_direction_with_where_scope() -> nervusdb::Result<()> {
+    let dir = tempdir()?;
+    let db = Db::open(dir.path())?;
+
+    {
+        let mut txn = db.begin_write();
+        let label_a = txn.get_or_create_label("A")?;
+        let label_b = txn.get_or_create_label("B")?;
+        let rel_t = txn.get_or_create_rel_type_id("T")?;
+        let a = txn.create_node(1, label_a)?;
+        let b = txn.create_node(2, label_b)?;
+        txn.create_edge(a, rel_t, b);
+        txn.commit()?;
+    }
+
+    let snapshot = db.snapshot();
+    let query = nervusdb::query::prepare(
+        "MATCH (a1)-[r]->() \
+         WITH r, a1 LIMIT 1 \
+         OPTIONAL MATCH (a2)<-[r]-(b2) \
+         WHERE a1 = a2 \
+         RETURN a1, r, b2, a2",
+    )?;
+    let rows: Vec<Row> = query
+        .execute_streaming(&snapshot, &Default::default())
+        .map(|r| r.map_err(nervusdb::Error::from))
+        .collect::<nervusdb::Result<Vec<_>>>()?;
+
+    assert_eq!(
+        rows.len(),
+        1,
+        "query should keep one row after OPTIONAL MATCH"
+    );
+    let row = &rows[0];
+    let a1 = row
+        .columns()
+        .iter()
+        .find(|(k, _)| k == "a1")
+        .map(|(_, v)| v.clone())
+        .unwrap_or(Value::Null);
+    let a2 = row
+        .columns()
+        .iter()
+        .find(|(k, _)| k == "a2")
+        .map(|(_, v)| v.clone())
+        .unwrap_or(Value::Null);
+    let b2 = row
+        .columns()
+        .iter()
+        .find(|(k, _)| k == "b2")
+        .map(|(_, v)| v.clone())
+        .unwrap_or(Value::Null);
+
+    assert!(
+        matches!(a1, Value::NodeId(_) | Value::Node(_)),
+        "expected a1 to be node-like, got {a1:?}"
+    );
+    assert!(
+        matches!(a2, Value::Null),
+        "expected a2 to be null, got {a2:?}"
+    );
+    assert!(
+        matches!(b2, Value::Null),
+        "expected b2 to be null, got {b2:?}"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn test_optional_match_respects_labels_on_optional_end_node() -> nervusdb::Result<()> {
     let dir = tempdir()?;
     let db = Db::open(dir.path())?;

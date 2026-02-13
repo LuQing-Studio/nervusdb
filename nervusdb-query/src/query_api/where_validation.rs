@@ -14,6 +14,7 @@ pub(super) fn validate_where_expression_bindings(
     expr: &Expression,
     known_bindings: &BTreeMap<String, BindingKind>,
 ) -> Result<()> {
+    ensure_no_aggregation_functions(expr)?;
     let mut local_scopes: Vec<HashSet<String>> = Vec::new();
     validate_where_expression_variables(expr, known_bindings, &mut local_scopes)?;
 
@@ -26,6 +27,128 @@ pub(super) fn validate_where_expression_bindings(
             "syntax error: InvalidArgumentType".to_string(),
         ));
     }
+    Ok(())
+}
+
+fn ensure_no_aggregation_functions(expr: &Expression) -> Result<()> {
+    match expr {
+        Expression::FunctionCall(call) => {
+            if super::parse_aggregate_function(call)?.is_some() {
+                return Err(Error::Other("syntax error: InvalidAggregation".to_string()));
+            }
+            for arg in &call.args {
+                ensure_no_aggregation_functions(arg)?;
+            }
+        }
+        Expression::Unary(u) => ensure_no_aggregation_functions(&u.operand)?,
+        Expression::Binary(b) => {
+            ensure_no_aggregation_functions(&b.left)?;
+            ensure_no_aggregation_functions(&b.right)?;
+        }
+        Expression::List(items) => {
+            for item in items {
+                ensure_no_aggregation_functions(item)?;
+            }
+        }
+        Expression::Map(map) => {
+            for pair in &map.properties {
+                ensure_no_aggregation_functions(&pair.value)?;
+            }
+        }
+        Expression::Case(case_expr) => {
+            if let Some(test_expr) = &case_expr.expression {
+                ensure_no_aggregation_functions(test_expr)?;
+            }
+            for (when_expr, then_expr) in &case_expr.when_clauses {
+                ensure_no_aggregation_functions(when_expr)?;
+                ensure_no_aggregation_functions(then_expr)?;
+            }
+            if let Some(else_expr) = &case_expr.else_expression {
+                ensure_no_aggregation_functions(else_expr)?;
+            }
+        }
+        Expression::ListComprehension(list_comp) => {
+            ensure_no_aggregation_functions(&list_comp.list)?;
+            if let Some(where_expr) = &list_comp.where_expression {
+                ensure_no_aggregation_functions(where_expr)?;
+            }
+            if let Some(map_expr) = &list_comp.map_expression {
+                ensure_no_aggregation_functions(map_expr)?;
+            }
+        }
+        Expression::PatternComprehension(pattern_comp) => {
+            for element in &pattern_comp.pattern.elements {
+                match element {
+                    crate::ast::PathElement::Node(node) => {
+                        if let Some(props) = &node.properties {
+                            for pair in &props.properties {
+                                ensure_no_aggregation_functions(&pair.value)?;
+                            }
+                        }
+                    }
+                    crate::ast::PathElement::Relationship(rel) => {
+                        if let Some(props) = &rel.properties {
+                            for pair in &props.properties {
+                                ensure_no_aggregation_functions(&pair.value)?;
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(where_expr) = &pattern_comp.where_expression {
+                ensure_no_aggregation_functions(where_expr)?;
+            }
+            ensure_no_aggregation_functions(&pattern_comp.projection)?;
+        }
+        Expression::Exists(exists_expr) => match exists_expr.as_ref() {
+            crate::ast::ExistsExpression::Pattern(pattern) => {
+                for element in &pattern.elements {
+                    match element {
+                        crate::ast::PathElement::Node(node) => {
+                            if let Some(props) = &node.properties {
+                                for pair in &props.properties {
+                                    ensure_no_aggregation_functions(&pair.value)?;
+                                }
+                            }
+                        }
+                        crate::ast::PathElement::Relationship(rel) => {
+                            if let Some(props) = &rel.properties {
+                                for pair in &props.properties {
+                                    ensure_no_aggregation_functions(&pair.value)?;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            crate::ast::ExistsExpression::Subquery(subquery) => {
+                for clause in &subquery.clauses {
+                    match clause {
+                        Clause::Where(w) => ensure_no_aggregation_functions(&w.expression)?,
+                        Clause::With(w) => {
+                            for item in &w.items {
+                                ensure_no_aggregation_functions(&item.expression)?;
+                            }
+                            if let Some(where_clause) = &w.where_clause {
+                                ensure_no_aggregation_functions(&where_clause.expression)?;
+                            }
+                        }
+                        Clause::Return(r) => {
+                            for item in &r.items {
+                                ensure_no_aggregation_functions(&item.expression)?;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        },
+        Expression::Variable(_)
+        | Expression::PropertyAccess(_)
+        | Expression::Parameter(_)
+        | Expression::Literal(_) => {}
+    }
+
     Ok(())
 }
 
@@ -44,6 +167,13 @@ fn validate_where_expression_variables(
             }
         }
         Expression::PropertyAccess(pa) => {
+            if !is_locally_bound(local_scopes, &pa.variable)
+                && matches!(known_bindings.get(&pa.variable), Some(BindingKind::Path))
+            {
+                return Err(Error::Other(
+                    "syntax error: InvalidArgumentType".to_string(),
+                ));
+            }
             if !is_locally_bound(local_scopes, &pa.variable)
                 && !known_bindings.contains_key(&pa.variable)
             {
@@ -381,7 +511,9 @@ fn validate_pattern_predicate_bindings(
 #[cfg(test)]
 mod tests {
     use super::validate_where_expression_bindings;
-    use crate::ast::{BinaryExpression, BinaryOperator, Expression, FunctionCall, Literal};
+    use crate::ast::{
+        BinaryExpression, BinaryOperator, Expression, FunctionCall, Literal, PropertyAccess,
+    };
     use std::collections::BTreeMap;
 
     #[test]
@@ -423,5 +555,35 @@ mod tests {
         let err = validate_where_expression_bindings(&expr, &known)
             .expect_err("unknown variable should still be rejected");
         assert_eq!(err.to_string(), "syntax error: UndefinedVariable (y)");
+    }
+
+    #[test]
+    fn rejects_path_property_access_in_where() {
+        let expr = Expression::PropertyAccess(PropertyAccess {
+            variable: "p".to_string(),
+            property: "name".to_string(),
+        });
+        let mut known = BTreeMap::new();
+        known.insert("p".to_string(), super::BindingKind::Path);
+        let err = validate_where_expression_bindings(&expr, &known)
+            .expect_err("path property access should be rejected");
+        assert_eq!(err.to_string(), "syntax error: InvalidArgumentType");
+    }
+
+    #[test]
+    fn rejects_aggregation_function_in_where() {
+        let expr = Expression::Binary(Box::new(BinaryExpression {
+            left: Expression::FunctionCall(FunctionCall {
+                name: "count".to_string(),
+                args: vec![Expression::Variable("a".to_string())],
+            }),
+            operator: BinaryOperator::GreaterThan,
+            right: Expression::Literal(Literal::Integer(10)),
+        }));
+        let mut known = BTreeMap::new();
+        known.insert("a".to_string(), super::BindingKind::Node);
+        let err = validate_where_expression_bindings(&expr, &known)
+            .expect_err("aggregation in WHERE should be rejected");
+        assert_eq!(err.to_string(), "syntax error: InvalidAggregation");
     }
 }

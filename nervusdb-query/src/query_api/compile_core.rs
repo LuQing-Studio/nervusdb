@@ -1,6 +1,6 @@
 use super::{
-    BTreeMap, BindingKind, CallClause, Clause, Error, Expression, Plan, Query, Result, VecDeque,
-    WriteSemantics, compile_create_plan, compile_delete_plan_v2, compile_foreach_plan,
+    BTreeMap, BTreeSet, BindingKind, CallClause, Clause, Error, Expression, Plan, Query, Result,
+    VecDeque, WriteSemantics, compile_create_plan, compile_delete_plan_v2, compile_foreach_plan,
     compile_match_plan, compile_merge_plan, compile_merge_set_items, compile_remove_plan_v2,
     compile_return_plan, compile_set_plan_v2, compile_unwind_plan, compile_with_plan,
     extract_merge_pattern_vars, extract_output_var_kinds, extract_predicates,
@@ -65,11 +65,15 @@ pub(crate) fn compile_m3_plan(
                     if let Some(compiled_plan) = &plan {
                         extract_output_var_kinds(compiled_plan, &mut after_kinds);
                     }
-                    let aliases = after_kinds
-                        .keys()
-                        .filter(|name| !before_kinds.contains_key(*name))
-                        .cloned()
-                        .collect::<Vec<_>>();
+                    let mut aliases: BTreeSet<String> =
+                        collect_optional_match_aliases(m, &before_kinds);
+                    aliases.extend(
+                        after_kinds
+                            .keys()
+                            .filter(|name| !before_kinds.contains_key(*name))
+                            .cloned(),
+                    );
+                    let aliases = aliases.into_iter().collect::<Vec<_>>();
 
                     if matches!(clauses.peek(), Some(Clause::Where(_))) {
                         pending_optional_where_fixup = Some((previous_plan, aliases));
@@ -93,6 +97,13 @@ pub(crate) fn compile_m3_plan(
                 let mut where_bindings: BTreeMap<String, BindingKind> = BTreeMap::new();
                 if let Some(current_plan) = &plan {
                     extract_output_var_kinds(current_plan, &mut where_bindings);
+                }
+                if let Some((_, pending_aliases)) = &pending_optional_where_fixup {
+                    for alias in pending_aliases {
+                        where_bindings
+                            .entry(alias.clone())
+                            .or_insert(BindingKind::Unknown);
+                    }
                 }
 
                 validate_expression_types(&w.expression)?;
@@ -246,4 +257,37 @@ pub(crate) fn compile_m3_plan(
     }
 
     Err(Error::NotImplemented("Empty query"))
+}
+
+fn collect_optional_match_aliases(
+    match_clause: &crate::ast::MatchClause,
+    known_before: &BTreeMap<String, BindingKind>,
+) -> BTreeSet<String> {
+    let mut aliases = BTreeSet::new();
+    for pattern in &match_clause.patterns {
+        if let Some(path_alias) = &pattern.variable
+            && !known_before.contains_key(path_alias)
+        {
+            aliases.insert(path_alias.clone());
+        }
+        for element in &pattern.elements {
+            match element {
+                crate::ast::PathElement::Node(node) => {
+                    if let Some(alias) = &node.variable
+                        && !known_before.contains_key(alias)
+                    {
+                        aliases.insert(alias.clone());
+                    }
+                }
+                crate::ast::PathElement::Relationship(rel) => {
+                    if let Some(alias) = &rel.variable
+                        && !known_before.contains_key(alias)
+                    {
+                        aliases.insert(alias.clone());
+                    }
+                }
+            }
+        }
+    }
+    aliases
 }

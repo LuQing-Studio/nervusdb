@@ -1,7 +1,8 @@
 use super::{
-    BTreeMap, Error, Expression, Literal, Plan, Result, default_aggregate_alias,
+    BTreeMap, BindingKind, Error, Expression, Literal, Plan, Result, default_aggregate_alias,
     default_projection_alias, ensure_no_pattern_predicate, extract_output_var_kinds,
-    extract_variables_from_expr, parse_aggregate_function, validate_expression_types,
+    extract_variables_from_expr, infer_expression_binding_kind, parse_aggregate_function,
+    validate_expression_types,
 };
 
 fn is_simple_group_expression(expr: &Expression) -> bool {
@@ -49,6 +50,141 @@ fn contains_function_call_named(expr: &Expression, target: &str) -> bool {
         }
         _ => false,
     }
+}
+
+fn validate_projection_expression_semantics(
+    expr: &Expression,
+    vars: &BTreeMap<String, BindingKind>,
+) -> Result<()> {
+    match expr {
+        Expression::FunctionCall(call) => {
+            for arg in &call.args {
+                validate_projection_expression_semantics(arg, vars)?;
+            }
+            if call.name.eq_ignore_ascii_case("size")
+                && call.args.len() == 1
+                && infer_expression_binding_kind(&call.args[0], vars) == BindingKind::Path
+            {
+                return Err(Error::Other(
+                    "syntax error: InvalidArgumentType".to_string(),
+                ));
+            }
+        }
+        Expression::Unary(u) => validate_projection_expression_semantics(&u.operand, vars)?,
+        Expression::Binary(b) => {
+            validate_projection_expression_semantics(&b.left, vars)?;
+            validate_projection_expression_semantics(&b.right, vars)?;
+        }
+        Expression::List(items) => {
+            for item in items {
+                validate_projection_expression_semantics(item, vars)?;
+            }
+        }
+        Expression::Map(map) => {
+            for pair in &map.properties {
+                validate_projection_expression_semantics(&pair.value, vars)?;
+            }
+        }
+        Expression::Case(case_expr) => {
+            if let Some(test_expr) = &case_expr.expression {
+                validate_projection_expression_semantics(test_expr, vars)?;
+            }
+            for (when_expr, then_expr) in &case_expr.when_clauses {
+                validate_projection_expression_semantics(when_expr, vars)?;
+                validate_projection_expression_semantics(then_expr, vars)?;
+            }
+            if let Some(else_expr) = &case_expr.else_expression {
+                validate_projection_expression_semantics(else_expr, vars)?;
+            }
+        }
+        Expression::ListComprehension(list_comp) => {
+            validate_projection_expression_semantics(&list_comp.list, vars)?;
+            if let Some(where_expr) = &list_comp.where_expression {
+                validate_projection_expression_semantics(where_expr, vars)?;
+            }
+            if let Some(map_expr) = &list_comp.map_expression {
+                validate_projection_expression_semantics(map_expr, vars)?;
+            }
+        }
+        Expression::PatternComprehension(pattern_comp) => {
+            for element in &pattern_comp.pattern.elements {
+                match element {
+                    crate::ast::PathElement::Node(node) => {
+                        if let Some(props) = &node.properties {
+                            for pair in &props.properties {
+                                validate_projection_expression_semantics(&pair.value, vars)?;
+                            }
+                        }
+                    }
+                    crate::ast::PathElement::Relationship(rel) => {
+                        if let Some(props) = &rel.properties {
+                            for pair in &props.properties {
+                                validate_projection_expression_semantics(&pair.value, vars)?;
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(where_expr) = &pattern_comp.where_expression {
+                validate_projection_expression_semantics(where_expr, vars)?;
+            }
+            validate_projection_expression_semantics(&pattern_comp.projection, vars)?;
+        }
+        Expression::Exists(exists) => match exists.as_ref() {
+            crate::ast::ExistsExpression::Pattern(pattern) => {
+                for element in &pattern.elements {
+                    match element {
+                        crate::ast::PathElement::Node(node) => {
+                            if let Some(props) = &node.properties {
+                                for pair in &props.properties {
+                                    validate_projection_expression_semantics(&pair.value, vars)?;
+                                }
+                            }
+                        }
+                        crate::ast::PathElement::Relationship(rel) => {
+                            if let Some(props) = &rel.properties {
+                                for pair in &props.properties {
+                                    validate_projection_expression_semantics(&pair.value, vars)?;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            crate::ast::ExistsExpression::Subquery(subquery) => {
+                for clause in &subquery.clauses {
+                    match clause {
+                        crate::ast::Clause::Where(w) => {
+                            validate_projection_expression_semantics(&w.expression, vars)?
+                        }
+                        crate::ast::Clause::With(w) => {
+                            for item in &w.items {
+                                validate_projection_expression_semantics(&item.expression, vars)?;
+                            }
+                            if let Some(where_clause) = &w.where_clause {
+                                validate_projection_expression_semantics(
+                                    &where_clause.expression,
+                                    vars,
+                                )?;
+                            }
+                        }
+                        crate::ast::Clause::Return(r) => {
+                            for item in &r.items {
+                                validate_projection_expression_semantics(&item.expression, vars)?;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        },
+        Expression::Literal(_)
+        | Expression::Variable(_)
+        | Expression::PropertyAccess(_)
+        | Expression::Parameter(_) => {}
+    }
+
+    Ok(())
 }
 
 fn expression_uses_allowed_group_refs(
@@ -440,9 +576,12 @@ pub(super) fn compile_projection_aggregation(
     input: Plan,
     items: &[crate::ast::ReturnItem],
 ) -> Result<(Plan, Vec<String>)> {
+    let mut input_bindings = BTreeMap::new();
+    extract_output_var_kinds(&input, &mut input_bindings);
     for item in items {
         ensure_no_pattern_predicate(&item.expression)?;
         validate_expression_types(&item.expression)?;
+        validate_projection_expression_semantics(&item.expression, &input_bindings)?;
     }
 
     // RETURN * / WITH * expansion.
