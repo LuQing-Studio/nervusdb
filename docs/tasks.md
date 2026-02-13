@@ -101,7 +101,7 @@
 | BETA-03R2     | [Refactor] 拆分 `executor.rs`（读路径/写路径/排序投影）      | High   | Done   | codex/feat/phase1b1c-bigbang | 已由 Phase 1a (R2) 覆盖完成，executor/ 目录已拆分为 34 文件；PR #131 全门禁通过 |
 | BETA-03R3     | [Refactor] 拆分 `evaluator.rs` Temporal/Duration 子模块     | High   | Done   | codex/feat/phase1b1c-bigbang | 已由 Phase 1a (R3) 覆盖完成，evaluator/ 目录已拆分为 25 文件；PR #131 全门禁通过 |
 | BETA-03R4     | [TCK] 重构后恢复推进（Match4/Match9 失败簇三波次）           | High   | Done   | codex/feat/phase1b1c-bigbang | 2026-02-13 主干攻坚 + Follow-up 完成：W1/W2/W3 落地（varlen 关系变量统一列表语义、`[rs*]` 受绑定关系列表约束、parser+varlen 过滤收口、复合 CREATE 管线修复、trail 去重修复），并补齐 follow-up 收口（多标签 MATCH 过滤、`[:T|:T]` parser 去重、`length()` 参数类型校验、`null` 绑定类型冲突修复、TCK 标签顺序归一化）。`Match4`/`Match9` 非跳过场景全通过，扩展矩阵历史失败已清零。证据：`artifacts/tck/beta-03r4-match-cluster-2026-02-13.log`、`artifacts/tck/beta-03r4-followup-cluster-2026-02-13.log`、`artifacts/tck/beta-03r4-regression-matrix-2026-02-13.log`、`artifacts/tck/beta-03r4-baseline-gates-r4-2026-02-13.log`。 |
-| BETA-03R5     | [TCK] 失败簇滚动清零（Temporal/Return/List/With/Map/Union） | High   | WIP    | codex/feat/phase1b1c-bigbang | 2026-02-13 已清零定向失败簇：`Temporal2`、`Temporal5`、`Aggregation2`、`Return2`、`List11`、`With1`、`With5`、`WithOrderBy1`、`Union3`、`Map1`、`Map2`；并补齐编译期 UnknownFunction、WITH DISTINCT、聚合量词作用域、列表含 null 排序、map keyword key 大小写、UNION/UNION ALL 混用校验等语义。待执行下一轮全量 tier3 复算。 |
+| BETA-03R5     | [TCK] 失败簇滚动清零（Temporal/Return/List/With/Map/Union） | High   | WIP    | codex/feat/phase1b1c-bigbang | 2026-02-13 已清零定向失败簇：`Temporal2`、`Temporal5`、`Aggregation2`、`Return2`、`List11`、`With1`、`With5`、`WithOrderBy1`、`Union1`、`Union2`、`Union3`、`Map1`、`Map2`；并补齐编译期 UnknownFunction、WITH DISTINCT、聚合量词作用域、列表含 null 排序、map keyword key 大小写、UNION/UNION ALL 混用校验、UNION 列名一致性校验等语义。待执行下一轮全量 tier3 复算。 |
 | BETA-04       | [Stability] 连续 7 天主 CI + nightly 稳定窗                | High   | Plan   | feat/TB1-stability-window   | 任一阻断失败即重置计数 |
 | BETA-05       | [Perf] 大规模 SLO 封板（读120/写180/向量220 ms P99）       | High   | Plan   | feat/TB1-perf-slo           | 达标后方可发布 Beta |
 
@@ -117,7 +117,12 @@
 - R5-W2：列表与量词语义修复，清零 `List11`（`range()` 默认步长 + `sign()` + 量词聚合作用域）。
 - R5-W3：WITH 与排序链修复，清零 `With5`、`With1`、`WithOrderBy1`。
 - R5-W4：map/union 语义收口，清零 `Map1`、`Map2`、`Union3`。
-- 证据日志：`artifacts/tck/beta-03r5-temporal2-2026-02-13.log`、`artifacts/tck/beta-03r5-temporal5-2026-02-13.log`、`artifacts/tck/beta-03r5-aggregation2-2026-02-13.log`、`artifacts/tck/beta-03r5-return2-2026-02-13.log`、`artifacts/tck/beta-03r5-list11-2026-02-13.log`、`artifacts/tck/beta-03r5-with1-2026-02-13.log`、`artifacts/tck/beta-03r5-with5-2026-02-13.log`、`artifacts/tck/beta-03r5-withorderby1-2026-02-13.log`、`artifacts/tck/beta-03r5-map1-2026-02-13.log`、`artifacts/tck/beta-03r5-map2-2026-02-13.log`、`artifacts/tck/beta-03r5-union3-2026-02-13.log`。
+- R5-W5：UNION 列名一致性校验补齐，清零 `Union1`、`Union2`（`DifferentColumnsInUnion`）。
+- 证据日志：`artifacts/tck/beta-03r5-temporal2-2026-02-13.log`、`artifacts/tck/beta-03r5-temporal5-2026-02-13.log`、`artifacts/tck/beta-03r5-aggregation2-2026-02-13.log`、`artifacts/tck/beta-03r5-return2-2026-02-13.log`、`artifacts/tck/beta-03r5-list11-2026-02-13.log`、`artifacts/tck/beta-03r5-with1-2026-02-13.log`、`artifacts/tck/beta-03r5-with5-2026-02-13.log`、`artifacts/tck/beta-03r5-withorderby1-2026-02-13.log`、`artifacts/tck/beta-03r5-map1-2026-02-13.log`、`artifacts/tck/beta-03r5-map2-2026-02-13.log`、`artifacts/tck/beta-03r5-union3-2026-02-13.log`、`artifacts/tck/beta-03r6-union-columns-2026-02-13.log`。
+
+### BETA-03R6 子进展（2026-02-13）
+- R6-W1：失败簇刷新扫描（候选 16 个 feature），确认下一主簇为 `Merge1/2/3`（11 个非跳过失败）；次级簇为 `ReturnSkipLimit1/2`、`With4`、`Graph3/4`、`Literals8`、`Mathematical8`、`Match8`。
+- 证据日志：`artifacts/tck/beta-03r6-seed-cluster-2026-02-13.log`、`artifacts/tck/beta-03r6-candidate-scan-2026-02-13.log`、`artifacts/tck/beta-03r6-candidate-scan-2026-02-13.cluster.md`。
 
 ## Archived (v1/Alpha)
 

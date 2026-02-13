@@ -222,6 +222,13 @@ pub(crate) fn compile_m3_plan(
                 let left_plan =
                     plan.ok_or_else(|| Error::Other("UNION requires left query part".into()))?;
                 let right_compiled = compile_m3_plan(u.query.clone(), merge_subclauses, None)?;
+                let left_columns = extract_union_output_columns(&left_plan);
+                let right_columns = extract_union_output_columns(&right_compiled.plan);
+                if left_columns != right_columns {
+                    return Err(Error::Other(
+                        "syntax error: DifferentColumnsInUnion".to_string(),
+                    ));
+                }
                 plan = Some(Plan::Union {
                     left: Box::new(left_plan),
                     right: Box::new(right_compiled.plan),
@@ -259,6 +266,35 @@ pub(crate) fn compile_m3_plan(
     Err(Error::NotImplemented("Empty query"))
 }
 
+fn extract_union_output_columns(plan: &Plan) -> Vec<String> {
+    match plan {
+        Plan::Project { projections, .. } => {
+            projections.iter().map(|(alias, _)| alias.clone()).collect()
+        }
+        Plan::Aggregate {
+            group_by,
+            aggregates,
+            ..
+        } => {
+            let mut cols = group_by.clone();
+            cols.extend(aggregates.iter().map(|(_, alias)| alias.clone()));
+            cols
+        }
+        Plan::Filter { input, .. }
+        | Plan::OrderBy { input, .. }
+        | Plan::Skip { input, .. }
+        | Plan::Limit { input, .. }
+        | Plan::Distinct { input } => extract_union_output_columns(input),
+        Plan::OptionalWhereFixup { filtered, .. } => extract_union_output_columns(filtered),
+        Plan::Union { left, .. } => extract_union_output_columns(left),
+        _ => {
+            let mut vars: BTreeMap<String, BindingKind> = BTreeMap::new();
+            extract_output_var_kinds(plan, &mut vars);
+            vars.keys().cloned().collect()
+        }
+    }
+}
+
 fn collect_optional_match_aliases(
     match_clause: &crate::ast::MatchClause,
     known_before: &BTreeMap<String, BindingKind>,
@@ -290,4 +326,30 @@ fn collect_optional_match_aliases(
         }
     }
     aliases
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compile_m3_plan;
+    use std::collections::VecDeque;
+
+    fn compile_query(cypher: &str) -> crate::error::Result<()> {
+        let (query, merge_subclauses) = crate::parser::Parser::parse_with_merge_subclauses(cypher)?;
+        let mut merge_subclauses = VecDeque::from(merge_subclauses);
+        compile_m3_plan(query, &mut merge_subclauses, None).map(|_| ())
+    }
+
+    #[test]
+    fn union_rejects_different_projection_columns() {
+        let err = compile_query("RETURN 1 AS a UNION RETURN 2 AS b")
+            .expect_err("UNION with different columns should fail");
+        assert_eq!(err.to_string(), "syntax error: DifferentColumnsInUnion");
+    }
+
+    #[test]
+    fn union_all_rejects_different_projection_columns() {
+        let err = compile_query("RETURN 1 AS a UNION ALL RETURN 2 AS b")
+            .expect_err("UNION ALL with different columns should fail");
+        assert_eq!(err.to_string(), "syntax error: DifferentColumnsInUnion");
+    }
 }

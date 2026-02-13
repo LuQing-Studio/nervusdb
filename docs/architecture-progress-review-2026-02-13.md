@@ -280,3 +280,30 @@ TCK ≥95% → 7天稳定窗 → 性能 SLO 封板 → Beta 发布
 - `artifacts/tck/beta-03r5-map1-2026-02-13.log`
 - `artifacts/tck/beta-03r5-map2-2026-02-13.log`
 - `artifacts/tck/beta-03r5-union3-2026-02-13.log`
+
+---
+
+## 9. 续更快照（2026-02-13，BETA-03R5-W5 / BETA-03R6-W1）
+
+### 9.1 W5：Union1/Union2 列名一致性补齐
+
+- 修复点：
+  - 在 `compile_core` 的 `Clause::Union` 路径新增左右分支输出列一致性校验。
+  - 当列名不一致时，编译期返回 `syntax error: DifferentColumnsInUnion`。
+  - 新增单测覆盖 `UNION` 与 `UNION ALL` 两种不同列名失败场景。
+- 结果：
+  - `clauses/union/Union1.feature` 全通过。
+  - `clauses/union/Union2.feature` 全通过。
+
+### 9.2 W1：失败簇刷新扫描（下一轮主攻输入）
+
+- 扫描范围：`List12`、`Merge1/2/3`、`With4`、`WithSkipLimit2`、`ReturnSkipLimit1/2`、`Return1/7`、`Mathematical8`、`Match8`、`Literals8`、`Graph3/4/8`。
+- 已确认通过：`List12`、`WithSkipLimit2`、`Graph8`。
+- 当前主阻断（非跳过失败）：`Merge1`(7)、`Merge2`(2)、`Merge3`(2)；次级簇为 `ReturnSkipLimit1/2`、`With4`、`Return1/7`、`Mathematical8`、`Match8`、`Literals8`、`Graph3/4`。
+
+### 9.3 新增证据文件
+
+- `artifacts/tck/beta-03r6-seed-cluster-2026-02-13.log`
+- `artifacts/tck/beta-03r6-union-columns-2026-02-13.log`
+- `artifacts/tck/beta-03r6-candidate-scan-2026-02-13.log`
+- `artifacts/tck/beta-03r6-candidate-scan-2026-02-13.cluster.md`
