@@ -660,6 +660,41 @@ pub(super) fn validate_order_by_scope(
     Ok(())
 }
 
+pub(super) fn validate_order_by_aggregate_semantics(
+    order_by: &crate::ast::OrderByClause,
+    projection_items: &[crate::ast::ReturnItem],
+) -> Result<()> {
+    let mut grouping_keys: Vec<(Expression, String)> = Vec::new();
+    let mut grouping_aliases = std::collections::HashSet::new();
+
+    for (idx, item) in projection_items.iter().enumerate() {
+        if contains_aggregate_expression(&item.expression) {
+            continue;
+        }
+
+        let alias = item
+            .alias
+            .clone()
+            .unwrap_or_else(|| default_projection_alias(&item.expression, idx));
+        grouping_aliases.insert(alias.clone());
+        if is_simple_group_expression(&item.expression) {
+            grouping_keys.push((item.expression.clone(), alias));
+        }
+    }
+
+    for item in &order_by.items {
+        if contains_aggregate_expression(&item.expression) {
+            validate_aggregate_mixed_expression(
+                &item.expression,
+                &grouping_keys,
+                &grouping_aliases,
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
 pub(super) fn rewrite_order_expression(
     expr: &Expression,
     bindings: &[(Expression, String)],

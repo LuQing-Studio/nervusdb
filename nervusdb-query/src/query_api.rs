@@ -50,7 +50,7 @@ use plan_render::render_plan;
 use projection_alias::{default_aggregate_alias, default_projection_alias};
 use projection_compile::{
     compile_order_by_items, compile_projection_aggregation, contains_aggregate_expression,
-    rewrite_order_expression, validate_order_by_scope,
+    rewrite_order_expression, validate_order_by_aggregate_semantics, validate_order_by_scope,
 };
 use return_with::{compile_return_plan, compile_with_plan};
 use type_validation::validate_expression_types;
