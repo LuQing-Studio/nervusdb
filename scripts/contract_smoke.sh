@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 echo "[contract-smoke] Rust query API sanity"
-cargo test -p nervusdb-v2 --test t52_query_api
+cargo test -p nervusdb --test t52_query_api
 
 echo "[contract-smoke] Python binding sanity"
 cargo test -p nervusdb-pyo3

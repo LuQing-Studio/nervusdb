@@ -1,9 +1,9 @@
 use napi::bindgen_prelude::Result;
 use napi::Error;
 use napi_derive::napi;
-use nervusdb_v2::Db as RustDb;
-use nervusdb_v2::Error as V2Error;
-use nervusdb_v2_query::{Params, Value};
+use nervusdb::Db as RustDb;
+use nervusdb::Error as V2Error;
+use nervusdb_query::{Params, Value};
 use serde_json::{json, Map as JsonMap, Value as JsonValue};
 
 fn error_payload(code: &str, category: &str, message: impl ToString) -> String {
@@ -117,7 +117,7 @@ fn value_to_json(v: Value) -> JsonValue {
 }
 
 fn run_query(db: &RustDb, cypher: &str) -> std::result::Result<Vec<JsonValue>, String> {
-    let prepared = nervusdb_v2_query::prepare(cypher).map_err(|e| e.to_string())?;
+    let prepared = nervusdb_query::prepare(cypher).map_err(|e| e.to_string())?;
     let snapshot = db.snapshot();
     let rows: Vec<_> = prepared
         .execute_streaming(&snapshot, &Params::new())
@@ -168,7 +168,7 @@ impl Db {
             .inner
             .as_ref()
             .ok_or_else(|| napi_err("database is closed"))?;
-        let prepared = nervusdb_v2_query::prepare(&cypher).map_err(napi_err)?;
+        let prepared = nervusdb_query::prepare(&cypher).map_err(napi_err)?;
         let snapshot = db.snapshot();
         let mut txn = db.begin_write();
         let created = prepared
@@ -208,7 +208,7 @@ impl WriteTxn {
     #[napi]
     pub fn query(&mut self, cypher: String) -> Result<()> {
         // compile fast-fail at enqueue time
-        let _ = nervusdb_v2_query::prepare(&cypher).map_err(napi_err)?;
+        let _ = nervusdb_query::prepare(&cypher).map_err(napi_err)?;
         self.staged_queries.push(cypher);
         Ok(())
     }
@@ -226,7 +226,7 @@ impl WriteTxn {
 
         let mut total = 0u32;
         for cypher in self.staged_queries.drain(..) {
-            let prepared = nervusdb_v2_query::prepare(&cypher).map_err(napi_err)?;
+            let prepared = nervusdb_query::prepare(&cypher).map_err(napi_err)?;
             total += prepared
                 .execute_write(&snapshot, &mut txn, &Params::new())
                 .map_err(napi_err)?;

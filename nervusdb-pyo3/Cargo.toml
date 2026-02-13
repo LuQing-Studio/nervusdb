@@ -9,5 +9,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.22.6", features = ["extension-module"] }
-nervusdb-v2 = { path = "../nervusdb-v2" }
-nervusdb-v2-query = { path = "../nervusdb-v2-query" }
+nervusdb = { path = "../nervusdb" }
+nervusdb-query = { path = "../nervusdb-query" }
