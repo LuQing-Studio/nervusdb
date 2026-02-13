@@ -136,10 +136,10 @@ pub(super) fn evaluate_quantifier<S: GraphSnapshot>(
                     _ => saw_null = true,
                 }
             }
-            if match_count == 1 {
-                Value::Bool(true)
-            } else if saw_null {
+            if saw_null && match_count < 2 {
                 Value::Null
+            } else if match_count == 1 {
+                Value::Bool(true)
             } else {
                 Value::Bool(false)
             }

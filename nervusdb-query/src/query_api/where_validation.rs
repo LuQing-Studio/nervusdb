@@ -3,6 +3,13 @@ use super::{
     infer_expression_binding_kind,
 };
 
+fn is_quantifier_call(call: &crate::ast::FunctionCall) -> bool {
+    matches!(
+        call.name.as_str(),
+        "__quant_any" | "__quant_all" | "__quant_none" | "__quant_single"
+    )
+}
+
 pub(super) fn validate_where_expression_bindings(
     expr: &Expression,
     known_bindings: &BTreeMap<String, BindingKind>,
@@ -54,8 +61,29 @@ fn validate_where_expression_variables(
             validate_where_expression_variables(&b.right, known_bindings, local_scopes)?;
         }
         Expression::FunctionCall(call) => {
-            for arg in &call.args {
-                validate_where_expression_variables(arg, known_bindings, local_scopes)?;
+            if is_quantifier_call(call) && call.args.len() == 3 {
+                validate_where_expression_variables(&call.args[1], known_bindings, local_scopes)?;
+                if let Expression::Variable(var) = &call.args[0] {
+                    let mut scope = HashSet::new();
+                    scope.insert(var.clone());
+                    local_scopes.push(scope);
+                    validate_where_expression_variables(
+                        &call.args[2],
+                        known_bindings,
+                        local_scopes,
+                    )?;
+                    local_scopes.pop();
+                } else {
+                    validate_where_expression_variables(
+                        &call.args[2],
+                        known_bindings,
+                        local_scopes,
+                    )?;
+                }
+            } else {
+                for arg in &call.args {
+                    validate_where_expression_variables(arg, known_bindings, local_scopes)?;
+                }
             }
         }
         Expression::List(items) => {
@@ -268,8 +296,19 @@ fn validate_pattern_predicate_bindings(
             validate_pattern_predicate_bindings(&b.right, known_bindings)?;
         }
         Expression::FunctionCall(call) => {
-            for arg in &call.args {
-                validate_pattern_predicate_bindings(arg, known_bindings)?;
+            if is_quantifier_call(call) && call.args.len() == 3 {
+                validate_pattern_predicate_bindings(&call.args[1], known_bindings)?;
+                if let Expression::Variable(var) = &call.args[0] {
+                    let mut scoped = known_bindings.clone();
+                    scoped.entry(var.clone()).or_insert(BindingKind::Unknown);
+                    validate_pattern_predicate_bindings(&call.args[2], &scoped)?;
+                } else {
+                    validate_pattern_predicate_bindings(&call.args[2], known_bindings)?;
+                }
+            } else {
+                for arg in &call.args {
+                    validate_pattern_predicate_bindings(arg, known_bindings)?;
+                }
             }
         }
         Expression::List(items) => {
@@ -337,4 +376,52 @@ fn validate_pattern_predicate_bindings(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_where_expression_bindings;
+    use crate::ast::{BinaryExpression, BinaryOperator, Expression, FunctionCall, Literal};
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn quantifier_variable_is_scoped_inside_where_validation() {
+        let expr = Expression::FunctionCall(FunctionCall {
+            name: "__quant_any".to_string(),
+            args: vec![
+                Expression::Variable("x".to_string()),
+                Expression::Variable("list".to_string()),
+                Expression::Binary(Box::new(BinaryExpression {
+                    left: Expression::Variable("x".to_string()),
+                    operator: BinaryOperator::Equals,
+                    right: Expression::Literal(Literal::Integer(2)),
+                })),
+            ],
+        });
+        let mut known = BTreeMap::new();
+        known.insert("list".to_string(), super::BindingKind::Unknown);
+        validate_where_expression_bindings(&expr, &known)
+            .expect("quantifier variable should be treated as local scope");
+    }
+
+    #[test]
+    fn quantifier_predicate_still_rejects_unknown_outer_variable() {
+        let expr = Expression::FunctionCall(FunctionCall {
+            name: "__quant_any".to_string(),
+            args: vec![
+                Expression::Variable("x".to_string()),
+                Expression::Variable("list".to_string()),
+                Expression::Binary(Box::new(BinaryExpression {
+                    left: Expression::Variable("y".to_string()),
+                    operator: BinaryOperator::Equals,
+                    right: Expression::Literal(Literal::Integer(2)),
+                })),
+            ],
+        });
+        let mut known = BTreeMap::new();
+        known.insert("list".to_string(), super::BindingKind::Unknown);
+        let err = validate_where_expression_bindings(&expr, &known)
+            .expect_err("unknown variable should still be rejected");
+        assert_eq!(err.to_string(), "syntax error: UndefinedVariable (y)");
+    }
 }
