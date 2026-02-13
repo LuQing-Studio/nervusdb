@@ -1,8 +1,6 @@
 use nervusdb_v2::Db;
-use nervusdb_v2_api::GraphStore;
 use nervusdb_v2_query::Value;
 use nervusdb_v2_query::prepare;
-use nervusdb_v2_storage::engine::GraphEngine;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 use std::collections::BTreeMap;
@@ -42,8 +40,6 @@ pub fn run_repl(db_path: &Path) -> Result<(), String> {
     println!("Type .help for instructions, .exit to quit.\n");
 
     let db = Db::open(db_path).map_err(|e| e.to_string())?;
-    // We open the engine directly to get a snapshot factory
-    let engine = GraphEngine::open(db.ndb_path(), db.wal_path()).map_err(|e| e.to_string())?;
 
     let mut rl = DefaultEditor::new().map_err(|e| e.to_string())?;
 
@@ -132,7 +128,7 @@ pub fn run_repl(db_path: &Path) -> Result<(), String> {
 
                 // Execute Query
                 let start = Instant::now();
-                let snapshot = engine.snapshot();
+                let snapshot = db.snapshot();
 
                 match prepare(line) {
                     Ok(query) => {

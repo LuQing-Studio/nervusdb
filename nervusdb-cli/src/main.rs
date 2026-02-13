@@ -1,12 +1,10 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use nervusdb_v2::Db;
-use nervusdb_v2_api::{GraphSnapshot, GraphStore};
+use nervusdb_v2::{Db, vacuum};
+use nervusdb_v2_api::GraphSnapshot;
 use nervusdb_v2_query::Value as V2Value;
 use nervusdb_v2_query::prepare;
-use nervusdb_v2_storage::engine::GraphEngine;
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::Path;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -95,14 +93,6 @@ struct V2VacuumArgs {
     /// Database base path
     #[arg(long)]
     db: PathBuf,
-}
-
-fn derive_paths(path: &Path) -> (PathBuf, PathBuf) {
-    match path.extension().and_then(|e| e.to_str()) {
-        Some("ndb") => (path.to_path_buf(), path.with_extension("wal")),
-        Some("wal") => (path.with_extension("ndb"), path.to_path_buf()),
-        _ => (path.with_extension("ndb"), path.with_extension("wal")),
-    }
 }
 
 fn value_to_json_v2<S: GraphSnapshot>(snapshot: &S, value: &V2Value) -> serde_json::Value {
@@ -208,8 +198,7 @@ fn run_v2_query(args: V2QueryArgs) -> Result<(), String> {
     let params = parse_params_json_v2(args.params_json)?;
 
     let db = Db::open(&args.db).map_err(|e| e.to_string())?;
-    let engine = GraphEngine::open(db.ndb_path(), db.wal_path()).map_err(|e| e.to_string())?;
-    let graph_snap = engine.snapshot();
+    let graph_snap = db.snapshot();
 
     let prepared = prepare(query.as_str()).map_err(|e| e.to_string())?;
 
@@ -239,8 +228,7 @@ fn run_v2_write(args: V2WriteArgs) -> Result<(), String> {
     let params = parse_params_json_v2(args.params_json)?;
 
     let db = Db::open(&args.db).map_err(|e| e.to_string())?;
-    let engine = GraphEngine::open(db.ndb_path(), db.wal_path()).map_err(|e| e.to_string())?;
-    let graph_snap = engine.snapshot();
+    let graph_snap = db.snapshot();
 
     let prepared = prepare(query.as_str()).map_err(|e| e.to_string())?;
 
@@ -257,9 +245,7 @@ fn run_v2_write(args: V2WriteArgs) -> Result<(), String> {
 }
 
 fn run_v2_vacuum(args: V2VacuumArgs) -> Result<(), String> {
-    let (ndb_path, wal_path) = derive_paths(&args.db);
-    let report = nervusdb_v2_storage::vacuum::vacuum_in_place(&ndb_path, &wal_path)
-        .map_err(|e| e.to_string())?;
+    let report = vacuum(&args.db).map_err(|e| e.to_string())?;
 
     println!(
         "{}",

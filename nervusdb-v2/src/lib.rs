@@ -59,6 +59,7 @@ pub use nervusdb_v2_api::{
     EdgeKey, ExternalId, GraphSnapshot, InternalNodeId, LabelId, PropertyValue, RelTypeId,
 };
 pub use nervusdb_v2_query as query;
+pub use nervusdb_v2_storage::vacuum::VacuumReport;
 
 /// The main database handle for NervusDB v2.
 ///
@@ -202,6 +203,15 @@ impl Db {
     pub fn search_vector(&self, query: &[f32], k: usize) -> Result<Vec<(InternalNodeId, f32)>> {
         self.engine.search_vector(query, k).map_err(Error::from)
     }
+}
+
+/// Performs in-place vacuum through the v2 facade.
+///
+/// This keeps CLI and other callers on the facade surface instead of coupling
+/// directly to storage internals.
+pub fn vacuum(path: impl AsRef<Path>) -> Result<VacuumReport> {
+    let (ndb_path, wal_path) = derive_paths(path.as_ref());
+    nervusdb_v2_storage::vacuum::vacuum_in_place(&ndb_path, &wal_path).map_err(Error::from)
 }
 
 /// A wrapper around the storage snapshot to hide internal types.
@@ -475,6 +485,40 @@ fn derive_paths(path: &Path) -> (PathBuf, PathBuf) {
         Some("ndb") => (path.to_path_buf(), path.with_extension("wal")),
         Some("wal") => (path.with_extension("ndb"), path.to_path_buf()),
         _ => (path.with_extension("ndb"), path.with_extension("wal")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Db, Error, vacuum};
+
+    #[test]
+    fn vacuum_reports_not_found_for_missing_db() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let missing = dir.path().join("missing-db");
+        let err = vacuum(&missing).expect_err("missing db must fail");
+        match err {
+            Error::Io(inner) => assert_eq!(inner.kind(), std::io::ErrorKind::NotFound),
+            other => panic!("expected IO error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn vacuum_succeeds_for_existing_db() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let base = dir.path().join("graph");
+        let db = Db::open(&base).expect("open db");
+        db.close().expect("close db");
+
+        let report = vacuum(&base).expect("vacuum should succeed");
+        assert_eq!(
+            report.ndb_path.extension().and_then(|s| s.to_str()),
+            Some("ndb")
+        );
+        assert!(
+            report.backup_path.exists(),
+            "vacuum should emit backup file path"
+        );
     }
 }
 

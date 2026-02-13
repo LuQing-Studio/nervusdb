@@ -9,6 +9,15 @@ use crate::index::ordered_key::encode_ordered_value;
 use crate::label_interner::{LabelInterner, LabelSnapshot};
 use crate::memtable::MemTable;
 use crate::pager::{PageId, Pager};
+use crate::read_path_engine_idmap::{
+    lookup_internal_node_id, read_i2e_snapshot, read_i2l_snapshot,
+};
+use crate::read_path_engine_labels::{
+    lookup_label_id, lookup_label_name, published_label_snapshot,
+};
+use crate::read_path_engine_view::{
+    build_snapshot_from_published, load_properties_and_stats_roots,
+};
 use crate::snapshot::{L0Run, RelTypeId, Snapshot};
 use crate::wal::{CommittedTx, SegmentPointer, Wal, WalRecord};
 use crate::{Error, Result};
@@ -181,9 +190,9 @@ impl GraphEngine {
         let segments = self.published_segments.read().unwrap().clone();
         let labels = self.published_labels.read().unwrap().clone();
         let node_labels = self.published_node_labels.read().unwrap().clone();
-        let properties_root = self.properties_root.load(Ordering::Relaxed);
-        let stats_root = self.stats_root.load(Ordering::Relaxed);
-        Snapshot::new(
+        let (properties_root, stats_root) =
+            load_properties_and_stats_roots(&self.properties_root, &self.stats_root);
+        build_snapshot_from_published(
             runs,
             segments,
             labels,
@@ -209,8 +218,7 @@ impl GraphEngine {
     }
 
     pub fn lookup_internal_id(&self, external_id: ExternalId) -> Option<InternalNodeId> {
-        let idmap = self.idmap.lock().unwrap();
-        idmap.lookup(external_id)
+        lookup_internal_node_id(&self.idmap, external_id)
     }
 
     /// Get or create a label, returns the label ID.
@@ -262,29 +270,24 @@ impl GraphEngine {
     /// Update published node labels from IdMap.
     /// Should be called after write transactions that create nodes.
     fn update_published_node_labels(&self) {
-        let idmap = self.idmap.lock().unwrap();
-        let snapshot = idmap.get_i2l_snapshot();
+        let snapshot = read_i2l_snapshot(&self.idmap);
         let mut published = self.published_node_labels.write().unwrap();
         *published = Arc::new(snapshot);
     }
 
     /// Get a snapshot of the current label state for reading.
     pub fn label_snapshot(&self) -> Arc<LabelSnapshot> {
-        self.published_labels.read().unwrap().clone()
+        published_label_snapshot(&self.published_labels)
     }
 
     /// Get label ID by name, returns None if not found.
     pub fn get_label_id(&self, name: &str) -> Option<LabelId> {
-        self.label_interner.lock().unwrap().get_id(name)
+        lookup_label_id(&self.label_interner, name)
     }
 
     /// Get label name by ID, returns None if not found.
     pub fn get_label_name(&self, id: LabelId) -> Option<String> {
-        self.label_interner
-            .lock()
-            .unwrap()
-            .get_name(id)
-            .map(String::from)
+        lookup_label_name(&self.label_interner, id)
     }
 
     // T203: HNSW Public API
@@ -301,8 +304,7 @@ impl GraphEngine {
     }
 
     pub fn scan_i2e_records(&self) -> Vec<I2eRecord> {
-        let idmap = self.idmap.lock().unwrap();
-        idmap.get_i2e_snapshot()
+        read_i2e_snapshot(&self.idmap)
     }
 
     fn publish_run(&self, run: Arc<L0Run>) {
@@ -548,8 +550,8 @@ impl GraphEngine {
             }
         }
 
-        let properties_root = self.properties_root.load(Ordering::Relaxed);
-        let stats_root = self.stats_root.load(Ordering::Relaxed);
+        let (properties_root, stats_root) =
+            load_properties_and_stats_roots(&self.properties_root, &self.stats_root);
         ops.push(WalRecord::ManifestSwitch {
             epoch,
             segments: pointers,
@@ -866,7 +868,7 @@ impl<'a> WriteTxn<'a> {
             let snapshot = self.engine.snapshot();
 
             // Helper to convert API PropertyValue to Storage PropertyValue
-            use crate::api::to_storage;
+            use crate::read_path_convert::convert_property_to_storage as to_storage;
 
             for (node, key, value) in &node_properties {
                 let is_new = self.created_nodes.iter().any(|(_, _, iid)| iid == node);

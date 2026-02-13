@@ -9,17 +9,22 @@
 
 ## 1. 项目概述
 
-NervusDB v2 是一个 Rust 原生的嵌入式属性图数据库，采用 `.ndb`（数据）+ `.wal`（日志）双文件存储。Cargo.toml 版本 2.0.0，里程碑版本 v0.1.0-alpha (M3)，核心图操作可用，Cypher 支持部分完成。
+NervusDB v2 是一个 Rust 原生的嵌入式属性图数据库，采用 `.ndb`（数据）+ `.wal`（日志）双文件存储。Cargo.toml 版本 2.0.0，当前处于 SQLite-Beta 收敛阶段，核心图操作可用，Cypher 支持持续推进中。
 
 ```
 当前状态:
-- 版本: Cargo.toml 2.0.0 / 里程碑 v0.1.0-alpha (M3)
-- 存储格式: .ndb + .wal
+- 版本: Cargo.toml 2.0.0 / SQLite-Beta 收敛版
+- 存储格式: .ndb + .wal（storage_format_epoch 强校验，不匹配报 StorageFormatMismatch）
 - 页面大小: 8KB (硬编码)
 - 节点ID: u32 (最多 ~42亿)
 - 边标识: (src, rel, dst) 三元组
-- TCK 通过率: ~0.5%
-- NotImplemented: 11 (executor 8 + query_api 2 + parser 1)
+- TCK 通过率: 81.93% (3193/3897, Tier-3 全量, 2026-02-11)
+- NotImplemented: 9 (executor 6 + query_api 2 + parser 1)
+
+Beta 硬门槛（必须同时满足）:
+- 官方全量 openCypher TCK 通过率 ≥95%（Tier-3 全量口径）
+- warnings 视为阻断（fmt/clippy/tests/bindings 链路）
+- 冻结阶段连续 7 天主 CI + nightly 稳定
 ```
 
 ## 2. Workspace 结构
@@ -32,8 +37,10 @@ nervusdb/                              当前目录名 (带 -v2)          发布
 ├── nervusdb-v2/           # Layer 3   → nervusdb                  crates.io (对外)
 ├── nervusdb-cli/          # CLI       → nervusdb-cli              crates.io (对外)
 ├── nervusdb-pyo3/         # Python    → nervusdb (PyPI)           Rust 稳定后发布
-└── nervusdb-node/         # Node.js   → nervusdb (npm)            Rust 稳定后发布
-                           # [独立 workspace，不在根 Cargo.toml 中]
+├── nervusdb-node/         # Node.js   → nervusdb (npm)            Rust 稳定后发布
+│                          # [独立 workspace，不在根 Cargo.toml 中]
+├── fuzz/                  # Fuzzing   → nervusdb-fuzz             独立 workspace，依赖 nervusdb-v2-query
+└── scripts/               # 脚本      — TCK 门控、基准测试、发布等
 ```
 
 > 所有 `-v2` 后缀在 Phase 1a 包名收敛时统一去掉（目录名 + Cargo.toml package name）。
@@ -53,7 +60,7 @@ nervusdb (Facade)
 
 当前 crate 名仍带 `-v2` 后缀，内部开发使用。Phase 1a 包名收敛时统一去掉 `-v2`，同时：
 - 去掉代码中残留的版本数字（如 `nervusdb_v2_api::` → `nervusdb_api::`）
-- TCK 测试文件名中的数字编号在 TCK 通过率达到 100% 后统一清理重构
+- TCK 测试文件名中的 `tXXX_` 数字前缀（如 t155_edge_persistence, t306_unwind）在 TCK 通过率达到 100% 后统一重构为语义化命名
 
 ### 发布阶段（Rust 稳定后）
 
@@ -73,10 +80,12 @@ nervusdb (Facade)
 | Python (PyO3) | PyPI | `nervusdb` | Rust API 稳定 |
 | Node.js (N-API) | npm | `nervusdb` | Rust API 稳定 |
 
-### 设计原则
+### 设计原则（目标态，当前尚未完全实现）
 
 - 主包 `nervusdb` 完整 re-export 所有公共 API（包括 `GraphStore` trait、`vacuum`、`backup` 等）
+  - **当前缺口**：`GraphStore` 只有 `use` 没有 `pub use`（lib.rs:50）；vacuum/backup/bulkload 模块未 re-export
 - CLI 只依赖 `nervusdb` 主包，不直接引用内部子包
+  - **当前缺口**：main.rs:6 和 repl.rs:5 直接引用 `nervusdb-v2-storage`
 - 用户 `cargo add nervusdb` 即可获得全部功能，无需了解内部分包
 
 ## 3. 整体架构
@@ -300,6 +309,10 @@ struct StorageSnapshot {
 | vacuum | vacuum.rs | 就地 vacuum：标记可达页面后重写 .ndb |
 | stats | stats.rs | GraphStatistics（compact 时收集节点/边计数） |
 | blob_store | blob_store.rs | 大值存储，4KB 页面链 |
+| property | property.rs (11K) | 属性值编码/解码 |
+| error | error.rs (1K) | 错误类型定义 |
+| idmap | idmap.rs (8.2K) | ExternalId ↔ InternalNodeId 映射 |
+| label_interner | label_interner.rs (8.3K) | 标签名 ↔ LabelId 映射 |
 
 ### 5.1 处理流水线
 
@@ -331,11 +344,15 @@ enum Expression {
 
 | 文件 | 大小 | 职责 |
 |------|------|------|
-| executor.rs | ~221K chars | 所有执行逻辑 |
-| evaluator.rs | ~156K chars | 表达式求值 |
-| query_api.rs | ~138K chars | 查询准备和计划 |
-| parser.rs | ~53K chars | Cypher 解析器 |
-| ast.rs | 8K chars | AST 定义 |
+| executor.rs | ~242K chars | 所有执行逻辑 |
+| evaluator.rs | ~166K chars | 表达式求值 |
+| query_api.rs | ~153K chars | 查询准备和计划 |
+| parser.rs | ~58K chars | Cypher 解析器 |
+| lexer.rs | ~19K chars | 词法分析器 |
+| ast.rs | 8.5K chars | AST 定义 |
+| facade.rs | ~3K chars | 查询门面（QueryExt） |
+| parser_helper_exists.rs | ~1.4K chars | EXISTS 子查询解析辅助 |
+| error.rs | ~708B | 错误类型定义 |
 
 ## 6. 并发模型
 
@@ -409,10 +426,10 @@ enum PropertyValue {
 
 | 级别 | 问题 | 影响 |
 |------|------|------|
-| P0 | executor.rs ~221K chars 单文件 | 不可维护 |
+| P0 | executor.rs ~242K chars 单文件 | 不可维护 |
 | P0 | 没有查询优化器 / Plan 层 | 查询性能差，无法优化 |
 | P0 | 没有页面缓存 (Buffer Pool) | 每次 B-Tree 操作直接 I/O |
-| P1 | 11 个 NotImplemented (executor 8 + query_api 2 + parser 1) | Cypher 功能不完整 |
+| P1 | 9 个 NotImplemented (executor 6 + query_api 2 + parser 1) | Cypher 功能不完整 |
 | P1 | 索引崩溃安全性缺陷 | 索引更新在 WAL fsync 前写入 .ndb，崩溃后索引含幽灵条目，无重建机制 |
 | P1 | snapshot() O(N) 瓶颈 | scan_i2e_records() 全量拷贝 i2e 表，锁 idmap (Mutex) 阻塞写事务 |
 | P1 | index_catalog 锁竞争 | StorageSnapshot 持有 Arc<Mutex<IndexCatalog>>，lookup_index() 需要锁 |
@@ -429,9 +446,9 @@ enum PropertyValue {
 | P2 | 页面大小硬编码 8KB | 不可配置 |
 | P2 | 没有页面校验和 | 数据损坏不可检测 |
 | P2 | 属性键无字符串字典 | 内存和存储浪费 |
-| P1 | CLI 绕过 Db 直接创建 GraphEngine | CLI 直接引用 nervusdb-v2-storage 创建 GraphEngine，绕过 Db 门面层，导致同一数据库文件被打开两次，破坏单写者保证 |
-| P2 | crates.io 包名碎片化 | 7 个 nervusdb 相关包（5 个 v2 + 2 个 v1 遗留），用户不知道该 `cargo add` 哪个；目录名和代码引用中残留 `-v2` 后缀；nervusdb-v2 的 re-export 不完整（缺 GraphStore trait、vacuum 等） |
-| P2 | TCK 文件名含数字编号 | 测试文件命名不规范，TCK 100% 后需统一清理 |
+| P1 | CLI 直接引用 nervusdb-v2-storage（GraphEngine + vacuum_in_place），绕过 Db 门面层 | CLI 的 main.rs（line 6: GraphEngine, line 261: vacuum_in_place）和 repl.rs（line 5: GraphEngine）直接引用 nervusdb-v2-storage，绕过 Db 门面层，导致同一数据库文件被打开两次，破坏单写者保证 |
+| P2 | crates.io 包名碎片化 | 7 个 nervusdb 相关包（5 个 v2 + 2 个 v1 遗留），用户不知道该 `cargo add` 哪个；目录名和代码引用中残留 `-v2` 后缀；nervusdb-v2 的 re-export 不完整（缺 `GraphStore` trait（lib.rs:50 只有 `use` 没有 `pub use`）、vacuum 模块、backup 模块、bulkload 模块、storage 层常量（PAGE_SIZE 等）） |
+| P2 | TCK 文件名含数字前缀 | 测试文件使用 `tXXX_` 数字前缀命名（如 t155_edge_persistence, t306_unwind, t62_order_by_skip_test），TCK 100% 后统一重构为语义化命名 |
 
 ---
 
@@ -544,7 +561,7 @@ struct RedundantFilterElim;   // 消除冗余过滤
 ### 11.3 executor.rs 拆分方案
 
 ```
-当前: executor.rs (~221K chars, 单文件)
+当前: executor.rs (~242K chars, 单文件)
 
 拆分为:
   executor/
@@ -576,7 +593,7 @@ trait PhysicalOperator {
 ### 11.4 evaluator.rs 拆分方案
 
 ```
-当前: evaluator.rs (~156K chars, 单文件)
+当前: evaluator.rs (~166K chars, 单文件)
 
 拆分为:
   evaluator/
@@ -594,7 +611,7 @@ trait PhysicalOperator {
 ### 11.5 query_api.rs 拆分方案
 
 ```
-当前: query_api.rs (~138K chars, 单文件)
+当前: query_api.rs (~153K chars, 单文件)
 
 拆分为:
   planner/
@@ -1127,25 +1144,45 @@ struct IndexDef {
 
 ## 16. 重构优先级与路线图
 
-### Phase 1a: 纯文件拆分（可与 M4 并行）
+> 通用门禁：每个 PR 必须通过 `fmt + clippy + workspace_quick_test + tier0/1/2 TCK + bindings smoke + contract smoke`。
+> 回滚条件：任一门禁失败立即回滚 PR，不允许带红合入。
+
+### Phase 0: 审计与护栏（前置）
+
+| 任务 | 说明 | 影响 |
+|------|------|------|
+| 冻结事实基线 | 记录当前 TCK 通过率、NotImplemented 计数、文件大小等指标快照 | 重构前后可量化对比 |
+| 建立回归集 | 锁定 feature tests + tier0/1/2 TCK 作为拆分回归集 | 确保行为等价 |
+| 统一证据口径 | 关键指标从 artifacts 自动读取，不允许手填 | 文档不再漂移 |
+
+### Phase 1a: 纯文件拆分 + CLI 边界收敛（严格行为等价，可与 Beta 推进并行）
+
+> 范围约束：本阶段只做"移动代码"和"收敛调用路径"，不改类型定义、不改包名、不改公共 API 签名。
+
+| 任务 | 说明 | 影响 |
+|------|------|------|
+| 拆分 executor.rs | ~242K → 12 个文件（行为等价，不改语义） | 可维护性大幅提升 |
+| 拆分 evaluator.rs | ~166K → 8 个文件 | 可维护性大幅提升 |
+| 拆分 query_api.rs | ~153K → 4 个文件 | 可维护性大幅提升 |
+| 修复 CLI 依赖 | CLI 只依赖 nervusdb 主包，不直接引用 nervusdb-storage 子包（main.rs + repl.rs） | 消除双开数据库文件的设计缺陷 |
+
+### Phase 1b: 类型统一 + 包名收敛（语义变更，需独立验证）
+
+> 范围约束：本阶段涉及公共 API 变更和 crate 发布，必须独立于文件拆分单独提交和验证。
 
 | 任务 | 说明 | 影响 |
 |------|------|------|
 | 统一 PropertyValue/EdgeKey | 消除 api/storage 层重复定义和转换代码 | 减少 ~100 行转换代码 |
-| 拆分 executor.rs | ~221K → 12 个文件 | 可维护性大幅提升 |
-| 拆分 evaluator.rs | ~156K → 8 个文件 | 可维护性大幅提升 |
-| 拆分 query_api.rs | ~138K → 4 个文件 | 可维护性大幅提升 |
-| 包名收敛 | 去掉 -v2 后缀（目录名 + Cargo.toml + 代码中的 `nervusdb_v2_*` 引用），抢注 nervusdb 包名，补全 re-export（GraphStore trait、vacuum、backup 等） | 用户只需 `cargo add nervusdb` |
-| 修复 CLI 依赖 | CLI 只依赖 nervusdb 主包，不直接引用 nervusdb-storage 子包 | 消除双开数据库文件的设计缺陷 |
-| TCK 文件名清理 | TCK 通过率达到 100% 后，清理测试文件名中的数字编号，统一命名规范 | 代码整洁度 |
+| 包名收敛 | 去掉 -v2 后缀（目录名 + Cargo.toml + 代码中的 `nervusdb_v2_*` 引用），抢注 nervusdb 包名，补全 re-export（`GraphStore` trait（lib.rs:50 只有 `use` 没有 `pub use`）、vacuum 模块、backup 模块、bulkload 模块、storage 层常量（PAGE_SIZE 等）） | 用户只需 `cargo add nervusdb` |
+| TCK 文件名清理 | TCK 通过率达到 100% 后，清理测试文件名中的 `tXXX_` 数字前缀（如 t155_edge_persistence, t306_unwind），统一重构为语义化命名 | 代码整洁度 |
 
-### Phase 1b: 引入 LogicalPlan（需在 M4 后进行，改变查询管线）
+### Phase 1c: 引入 LogicalPlan（需在 Phase 1a 后进行，改变查询管线）
 
 | 任务 | 说明 | 影响 |
 |------|------|------|
 | 引入 LogicalPlan | AST → LogicalPlan → Executor | 为优化器做准备，改变查询管线 |
 
-### Phase 2: 性能（M5 阶段）
+### Phase 2: 性能
 
 | 任务 | 说明 | 影响 |
 |------|------|------|
@@ -1260,28 +1297,33 @@ nervusdb/
 │   ├── nervusdb-cli/                  #                          → crates.io: nervusdb-cli (对外)
 │   ├── nervusdb-pyo3/                 #                          → PyPI: nervusdb (Rust 稳定后发布)
 │   └── nervusdb-node/                 #                          → npm: nervusdb (Rust 稳定后发布)
+│
+├── tests/                             # 集成测试（tXXX_ 文件，后续重构为语义化命名）
+├── fuzz/                              # 模糊测试（独立 workspace，依赖 nervusdb-query）
+└── scripts/                           # TCK 门控、基准测试、发布等脚本
 ```
 
 ---
 
 ## 18. 关键设计决策对照
 
-| # | 维度 | 现状 | 优化方案 |
-|---|------|------|----------|
-| 1 | 页面访问 | 直接 Pager I/O | Buffer Pool + Clock-Sweep |
-| 2 | 查询处理 | AST → 直接执行 | AST → LogicalPlan → Optimizer → PhysicalPlan → Executor |
-| 3 | 代码组织 | 3 个巨型文件 (~515K chars) | 24+ 个模块化文件 |
-| 4 | 类型定义 | PropertyValue/EdgeKey 重复 | 统一在 nervusdb-api |
-| 5 | 标签查询 | 全扫描 O(N) | RoaringBitmap O(K) |
-| 6 | 快照隔离 | Pager RwLock 阻塞 | BufferPool + COW 无阻塞 |
-| 7 | 边标识 | (src, rel, dst) 无多重边 | EdgeId 支持多重边 |
-| 8 | 文件 I/O | 直接 OS 调用 | VFS 抽象层 |
-| 9 | 段管理 | 只追加，不合并 | Level Compaction |
-| 10 | 容量 | 512MB (单 Bitmap 页) | Overflow Bitmap Pages，~506GB（详见 12.5） |
-| 11 | 发布策略 | 7 个包，用户困惑 | 2 个对外包 (nervusdb + nervusdb-cli)，内部子包标记为实现细节 |
+| # | 维度 | 现状 | 优化方案 | 权衡 |
+|---|------|------|----------|------|
+| 1 | 页面访问 | 直接 Pager I/O | Buffer Pool + Clock-Sweep | 读性能 ✅ / 内存开销 ⚠️ |
+| 2 | 查询处理 | AST → 直接执行 | AST → LogicalPlan → Optimizer → PhysicalPlan → Executor | 可优化 ✅ / 查询管线复杂度 ⚠️ |
+| 3 | 代码组织 | 3 个巨型文件 (~561K chars) | 24+ 个模块化文件 | 可维护性 ✅ / 拆分迁移成本 ⚠️ |
+| 4 | 类型定义 | PropertyValue/EdgeKey 重复 | 统一在 nervusdb-api | 代码简洁 ✅ / api crate 依赖增加 ⚠️ |
+| 5 | 标签查询 | 全扫描 O(N) | RoaringBitmap O(K) | 查询性能 ✅ / 写入时维护位图开销 ⚠️ |
+| 6 | 快照隔离 | Pager RwLock 阻塞 | BufferPool + COW 无阻塞 | 并发性能 ✅ / 实现复杂度 ⚠️ |
+| 7 | 边标识 | (src, rel, dst) 无多重边 | EdgeId 支持多重边 | 图语义完整 ✅ / WAL/CSR/B-Tree 格式迁移成本 ⚠️ |
+| 8 | 文件 I/O | 直接 OS 调用 | VFS 抽象层 | 可测试性 ✅ / 间接调用开销 ⚠️ |
+| 9 | 段管理 | 只追加，不合并 | Level Compaction | 读性能稳定 ✅ / 后台 I/O 开销 ⚠️ |
+| 10 | 容量 | 512MB (单 Bitmap 页) | Overflow Bitmap Pages，~506GB（详见 12.5） | 容量扩展 ✅ / Meta 页空间占用 ⚠️ |
+| 11 | 发布策略 | 7 个包，用户困惑 | 2 个对外包 (nervusdb + nervusdb-cli)，内部子包标记为实现细节 | 用户体验 ✅ / 迁移成本 ⚠️ |
 
 ---
 
-> **重构原则**：渐进式重构，每个 Phase 独立可交付，不破坏现有测试。
-> Phase 1a 的纯文件拆分可以与 M4 功能开发并行，因为只是文件重组，不改变逻辑。
-> Phase 1b 引入 LogicalPlan 会改变查询管线，需在 M4 后进行。
+> **重构原则**：渐进式重构，先结构等价再语义变更，每个 Phase 独立可交付，不破坏现有测试。
+> Phase 0 冻结基线并建立回归集。Phase 1a 纯文件拆分 + CLI 收敛，严格行为等价。
+> Phase 1b 类型统一 + 包名收敛，涉及语义变更，需独立验证。Phase 1c 引入 LogicalPlan，改变查询管线。
+> 每个阶段必须附：目标、前置条件、门禁、回滚条件。
