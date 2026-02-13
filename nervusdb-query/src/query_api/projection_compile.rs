@@ -622,15 +622,27 @@ pub(super) fn validate_order_by_scope(
     order_by: &crate::ast::OrderByClause,
     project_cols: &[String],
     projection_items: &[crate::ast::ReturnItem],
+    strict_project_scope: bool,
 ) -> Result<()> {
     let mut scope: std::collections::HashSet<String> = project_cols.iter().cloned().collect();
-    for item in projection_items {
-        extract_variables_from_expr(&item.expression, &mut scope);
+    if !strict_project_scope {
+        for item in projection_items {
+            extract_variables_from_expr(&item.expression, &mut scope);
+        }
     }
 
     for item in &order_by.items {
         if contains_aggregate_expression(&item.expression) {
-            return Err(Error::Other("syntax error: InvalidAggregation".to_string()));
+            let aggregate_is_projected = projection_items.iter().any(|projection| {
+                contains_aggregate_expression(&projection.expression)
+                    && projection.expression == item.expression
+            });
+            if !aggregate_is_projected {
+                return Err(Error::Other("syntax error: InvalidAggregation".to_string()));
+            }
+            // When sorting by an already projected aggregate expression, variable scope checks
+            // should not run against aggregate internals (e.g. max(n.age)).
+            continue;
         }
 
         let mut used = std::collections::HashSet::new();

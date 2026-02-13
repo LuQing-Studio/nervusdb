@@ -100,7 +100,7 @@
 | BETA-03R1     | [Refactor] 拆分 `query_api.rs`（解析/校验/Plan 组装模块化） | High   | Plan   | codex/feat/TBETA-03-refactor-query-api | 仅做结构拆分，不改外部 API 与语义；完成后先回归 `ReturnOrderBy2` |
 | BETA-03R2     | [Refactor] 拆分 `executor.rs`（读路径/写路径/排序投影）      | High   | Plan   | codex/feat/TBETA-03-refactor-executor  | 先抽 write 路径（SET/DELETE/MERGE）再分离 read/sort；保持行为等价 |
 | BETA-03R3     | [Refactor] 拆分 `evaluator.rs` Temporal/Duration 子模块     | High   | Plan   | codex/feat/TBETA-03-refactor-evaluator | 抽离 temporal 计算与构造器逻辑，保留现有入口与错误模型 |
-| BETA-03R4     | [TCK] 重构后恢复推进（ReturnOrderBy2 → Wave2 余簇）         | High   | WIP    | codex/feat/TBETA-03-returnorderby2-fixes | 当前 ReturnOrderBy2 尚余 2 失败：`InvalidAggregation` 误报 + DISTINCT 作用域未报 `UndefinedVariable` |
+| BETA-03R4     | [TCK] 重构后恢复推进（ReturnOrderBy2 → Wave2 余簇）         | High   | WIP    | codex/feat/TBETA-03-returnorderby2-fixes | 2026-02-13 已修复 ReturnOrderBy2 两个阻断点：`InvalidAggregation` 误报、`DISTINCT` 作用域 `UndefinedVariable` 漏报；下一步转 Wave2 余簇 |
 | BETA-04       | [Stability] 连续 7 天主 CI + nightly 稳定窗                | High   | Plan   | feat/TB1-stability-window   | 任一阻断失败即重置计数 |
 | BETA-05       | [Perf] 大规模 SLO 封板（读120/写180/向量220 ms P99）       | High   | Plan   | feat/TB1-perf-slo           | 达标后方可发布 Beta |
 

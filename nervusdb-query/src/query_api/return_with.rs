@@ -72,10 +72,10 @@ pub(super) fn compile_with_plan(input: Plan, with: &crate::ast::WithClause) -> R
         let rewrite_bindings: Vec<(Expression, String)> = with
             .items
             .iter()
-            .filter_map(|item| {
-                item.alias
-                    .as_ref()
-                    .map(|alias| (item.expression.clone(), alias.clone()))
+            .zip(project_cols.iter())
+            .map(|(item, alias)| {
+                let alias = item.alias.clone().unwrap_or_else(|| alias.clone());
+                (item.expression.clone(), alias)
             })
             .collect();
 
@@ -84,7 +84,7 @@ pub(super) fn compile_with_plan(input: Plan, with: &crate::ast::WithClause) -> R
             item.expression = rewrite_order_expression(&item.expression, &rewrite_bindings);
         }
 
-        validate_order_by_scope(&normalized, &project_cols, &with.items)?;
+        validate_order_by_scope(&normalized, &project_cols, &with.items, with.distinct)?;
         let items = compile_order_by_items(&normalized)?;
         plan = Plan::OrderBy {
             input: Box::new(plan),
@@ -116,8 +116,23 @@ pub(super) fn compile_return_plan(
     let (mut plan, project_cols) = compile_projection_aggregation(input, &ret.items)?;
 
     if let Some(order_by) = &ret.order_by {
-        validate_order_by_scope(order_by, &project_cols, &ret.items)?;
-        let items = compile_order_by_items(order_by)?;
+        let rewrite_bindings: Vec<(Expression, String)> = ret
+            .items
+            .iter()
+            .zip(project_cols.iter())
+            .map(|(item, alias)| {
+                let alias = item.alias.clone().unwrap_or_else(|| alias.clone());
+                (item.expression.clone(), alias)
+            })
+            .collect();
+
+        let mut normalized = order_by.clone();
+        for item in &mut normalized.items {
+            item.expression = rewrite_order_expression(&item.expression, &rewrite_bindings);
+        }
+
+        validate_order_by_scope(&normalized, &project_cols, &ret.items, ret.distinct)?;
+        let items = compile_order_by_items(&normalized)?;
         plan = Plan::OrderBy {
             input: Box::new(plan),
             items,
