@@ -270,9 +270,35 @@ fn expression_uses_allowed_group_refs(
                 local_scopes,
             )
         }
-        Expression::FunctionCall(call) => call.args.iter().all(|arg| {
-            expression_uses_allowed_group_refs(arg, grouping_keys, grouping_aliases, local_scopes)
-        }),
+        Expression::FunctionCall(call) => {
+            if call.name.starts_with("__quant_") && call.args.len() == 3 {
+                let Expression::Variable(variable) = &call.args[0] else {
+                    return false;
+                };
+                if !expression_uses_allowed_group_refs(
+                    &call.args[1],
+                    grouping_keys,
+                    grouping_aliases,
+                    local_scopes,
+                ) {
+                    return false;
+                }
+                let mut scope = std::collections::HashSet::new();
+                scope.insert(variable.clone());
+                local_scopes.push(scope);
+                let ok = expression_uses_allowed_group_refs(
+                    &call.args[2],
+                    grouping_keys,
+                    grouping_aliases,
+                    local_scopes,
+                );
+                local_scopes.pop();
+                return ok;
+            }
+            call.args.iter().all(|arg| {
+                expression_uses_allowed_group_refs(arg, grouping_keys, grouping_aliases, local_scopes)
+            })
+        }
         Expression::List(items) => items.iter().all(|item| {
             expression_uses_allowed_group_refs(item, grouping_keys, grouping_aliases, local_scopes)
         }),
@@ -415,6 +441,31 @@ fn validate_aggregate_mixed_expression_impl(
         Expression::FunctionCall(call) => {
             if parse_aggregate_function(call)?.is_some() {
                 return Ok(true);
+            }
+
+            if call.name.starts_with("__quant_") && call.args.len() == 3 {
+                let Expression::Variable(variable) = &call.args[0] else {
+                    return Ok(false);
+                };
+                if !validate_aggregate_mixed_expression_impl(
+                    &call.args[1],
+                    grouping_keys,
+                    grouping_aliases,
+                    local_scopes,
+                )? {
+                    return Ok(false);
+                }
+                let mut scope = std::collections::HashSet::new();
+                scope.insert(variable.clone());
+                local_scopes.push(scope);
+                let ok = validate_aggregate_mixed_expression_impl(
+                    &call.args[2],
+                    grouping_keys,
+                    grouping_aliases,
+                    local_scopes,
+                )?;
+                local_scopes.pop();
+                return Ok(ok);
             }
 
             for arg in &call.args {
@@ -1290,4 +1341,37 @@ pub(super) fn compile_order_by_items(
         .iter()
         .map(|item| (item.expression.clone(), item.direction.clone()))
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_aggregate_mixed_expression;
+    use crate::ast::{BinaryExpression, BinaryOperator, Expression, FunctionCall, Literal};
+
+    #[test]
+    fn quantifier_predicate_variable_is_treated_as_local_in_aggregation_validation() {
+        let collect_expr = Expression::FunctionCall(FunctionCall {
+            name: "collect".to_string(),
+            args: vec![Expression::Literal(Literal::Boolean(true))],
+        });
+        let quantifier = Expression::FunctionCall(FunctionCall {
+            name: "__quant_all".to_string(),
+            args: vec![
+                Expression::Variable("ok".to_string()),
+                collect_expr,
+                Expression::Binary(Box::new(BinaryExpression {
+                    left: Expression::Variable("ok".to_string()),
+                    operator: BinaryOperator::Equals,
+                    right: Expression::Literal(Literal::Boolean(true)),
+                })),
+            ],
+        });
+
+        validate_aggregate_mixed_expression(
+            &quantifier,
+            &[],
+            &std::collections::HashSet::new(),
+        )
+        .expect("quantifier-local variable should not trigger ambiguous aggregation");
+    }
 }

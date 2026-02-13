@@ -19,6 +19,7 @@ pub(super) fn evaluate_scalar_function(name: &str, args: &[Value]) -> Option<Val
         "split" => Some(evaluate_split(args)),
         "coalesce" => Some(evaluate_coalesce(args)),
         "sqrt" => Some(evaluate_sqrt(args)),
+        "sign" => Some(evaluate_sign(args)),
         _ => None,
     }
 }
@@ -195,5 +196,41 @@ fn evaluate_sqrt(args: &[Value]) -> Value {
         Some(Value::Int(i)) => Value::Float((*i as f64).sqrt()),
         Some(Value::Float(f)) => Value::Float(f.sqrt()),
         _ => Value::Null,
+    }
+}
+
+fn evaluate_sign(args: &[Value]) -> Value {
+    match args.first() {
+        Some(Value::Int(i)) => Value::Int(i.signum()),
+        Some(Value::Float(f)) => Value::Int(if *f > 0.0 {
+            1
+        } else if *f < 0.0 {
+            -1
+        } else {
+            0
+        }),
+        _ => Value::Null,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::evaluate_scalar_function;
+    use crate::evaluator::Value;
+
+    #[test]
+    fn sign_returns_expected_integer_signum() {
+        assert_eq!(
+            evaluate_scalar_function("sign", &[Value::Int(-10)]),
+            Some(Value::Int(-1))
+        );
+        assert_eq!(
+            evaluate_scalar_function("sign", &[Value::Int(0)]),
+            Some(Value::Int(0))
+        );
+        assert_eq!(
+            evaluate_scalar_function("sign", &[Value::Int(7)]),
+            Some(Value::Int(1))
+        );
     }
 }

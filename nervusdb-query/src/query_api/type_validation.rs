@@ -286,6 +286,7 @@ fn is_supported_function_name(name: &str) -> bool {
             | "split"
             | "coalesce"
             | "sqrt"
+            | "sign"
             | "tointeger"
             | "tofloat"
             | "toboolean"
@@ -574,5 +575,14 @@ mod tests {
         });
         let err = validate_expression_types(&expr).expect_err("expected UnknownFunction");
         assert_eq!(err.to_string(), "syntax error: UnknownFunction");
+    }
+
+    #[test]
+    fn accepts_supported_sign_function() {
+        let expr = Expression::FunctionCall(FunctionCall {
+            name: "sign".to_string(),
+            args: vec![Expression::Literal(Literal::Integer(-1))],
+        });
+        validate_expression_types(&expr).expect("sign should be recognized");
     }
 }

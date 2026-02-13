@@ -152,10 +152,8 @@ fn evaluate_range(args: &[Value]) -> Value {
             Value::Int(v) => v,
             _ => return Value::Null,
         }
-    } else if start <= end {
-        1
     } else {
-        -1
+        1
     };
 
     if step == 0 {
@@ -315,7 +313,7 @@ fn evaluate_slice(args: &[Value]) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::evaluate_slice;
+    use super::{evaluate_range, evaluate_slice};
     use crate::evaluator::Value;
 
     #[test]
@@ -354,6 +352,21 @@ mod tests {
         assert_eq!(
             result,
             Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+        );
+    }
+
+    #[test]
+    fn range_default_step_returns_empty_when_start_greater_than_end() {
+        let result = evaluate_range(&[Value::Int(0), Value::Int(-2)]);
+        assert_eq!(result, Value::List(vec![]));
+    }
+
+    #[test]
+    fn range_default_step_is_positive_one() {
+        let result = evaluate_range(&[Value::Int(-1), Value::Int(1)]);
+        assert_eq!(
+            result,
+            Value::List(vec![Value::Int(-1), Value::Int(0), Value::Int(1)])
         );
     }
 }
