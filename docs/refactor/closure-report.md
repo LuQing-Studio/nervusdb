@@ -52,7 +52,7 @@
 ## 6. 剩余风险与后续建议
 
 - P0：`未发现`
-- P1：`pyo3 cfg 警告（gil-refs）与 clippy 历史 warning 仍存在，但不阻断门禁`
+- P1：`clippy 历史 warning 仍存在，但不阻断门禁`
 - P2：`未发现阻断级剩余项`
 
 建议：

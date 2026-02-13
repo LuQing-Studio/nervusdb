@@ -7,6 +7,10 @@ edition = "2021"
 name = "nervusdb"
 crate-type = ["cdylib"]
 
+[features]
+default = []
+gil-refs = []
+
 [dependencies]
 pyo3 = { version = "0.22.6", features = ["extension-module"] }
 nervusdb = { path = "../nervusdb" }
