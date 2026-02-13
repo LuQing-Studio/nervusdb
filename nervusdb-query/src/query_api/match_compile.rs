@@ -1,7 +1,7 @@
 use super::{
     BTreeMap, BTreeSet, BindingKind, Error, Expression, Plan, Result, alloc_internal_path_alias,
     build_optional_unbind_aliases, extract_output_var_kinds, first_relationship_is_bound,
-    maybe_reanchor_pattern, validate_match_pattern_bindings,
+    maybe_reanchor_pattern, pattern_has_bound_relationship, validate_match_pattern_bindings,
 };
 
 pub(super) fn compile_match_plan(
@@ -41,7 +41,7 @@ pub(super) fn compile_match_plan(
             known_bindings.get(&first_node_alias),
             Some(BindingKind::Node | BindingKind::Unknown)
         );
-        let join_via_bound_relationship = first_relationship_is_bound(&pattern, &known_bindings);
+        let join_via_bound_relationship = pattern_has_bound_relationship(&pattern, &known_bindings);
 
         if join_via_bound_node || join_via_bound_relationship {
             // Join via expansion (bound start node) or via already-bound relationship variable.
@@ -108,7 +108,8 @@ fn compile_pattern_chain(
         *next_anon_id += 1;
         name
     };
-    let src_label = src_node_el.labels.first().cloned();
+    let src_labels = src_node_el.labels.clone();
+    let src_label = src_labels.first().cloned();
 
     let mut local_predicates = predicates.clone();
     let mut plan = if let Some(existing_plan) = input {
@@ -118,13 +119,6 @@ fn compile_pattern_chain(
         );
         let first_rel_is_bound = first_relationship_is_bound(pattern, known_bindings);
 
-        if !src_is_bound && !first_rel_is_bound {
-            return Err(Error::Other(format!(
-                "Join variable '{}' not found in plan",
-                src_alias
-            )));
-        }
-
         if src_is_bound {
             // Apply filters for inline properties of this node only when source alias is already bound.
             extend_predicates_from_properties(
@@ -132,9 +126,50 @@ fn compile_pattern_chain(
                 &src_node_el.properties,
                 &mut local_predicates,
             );
-            apply_filters_for_alias(existing_plan, &src_alias, &local_predicates)
+            let plan = apply_filters_for_alias(existing_plan, &src_alias, &local_predicates);
+            apply_label_filters_for_alias(plan, &src_alias, &src_labels)
+        } else if first_rel_is_bound {
+            extend_predicates_from_properties(
+                &src_alias,
+                &src_node_el.properties,
+                &mut local_predicates,
+            );
+            let plan = apply_filters_for_alias(existing_plan, &src_alias, &local_predicates);
+            apply_label_filters_for_alias(plan, &src_alias, &src_labels)
         } else {
-            existing_plan
+            // No direct anchor on the first hop. Keep correlated bindings from `existing_plan`
+            // and start this pattern from a fresh source scan.
+            extend_predicates_from_properties(
+                &src_alias,
+                &src_node_el.properties,
+                &mut local_predicates,
+            );
+
+            let mut start_plan = Plan::NodeScan {
+                alias: src_alias.clone(),
+                label: src_label.clone(),
+                optional,
+            };
+
+            if let Some(label_name) = &src_label
+                && let Some(var_preds) = local_predicates.get(&src_alias)
+                && let Some((field, val_expr)) = var_preds.iter().next()
+            {
+                start_plan = Plan::IndexSeek {
+                    alias: src_alias.clone(),
+                    label: label_name.clone(),
+                    field: field.clone(),
+                    value_expr: val_expr.clone(),
+                    fallback: Box::new(start_plan),
+                };
+            }
+
+            let scanned = apply_filters_for_alias(start_plan, &src_alias, &local_predicates);
+            let scanned = apply_label_filters_for_alias(scanned, &src_alias, &src_labels);
+            Plan::CartesianProduct {
+                left: Box::new(existing_plan),
+                right: Box::new(scanned),
+            }
         }
     } else {
         // Build Initial Plan (Scan or IndexSeek)
@@ -164,7 +199,8 @@ fn compile_pattern_chain(
             };
         }
 
-        apply_filters_for_alias(start_plan, &src_alias, &local_predicates)
+        let plan = apply_filters_for_alias(start_plan, &src_alias, &local_predicates);
+        apply_label_filters_for_alias(plan, &src_alias, &src_labels)
     };
 
     // Subsequent hops
@@ -202,6 +238,7 @@ fn compile_pattern_chain(
         let edge_alias = rel_el.variable.clone();
         let rel_types = rel_el.types.clone();
         let dst_labels = dst_node_el.labels.clone();
+        let is_var_len = rel_el.variable_length.is_some();
         let src_prebound =
             is_bound_before_local(known_bindings, &local_bound_aliases, &curr_src_alias);
 
@@ -231,7 +268,7 @@ fn compile_pattern_chain(
                 project_external: false,
                 optional,
                 optional_unbind: optional_unbind.clone(),
-                path_alias,
+                path_alias: path_alias.clone(),
             };
         } else if let Some(rel_alias) = &edge_alias
             && matches!(
@@ -250,7 +287,7 @@ fn compile_pattern_chain(
                 direction: rel_el.direction.clone(),
                 optional,
                 optional_unbind: optional_unbind.clone(),
-                path_alias,
+                path_alias: path_alias.clone(),
             };
         } else {
             match rel_el.direction {
@@ -268,7 +305,7 @@ fn compile_pattern_chain(
                         project_external: false,
                         optional,
                         optional_unbind: optional_unbind.clone(),
-                        path_alias,
+                        path_alias: path_alias.clone(),
                     };
                 }
                 crate::ast::RelationshipDirection::RightToLeft => {
@@ -283,7 +320,7 @@ fn compile_pattern_chain(
                         limit: None,
                         optional,
                         optional_unbind: optional_unbind.clone(),
-                        path_alias,
+                        path_alias: path_alias.clone(),
                     };
                 }
                 crate::ast::RelationshipDirection::Undirected => {
@@ -298,10 +335,22 @@ fn compile_pattern_chain(
                         limit: None,
                         optional,
                         optional_unbind: optional_unbind.clone(),
-                        path_alias,
+                        path_alias: path_alias.clone(),
                     };
                 }
             }
+        }
+
+        if is_var_len
+            && let (Some(path_alias_name), Some(rel_props)) =
+                (path_alias.as_deref(), rel_el.properties.as_ref())
+            && let Some(predicate) =
+                build_var_len_rel_properties_predicate(path_alias_name, rel_props)
+        {
+            plan = Plan::Filter {
+                input: Box::new(plan),
+                predicate,
+            };
         }
 
         // Extract properties from dst node and relationship
@@ -310,13 +359,13 @@ fn compile_pattern_chain(
             &dst_node_el.properties,
             &mut local_predicates,
         );
-        if let Some(ea) = &edge_alias {
+        if !is_var_len && let Some(ea) = &edge_alias {
             extend_predicates_from_properties(ea, &rel_el.properties, &mut local_predicates);
         }
 
         // Apply filters
         plan = apply_filters_for_alias(plan, &dst_alias, &local_predicates);
-        if let Some(ea) = &edge_alias {
+        if !is_var_len && let Some(ea) = &edge_alias {
             plan = apply_filters_for_alias(plan, ea, &local_predicates);
         }
 
@@ -355,6 +404,46 @@ fn compile_pattern_chain(
     }
 
     Ok(plan)
+}
+
+fn build_var_len_rel_properties_predicate(
+    path_alias: &str,
+    rel_props: &crate::ast::PropertyMap,
+) -> Option<Expression> {
+    let mut per_relationship_predicate: Option<Expression> = None;
+    for prop in &rel_props.properties {
+        let prop_access = Expression::PropertyAccess(crate::ast::PropertyAccess {
+            variable: "__nervus_rel".to_string(),
+            property: prop.key.clone(),
+        });
+        let eq_expr = Expression::Binary(Box::new(crate::ast::BinaryExpression {
+            operator: crate::ast::BinaryOperator::Equals,
+            left: prop_access,
+            right: prop.value.clone(),
+        }));
+        per_relationship_predicate = Some(match per_relationship_predicate {
+            Some(prev) => Expression::Binary(Box::new(crate::ast::BinaryExpression {
+                operator: crate::ast::BinaryOperator::And,
+                left: prev,
+                right: eq_expr,
+            })),
+            None => eq_expr,
+        });
+    }
+
+    per_relationship_predicate.map(|predicate| {
+        Expression::FunctionCall(crate::ast::FunctionCall {
+            name: "__quant_all".to_string(),
+            args: vec![
+                Expression::Variable("__nervus_rel".to_string()),
+                Expression::FunctionCall(crate::ast::FunctionCall {
+                    name: "relationships".to_string(),
+                    args: vec![Expression::Variable(path_alias.to_string())],
+                }),
+                predicate,
+            ],
+        })
+    })
 }
 
 fn is_bound_before_local(
@@ -410,6 +499,47 @@ fn apply_filters_for_alias(
         }
     }
     plan
+}
+
+fn apply_label_filters_for_alias(plan: Plan, alias: &str, labels: &[String]) -> Plan {
+    let mut combined_pred: Option<Expression> = None;
+
+    for label in labels {
+        let has_label = Expression::Binary(Box::new(crate::ast::BinaryExpression {
+            operator: crate::ast::BinaryOperator::HasLabel,
+            left: Expression::Variable(alias.to_string()),
+            right: Expression::Literal(crate::ast::Literal::String(label.clone())),
+        }));
+
+        // Keep OPTIONAL fallback rows where the alias is null.
+        let label_or_null = Expression::Binary(Box::new(crate::ast::BinaryExpression {
+            operator: crate::ast::BinaryOperator::Or,
+            left: Expression::Binary(Box::new(crate::ast::BinaryExpression {
+                operator: crate::ast::BinaryOperator::IsNull,
+                left: Expression::Variable(alias.to_string()),
+                right: Expression::Literal(crate::ast::Literal::Null),
+            })),
+            right: has_label,
+        }));
+
+        combined_pred = match combined_pred {
+            Some(prev) => Some(Expression::Binary(Box::new(crate::ast::BinaryExpression {
+                operator: crate::ast::BinaryOperator::And,
+                left: prev,
+                right: label_or_null,
+            }))),
+            None => Some(label_or_null),
+        };
+    }
+
+    if let Some(predicate) = combined_pred {
+        Plan::Filter {
+            input: Box::new(plan),
+            predicate,
+        }
+    } else {
+        plan
+    }
 }
 
 /// Helper to convert inline map properties to predicates

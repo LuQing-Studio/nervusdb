@@ -73,9 +73,14 @@ pub(super) fn validate_match_pattern_bindings(
             }
             crate::ast::PathElement::Relationship(r) => {
                 if let Some(var) = &r.variable {
+                    let incoming_kind = if r.variable_length.is_some() {
+                        BindingKind::RelationshipList
+                    } else {
+                        BindingKind::Relationship
+                    };
                     register_pattern_binding(
                         var,
-                        BindingKind::Relationship,
+                        incoming_kind,
                         known_bindings,
                         &mut local_bindings,
                     )?;
@@ -102,6 +107,14 @@ fn value_binding_kind(value: &Value) -> BindingKind {
     match value {
         Value::NodeId(_) | Value::Node(_) => BindingKind::Node,
         Value::EdgeKey(_) | Value::Relationship(_) => BindingKind::Relationship,
+        Value::List(values)
+            if !values.is_empty()
+                && values
+                    .iter()
+                    .all(|item| matches!(item, Value::EdgeKey(_) | Value::Relationship(_))) =>
+        {
+            BindingKind::RelationshipList
+        }
         Value::Path(_) | Value::ReifiedPath(_) => BindingKind::Path,
         _ => BindingKind::Scalar,
     }
@@ -134,14 +147,41 @@ pub(super) fn infer_expression_binding_kind(
             }
             BindingKind::Scalar
         }
+        Expression::Literal(Literal::Null) => BindingKind::Unknown,
         Expression::Literal(_)
         | Expression::Parameter(_)
         | Expression::PropertyAccess(_)
         | Expression::Binary(_)
         | Expression::Unary(_)
-        | Expression::List(_)
         | Expression::Map(_) => BindingKind::Scalar,
+        Expression::List(items) => infer_list_binding_kind(items, vars),
         _ => BindingKind::Unknown,
+    }
+}
+
+fn infer_list_binding_kind(
+    items: &[Expression],
+    vars: &BTreeMap<String, BindingKind>,
+) -> BindingKind {
+    if items.is_empty() {
+        return BindingKind::Scalar;
+    }
+
+    let mut saw_concrete = false;
+    for item in items {
+        match infer_expression_binding_kind(item, vars) {
+            BindingKind::Relationship | BindingKind::RelationshipList => {
+                saw_concrete = true;
+            }
+            BindingKind::Unknown => {}
+            _ => return BindingKind::Scalar,
+        }
+    }
+
+    if saw_concrete {
+        BindingKind::RelationshipList
+    } else {
+        BindingKind::Scalar
     }
 }
 
@@ -152,14 +192,6 @@ pub(super) fn extract_output_var_kinds(plan: &Plan, vars: &mut BTreeMap<String, 
             merge_binding_kind(vars, alias.clone(), BindingKind::Node);
         }
         Plan::MatchOut {
-            src_alias,
-            dst_alias,
-            edge_alias,
-            path_alias,
-            input,
-            ..
-        }
-        | Plan::MatchOutVarLen {
             src_alias,
             dst_alias,
             edge_alias,
@@ -187,6 +219,28 @@ pub(super) fn extract_output_var_kinds(plan: &Plan, vars: &mut BTreeMap<String, 
             merge_binding_kind(vars, dst_alias.clone(), BindingKind::Node);
             if let Some(e) = edge_alias {
                 merge_binding_kind(vars, e.clone(), BindingKind::Relationship);
+            }
+            if let Some(p) = path_alias
+                && !is_internal_path_alias(p)
+            {
+                merge_binding_kind(vars, p.clone(), BindingKind::Path);
+            }
+            if let Some(p) = input {
+                extract_output_var_kinds(p, vars);
+            }
+        }
+        Plan::MatchOutVarLen {
+            src_alias,
+            dst_alias,
+            edge_alias,
+            path_alias,
+            input,
+            ..
+        } => {
+            merge_binding_kind(vars, src_alias.clone(), BindingKind::Node);
+            merge_binding_kind(vars, dst_alias.clone(), BindingKind::Node);
+            if let Some(e) = edge_alias {
+                merge_binding_kind(vars, e.clone(), BindingKind::RelationshipList);
             }
             if let Some(p) = path_alias
                 && !is_internal_path_alias(p)
@@ -320,7 +374,12 @@ pub(super) fn extract_output_var_kinds(plan: &Plan, vars: &mut BTreeMap<String, 
                     }
                     crate::ast::PathElement::Relationship(r) => {
                         if let Some(var) = &r.variable {
-                            merge_binding_kind(vars, var.clone(), BindingKind::Relationship);
+                            let kind = if r.variable_length.is_some() {
+                                BindingKind::RelationshipList
+                            } else {
+                                BindingKind::Relationship
+                            };
+                            merge_binding_kind(vars, var.clone(), kind);
                         }
                     }
                 }

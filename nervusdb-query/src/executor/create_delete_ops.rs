@@ -63,6 +63,9 @@ pub(super) fn execute_create_from_rows<S: GraphSnapshot>(
             if let Some(props) = &node_pat.properties {
                 for prop in &props.properties {
                     let val = evaluate_expression_value(&prop.value, &row, snapshot, params);
+                    if matches!(val, Value::Null) {
+                        continue;
+                    }
                     let prop_val = convert_executor_value_to_property(&val)?;
                     txn.set_node_property(node_id, prop.key.clone(), prop_val)?;
                     node_props.insert(prop.key.clone(), val);
@@ -135,6 +138,9 @@ pub(super) fn execute_create_from_rows<S: GraphSnapshot>(
             if let Some(props) = &rel_pat.properties {
                 for prop in &props.properties {
                     let val = evaluate_expression_value(&prop.value, &row, snapshot, params);
+                    if matches!(val, Value::Null) {
+                        continue;
+                    }
                     let prop_val = convert_executor_value_to_property(&val)?;
                     txn.set_edge_property(src_id, rel_type, dst_id, prop.key.clone(), prop_val)?;
                     rel_props.insert(prop.key.clone(), val);
@@ -399,9 +405,10 @@ pub(super) fn execute_create_write_rows<S: GraphSnapshot>(
         Plan::Values { rows } => Ok((0, rows.clone())),
         Plan::ReturnOne => Ok((0, vec![Row::default()])),
         _ => {
-            let rows: Vec<Row> =
-                execute_plan(snapshot, plan, params).collect::<Result<Vec<_>>>()?;
-            Ok((0, rows))
+            // Non-write wrappers (WITH/UNWIND/PROJECT/...) may still contain nested writes.
+            // Delegate back to write orchestration so CREATE/DELETE children are executed
+            // through write-capable paths instead of read-only `execute_plan`.
+            super::execute_write_with_rows(plan, snapshot, txn, params)
         }
     }
 }

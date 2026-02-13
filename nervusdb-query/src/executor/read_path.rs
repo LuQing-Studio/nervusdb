@@ -104,7 +104,7 @@ impl<'a, S: GraphSnapshot + 'a> Iterator for MatchOutIter<'a, S> {
 }
 
 /// Variable-length path iterator using DFS
-const DEFAULT_MAX_VAR_LEN_HOPS: u32 = 5;
+const DEFAULT_MAX_VAR_LEN_HOPS: u32 = 64;
 
 type VarLenStackItem = (
     InternalNodeId,
@@ -112,6 +112,7 @@ type VarLenStackItem = (
     u32,
     Option<EdgeKey>,
     Option<PathValue>,
+    Vec<EdgeKey>,
     Vec<EdgeKey>,
 );
 
@@ -132,6 +133,8 @@ pub(super) struct MatchOutVarLenIter<'a, S: GraphSnapshot + 'a> {
     node_iter: Option<Box<dyn Iterator<Item = InternalNodeId> + 'a>>,
     // DFS state: (start_node, current_node, current_depth, incoming_edge, current_path)
     stack: Vec<VarLenStackItem>,
+    edge_constraint: Option<Vec<EdgeKey>>,
+    edge_constraint_valid: bool,
     emitted: u32,
     yielded_any: bool,
     optional: bool,
@@ -180,6 +183,8 @@ impl<'a, S: GraphSnapshot + 'a> MatchOutVarLenIter<'a, S> {
             limit,
             node_iter,
             stack: Vec::new(),
+            edge_constraint: None,
+            edge_constraint_valid: true,
             emitted: 0,
             yielded_any: false,
             optional,
@@ -211,8 +216,29 @@ impl<'a, S: GraphSnapshot + 'a> MatchOutVarLenIter<'a, S> {
             0,
             None,
             initial_path,
+            Vec::new(),
             initial_used_edges,
         ));
+    }
+
+    fn parse_bound_edge_constraint(value: &Value) -> Option<Vec<EdgeKey>> {
+        match value {
+            Value::Null => Some(Vec::new()),
+            Value::EdgeKey(edge) => Some(vec![*edge]),
+            Value::Relationship(rel) => Some(vec![rel.key]),
+            Value::List(values) => {
+                let mut out = Vec::with_capacity(values.len());
+                for item in values {
+                    match item {
+                        Value::EdgeKey(edge) => out.push(*edge),
+                        Value::Relationship(rel) => out.push(rel.key),
+                        _ => return None,
+                    }
+                }
+                Some(out)
+            }
+            _ => None,
+        }
     }
 }
 
@@ -235,18 +261,26 @@ impl<'a, S: GraphSnapshot + 'a> Iterator for MatchOutVarLenIter<'a, S> {
                 start_node,
                 current_node,
                 depth,
-                incoming_edge,
+                _incoming_edge,
                 current_path,
+                path_edges,
                 used_edges,
             )) = self.stack.pop()
             {
                 // Expand
-                if depth < max_hops {
+                if depth < max_hops && self.edge_constraint_valid {
                     let mut emitted_per_edge: HashMap<EdgeKey, usize> = HashMap::new();
                     let mut push_edge =
                         |edge: EdgeKey,
                          next_node: InternalNodeId,
                          stack: &mut Vec<VarLenStackItem>| {
+                            if let Some(bound) = self.edge_constraint.as_ref() {
+                                let index = depth as usize;
+                                if index >= bound.len() || bound[index] != edge {
+                                    return;
+                                }
+                            }
+
                             let used_count = used_edges
                                 .iter()
                                 .filter(|existing| **existing == edge)
@@ -277,12 +311,15 @@ impl<'a, S: GraphSnapshot + 'a> Iterator for MatchOutVarLenIter<'a, S> {
                             }
                             let mut next_used = used_edges.clone();
                             next_used.push(edge);
+                            let mut next_path_edges = path_edges.clone();
+                            next_path_edges.push(edge);
                             stack.push((
                                 start_node,
                                 next_node,
                                 depth + 1,
                                 Some(edge),
                                 next_path,
+                                next_path_edges,
                                 next_used,
                             ));
                         };
@@ -357,6 +394,15 @@ impl<'a, S: GraphSnapshot + 'a> Iterator for MatchOutVarLenIter<'a, S> {
 
                 // Emit check
                 if depth >= self.min_hops {
+                    if !self.edge_constraint_valid {
+                        continue;
+                    }
+                    if let Some(bound) = self.edge_constraint.as_ref()
+                        && path_edges.len() != bound.len()
+                    {
+                        continue;
+                    }
+
                     let base_row = self.cur_row.clone().unwrap_or_default();
                     if !row_matches_node_binding(&base_row, self.dst_alias, current_node) {
                         continue;
@@ -373,11 +419,12 @@ impl<'a, S: GraphSnapshot + 'a> Iterator for MatchOutVarLenIter<'a, S> {
                     row = row.with(self.src_alias, Value::NodeId(start_node));
 
                     if let Some(edge_alias) = self.edge_alias {
-                        if let Some(e) = incoming_edge {
-                            row = row.with(edge_alias, Value::EdgeKey(e));
-                        } else {
-                            row = row.with(edge_alias, Value::Null);
-                        }
+                        let edge_values = path_edges
+                            .iter()
+                            .copied()
+                            .map(Value::EdgeKey)
+                            .collect::<Vec<_>>();
+                        row = row.with(edge_alias, Value::List(edge_values));
                     }
                     row = row.with(self.dst_alias, Value::NodeId(current_node));
 
@@ -423,14 +470,72 @@ impl<'a, S: GraphSnapshot + 'a> Iterator for MatchOutVarLenIter<'a, S> {
                     Some(Ok(row)) => {
                         self.cur_row = Some(row.clone());
                         self.yielded_any = false;
-
-                        let src_val = row.get(self.src_alias);
-                        match src_val {
-                            Some(Value::NodeId(id)) => self.start_dfs(*id),
-                            Some(Value::Null) => {
-                                // Optional null source handled next iteration
+                        self.edge_constraint = None;
+                        self.edge_constraint_valid = true;
+                        if let Some(edge_alias) = self.edge_alias
+                            && let Some(bound_value) = row.get(edge_alias)
+                        {
+                            if let Some(edges) = Self::parse_bound_edge_constraint(bound_value) {
+                                self.edge_constraint = Some(edges);
+                            } else {
+                                self.edge_constraint = Some(Vec::new());
+                                self.edge_constraint_valid = false;
                             }
-                            _ => {} // Invalid, skip
+                        }
+
+                        if let Some(src_id) = row.get_node(self.src_alias) {
+                            self.start_dfs(src_id);
+                        } else {
+                            match row.get(self.src_alias) {
+                                Some(Value::Null) => {
+                                    // Optional null source handled next iteration
+                                }
+                                Some(_) => {
+                                    // Invalid source binding type; skip this row.
+                                }
+                                None => {
+                                    if self.edge_constraint_valid {
+                                        if let Some(bound_edges) = self.edge_constraint.as_ref() {
+                                            if let Some(first_edge) = bound_edges.first() {
+                                                let mut starts = vec![match self.direction {
+                                                    RelationshipDirection::LeftToRight => {
+                                                        first_edge.src
+                                                    }
+                                                    RelationshipDirection::RightToLeft => {
+                                                        first_edge.dst
+                                                    }
+                                                    RelationshipDirection::Undirected => {
+                                                        first_edge.src
+                                                    }
+                                                }];
+                                                if matches!(
+                                                    self.direction,
+                                                    RelationshipDirection::Undirected
+                                                ) && first_edge.src != first_edge.dst
+                                                {
+                                                    starts.push(first_edge.dst);
+                                                }
+                                                for start in starts {
+                                                    if !self.snapshot.is_tombstoned_node(start) {
+                                                        self.start_dfs(start);
+                                                    }
+                                                }
+                                            } else if self.min_hops == 0 {
+                                                let starts: Vec<_> = self
+                                                    .snapshot
+                                                    .nodes()
+                                                    .filter(|id| {
+                                                        !self.snapshot.is_tombstoned_node(*id)
+                                                    })
+                                                    .collect();
+                                                for start in starts {
+                                                    self.start_dfs(start);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     Some(Err(e)) => return Some(Err(e)),

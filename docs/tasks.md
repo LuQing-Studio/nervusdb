@@ -96,13 +96,20 @@
 | **Beta Gate** | **SQLite-Beta 必达门槛**                                   |        |        |                             |                                                          |
 | BETA-01       | [Storage] 强制 `storage_format_epoch` 校验                 | High   | Done   | feat/TB1-beta-gate          | `StorageFormatMismatch` + Compatibility 映射已落地 |
 | BETA-02       | [CI] Tier-3 全量通过率统计与 95% 阈值阻断                  | High   | Done   | feat/TB1-beta-gate          | `scripts/tck_full_rate.sh` + `scripts/beta_gate.sh` + nightly/manual workflow |
-| BETA-03       | [TCK] 官方全量通过率冲刺至 ≥95%                            | High   | WIP    | feat/TB1-tck-95             | 2026-02-11 最新 Tier-3：3193/3897=81.93%（较 2026-02-10 的 2989/3897 提升 +204 场，+6.80pp；failed 434→178）；已合并 PR #126/#127/#128（Comparison、SET map、DELETE compile/null）；当前待清簇含 ReturnOrderBy2(2) 等 |
-| BETA-03R1     | [Refactor] 拆分 `query_api.rs`（解析/校验/Plan 组装模块化） | High   | Plan   | codex/feat/TBETA-03-refactor-query-api | 仅做结构拆分，不改外部 API 与语义；完成后先回归 `ReturnOrderBy2` |
-| BETA-03R2     | [Refactor] 拆分 `executor.rs`（读路径/写路径/排序投影）      | High   | Plan   | codex/feat/TBETA-03-refactor-executor  | 先抽 write 路径（SET/DELETE/MERGE）再分离 read/sort；保持行为等价 |
-| BETA-03R3     | [Refactor] 拆分 `evaluator.rs` Temporal/Duration 子模块     | High   | Plan   | codex/feat/TBETA-03-refactor-evaluator | 抽离 temporal 计算与构造器逻辑，保留现有入口与错误模型 |
-| BETA-03R4     | [TCK] 重构后恢复推进（ReturnOrderBy2 → Wave2 余簇）         | High   | WIP    | codex/feat/TBETA-03-returnorderby2-fixes | 2026-02-13 最新 Tier-3：3270/3897=83.91%（failed 94，较本轮前 98 再降 4）。本轮新增修复：MatchWhere1（path 属性访问与 WHERE 聚合校验）、MatchWhere6（OPTIONAL MATCH 反向绑定关系变量可见性）、List6（`size(path)` 编译期 InvalidArgumentType）、TypeConversion3（`toFloat` 转换路径恢复，场景 1~5 通过）、TypeConversion1（`toBoolean` 转换路径恢复，场景 1~4 通过）、ExistentialSubquery2/3（嵌套 EXISTS 子查询相关性与聚合合法性恢复，定向 feature 全通过）。同时保留前序已完成项（Quantifier2/11、List2 场景9、Precedence2/3）并通过定向回归。 |
+| BETA-03       | [TCK] 官方全量通过率冲刺至 ≥95%                            | High   | WIP    | feat/TB1-tck-95             | 2026-02-13 最新 Tier-3：3306/3897=84.83%（skipped 535，failed 56；见 `artifacts/tck/tier3-rate-2026-02-13.md`、`artifacts/tck/tier3-cluster-2026-02-13.md`）。当前主阻断：大量场景因 TCK harness 未覆盖（结果有序比较/参数注入/side effects/graph fixtures/procedure test stubs 等）导致 skipped；Top failing features：Temporal2/Temporal5。 |
+| BETA-03R1     | [Refactor] 拆分 `query_api.rs`（解析/校验/Plan 组装模块化） | High   | Done   | codex/feat/phase1b1c-bigbang | 已由 Phase 1a (R1) 覆盖完成，query_api/ 目录已拆分为多文件模块；PR #131 全门禁通过 |
+| BETA-03R2     | [Refactor] 拆分 `executor.rs`（读路径/写路径/排序投影）      | High   | Done   | codex/feat/phase1b1c-bigbang | 已由 Phase 1a (R2) 覆盖完成，executor/ 目录已拆分为 34 文件；PR #131 全门禁通过 |
+| BETA-03R3     | [Refactor] 拆分 `evaluator.rs` Temporal/Duration 子模块     | High   | Done   | codex/feat/phase1b1c-bigbang | 已由 Phase 1a (R3) 覆盖完成，evaluator/ 目录已拆分为 25 文件；PR #131 全门禁通过 |
+| BETA-03R4     | [TCK] 重构后恢复推进（Match4/Match9 失败簇三波次）           | High   | Done   | codex/feat/phase1b1c-bigbang | 2026-02-13 主干攻坚 + Follow-up 完成：W1/W2/W3 落地（varlen 关系变量统一列表语义、`[rs*]` 受绑定关系列表约束、parser+varlen 过滤收口、复合 CREATE 管线修复、trail 去重修复），并补齐 follow-up 收口（多标签 MATCH 过滤、`[:T|:T]` parser 去重、`length()` 参数类型校验、`null` 绑定类型冲突修复、TCK 标签顺序归一化）。`Match4`/`Match9` 非跳过场景全通过，扩展矩阵历史失败已清零。证据：`artifacts/tck/beta-03r4-match-cluster-2026-02-13.log`、`artifacts/tck/beta-03r4-followup-cluster-2026-02-13.log`、`artifacts/tck/beta-03r4-baseline-gates-r2-2026-02-13.log`。 |
 | BETA-04       | [Stability] 连续 7 天主 CI + nightly 稳定窗                | High   | Plan   | feat/TB1-stability-window   | 任一阻断失败即重置计数 |
 | BETA-05       | [Perf] 大规模 SLO 封板（读120/写180/向量220 ms P99）       | High   | Plan   | feat/TB1-perf-slo           | 达标后方可发布 Beta |
+
+### BETA-03R4 子进展（2026-02-13）
+- W1：引入 `BindingKind::RelationshipList`，varlen 关系变量输出统一为 `List<Relationship>`，0-hop 命中输出 `[]`，OPTIONAL miss 保持 `null`。
+- W2：支持 `[rs*]` 使用已绑定关系列表作为路径约束（方向敏感、精确序列匹配），消除 `Match9[6,7]` 的绑定冲突。
+- W3：修复关系关键字解析与 varlen 属性谓词路径；补齐复合 `CREATE...WITH...UNWIND...CREATE` 写执行链；在 `MatchBoundRel` 增加路径重复边检查，清零 `Match4[4,7]`。
+- W4（Follow-up 收口）：清零扩展矩阵历史失败簇：`Match1[3]`、`Match3[7,8,25]`、`Path1[1]`、`Path2[3]`、`Path3[2,3]`。
+- 回归与门禁：`cargo fmt --check`、`cargo clippy --workspace --exclude nervusdb-pyo3 --all-targets -- -W warnings`、`workspace_quick_test`、`tier0/1/2`、`binding_smoke`、`contract_smoke` 全通过（见 `artifacts/tck/beta-03r4-baseline-gates-r2-2026-02-13.log`）。
 
 ## Archived (v1/Alpha)
 

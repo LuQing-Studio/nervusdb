@@ -1,5 +1,6 @@
 use cucumber::{World, given, then, when};
 use nervusdb::Db;
+use nervusdb_api::GraphSnapshot;
 use nervusdb_query::{Params, Value, prepare};
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -15,6 +16,8 @@ pub struct GraphWorld {
     _dir: Option<Arc<TempDir>>,
     last_result: Option<Vec<HashMap<String, Value>>>,
     last_error: Option<String>,
+    params: Params,
+    last_side_effects: Option<SideEffectsDelta>,
 }
 
 impl GraphWorld {
@@ -26,6 +29,8 @@ impl GraphWorld {
             _dir: Some(Arc::new(dir)),
             last_result: None,
             last_error: None,
+            params: Params::new(),
+            last_side_effects: None,
         })
     }
 
@@ -40,9 +45,30 @@ async fn empty_graph(_world: &mut GraphWorld) {
     // Already empty on new()
 }
 
+#[given(regex = r"^parameters are:$")]
+async fn parameters_are(world: &mut GraphWorld, step: &cucumber::gherkin::Step) {
+    let table = step.table.as_ref().expect("Expected table");
+    for row in &table.rows {
+        if row.len() < 2 {
+            continue;
+        }
+        let key = row[0].trim();
+        let value = parse_tck_value(row[1].trim());
+        if !key.is_empty() {
+            world.params.insert(key.to_string(), value);
+        }
+    }
+}
+
 #[then("no side effects")]
 async fn no_side_effects(_world: &mut GraphWorld) {
-    // TODO: Verify no changes were made (check DB stats?)
+    if let Some(delta) = _world.last_side_effects {
+        assert_eq!(
+            delta,
+            SideEffectsDelta::default(),
+            "Expected no side effects but got: {delta:?}"
+        );
+    }
 }
 
 #[given(regex = r"^having executed:$")]
@@ -53,6 +79,12 @@ async fn having_executed(world: &mut GraphWorld, step: &cucumber::gherkin::Step)
         .expect("Expected docstring for query")
         .trim();
     execute_write(world, query);
+    assert!(
+        world.last_error.is_none(),
+        "Setup query failed in `having executed`:\n{}\nError: {:?}",
+        query,
+        world.last_error
+    );
 }
 
 #[when(regex = r"^executing query:$")]
@@ -65,15 +97,26 @@ async fn executing_query(world: &mut GraphWorld, step: &cucumber::gherkin::Step)
     execute_query_generic(world, query);
 }
 
+#[when(regex = r"^executing control query:$")]
+async fn executing_control_query(world: &mut GraphWorld, step: &cucumber::gherkin::Step) {
+    let query = step
+        .docstring
+        .as_ref()
+        .expect("Expected docstring for query")
+        .trim();
+    execute_query_generic(world, query);
+}
+
 /// Generic query execution that handles both read and write queries
 fn execute_query_generic(world: &mut GraphWorld, cypher: &str) {
     let db = world.get_db();
     let query_r = prepare(cypher);
+    let params = world.params.clone();
 
     match query_r {
         Ok(query) => {
             let snapshot = db.snapshot();
-            let params = Params::new();
+            let before = collect_side_effect_metrics(&snapshot);
             let mut txn = db.begin_write();
 
             match query.execute_mixed(&snapshot, &mut txn, &params) {
@@ -81,10 +124,12 @@ fn execute_query_generic(world: &mut GraphWorld, cypher: &str) {
                     if let Err(e) = txn.commit() {
                         world.last_result = None;
                         world.last_error = Some(e.to_string());
+                        world.last_side_effects = None;
                         return;
                     }
 
                     let reify_snapshot = db.snapshot();
+                    let after = collect_side_effect_metrics(&reify_snapshot);
                     let mut results = Vec::new();
                     for row in rows {
                         let mut map = std::collections::HashMap::new();
@@ -97,16 +142,19 @@ fn execute_query_generic(world: &mut GraphWorld, cypher: &str) {
 
                     world.last_result = Some(results);
                     world.last_error = None;
+                    world.last_side_effects = Some(after.delta_from(&before));
                 }
                 Err(e) => {
                     world.last_result = None;
                     world.last_error = Some(e.to_string());
+                    world.last_side_effects = None;
                 }
             }
         }
         Err(e) => {
             world.last_result = None;
             world.last_error = Some(e.to_string());
+            world.last_side_effects = None;
         }
     }
 }
@@ -115,15 +163,21 @@ fn execute_write(world: &mut GraphWorld, cypher: &str) {
     let db = world.get_db(); // Returns Arc<Db>, releases borrow on world
     // Prepare can be done outside transaction? Yes.
     let query_r = prepare(cypher);
+    let params = world.params.clone();
 
     let exec_result: Result<(), String> = match query_r {
         Ok(query) => {
             let mut txn = db.begin_write();
             let snapshot = db.snapshot();
-            let params = Params::new();
-            match query.execute_write(&snapshot, &mut txn, &params) {
+            let before = collect_side_effect_metrics(&snapshot);
+            match query.execute_mixed(&snapshot, &mut txn, &params) {
                 Ok(_) => match txn.commit() {
-                    Ok(_) => Ok(()),
+                    Ok(_) => {
+                        let after_snapshot = db.snapshot();
+                        let after = collect_side_effect_metrics(&after_snapshot);
+                        world.last_side_effects = Some(after.delta_from(&before));
+                        Ok(())
+                    }
                     Err(e) => Err(e.to_string()),
                 },
                 Err(e) => Err(e.to_string()),
@@ -133,8 +187,16 @@ fn execute_write(world: &mut GraphWorld, cypher: &str) {
     };
 
     match exec_result {
-        Ok(_) => world.last_error = None,
-        Err(e) => world.last_error = Some(e),
+        Ok(_) => {
+            world.last_error = None;
+            if world.last_side_effects.is_none() {
+                world.last_side_effects = Some(SideEffectsDelta::default());
+            }
+        }
+        Err(e) => {
+            world.last_error = Some(e);
+            world.last_side_effects = None;
+        }
     }
 }
 
@@ -142,11 +204,11 @@ fn execute_write(world: &mut GraphWorld, cypher: &str) {
 fn execute_read(world: &mut GraphWorld, cypher: &str) {
     let db = world.get_db();
     let query_r = prepare(cypher);
+    let params = world.params.clone();
 
     let exec_result: Result<Vec<HashMap<String, Value>>, String> = match query_r {
         Ok(query) => {
             let snapshot = db.snapshot();
-            let params = Params::new();
             let rows = query.execute_streaming(&snapshot, &params);
 
             let mut results = Vec::new();
@@ -179,8 +241,12 @@ fn execute_read(world: &mut GraphWorld, cypher: &str) {
         Ok(r) => {
             world.last_result = Some(r);
             world.last_error = None;
+            world.last_side_effects = Some(SideEffectsDelta::default());
         }
-        Err(e) => world.last_error = Some(e),
+        Err(e) => {
+            world.last_error = Some(e);
+            world.last_side_effects = None;
+        }
     }
 }
 
@@ -203,6 +269,24 @@ async fn syntax_error_raised(world: &mut GraphWorld, error_type: String) {
     if err_lower.trim().is_empty() {
         panic!("Expected error type '{}' but got empty error", error_type);
     }
+}
+
+#[then(regex = r"^the result should be empty$")]
+async fn result_should_be_empty(world: &mut GraphWorld) {
+    assert!(
+        world.last_error.is_none(),
+        "Query failed: {:?}",
+        world.last_error
+    );
+    let actual_results = world
+        .last_result
+        .as_ref()
+        .expect("No results from previous query");
+    assert!(
+        actual_results.is_empty(),
+        "Expected empty result but got: {:?}",
+        actual_results
+    );
 }
 
 #[then(regex = r"^the result should be, in any order:$")]
@@ -278,6 +362,254 @@ async fn result_should_be_any_order(world: &mut GraphWorld, step: &cucumber::ghe
     }
 }
 
+#[then(regex = r"^the result should be, in order:$")]
+async fn result_should_be_in_order(world: &mut GraphWorld, step: &cucumber::gherkin::Step) {
+    assert!(
+        world.last_error.is_none(),
+        "Query failed: {:?}",
+        world.last_error
+    );
+
+    let expected_table = step.table.as_ref().expect("Expected table");
+    let actual_results = world
+        .last_result
+        .as_ref()
+        .expect("No results from previous query");
+
+    let rows = &expected_table.rows;
+    if rows.is_empty() {
+        return;
+    }
+    let headers = &rows[0];
+
+    let mut expected_rows = Vec::new();
+    for row in rows.iter().skip(1) {
+        let mut row_map = HashMap::new();
+        for (i, val_str) in row.iter().enumerate() {
+            if i < headers.len() {
+                let header = &headers[i];
+                let val = parse_tck_value(val_str);
+                row_map.insert(header.clone(), val);
+            }
+        }
+        expected_rows.push(row_map);
+    }
+
+    let expected_canonical: Vec<Vec<(String, Value)>> =
+        expected_rows.into_iter().map(canonicalize).collect();
+    let actual_canonical: Vec<Vec<(String, Value)>> = actual_results
+        .clone()
+        .into_iter()
+        .map(canonicalize)
+        .collect();
+
+    if expected_canonical.len() != actual_canonical.len() {
+        panic!(
+            "Row count mismatch.\nExpected: {} rows\nActual: {} rows\nExpected Data: {:?}\nActual Data: {:?}",
+            expected_canonical.len(),
+            actual_canonical.len(),
+            expected_canonical,
+            actual_canonical
+        );
+    }
+
+    for (idx, expected_row) in expected_canonical.iter().enumerate() {
+        let actual_row = &actual_canonical[idx];
+        if !row_eq(actual_row, expected_row) {
+            panic!(
+                "Row mismatch at index {idx}.\nExpected Row: {:?}\nActual Row: {:?}\nAll Actual: {:?}",
+                expected_row, actual_row, actual_canonical
+            );
+        }
+    }
+}
+
+#[then(regex = r"^the result should be \\(ignoring element order for lists\\):$")]
+async fn result_should_be_any_order_ignoring_list_order(
+    world: &mut GraphWorld,
+    step: &cucumber::gherkin::Step,
+) {
+    assert!(
+        world.last_error.is_none(),
+        "Query failed: {:?}",
+        world.last_error
+    );
+
+    let expected_table = step.table.as_ref().expect("Expected table");
+    let actual_results = world
+        .last_result
+        .as_ref()
+        .expect("No results from previous query");
+
+    let rows = &expected_table.rows;
+    if rows.is_empty() {
+        return;
+    }
+    let headers = &rows[0];
+
+    let mut expected_rows = Vec::new();
+    for row in rows.iter().skip(1) {
+        let mut row_map = HashMap::new();
+        for (i, val_str) in row.iter().enumerate() {
+            if i < headers.len() {
+                let header = &headers[i];
+                let val = parse_tck_value(val_str);
+                row_map.insert(header.clone(), val);
+            }
+        }
+        expected_rows.push(row_map);
+    }
+
+    let expected_canonical: Vec<Vec<(String, Value)>> =
+        expected_rows.into_iter().map(canonicalize).collect();
+    let actual_canonical: Vec<Vec<(String, Value)>> = actual_results
+        .clone()
+        .into_iter()
+        .map(canonicalize)
+        .collect();
+
+    if expected_canonical.len() != actual_canonical.len() {
+        panic!(
+            "Row count mismatch.\nExpected: {} rows\nActual: {} rows\nExpected Data: {:?}\nActual Data: {:?}",
+            expected_canonical.len(),
+            actual_canonical.len(),
+            expected_canonical,
+            actual_canonical
+        );
+    }
+
+    let mut actual_remaining = actual_canonical.clone();
+    for expected_row in &expected_canonical {
+        if let Some(pos) = actual_remaining
+            .iter()
+            .position(|r| row_eq_ignoring_list_order(r, expected_row))
+        {
+            actual_remaining.remove(pos);
+        } else {
+            panic!(
+                "Expected row not found in actual results:\nExpected Row: {:?}\nActual Remaining: {:?}",
+                expected_row, actual_remaining
+            );
+        }
+    }
+}
+
+#[then(regex = r"^the result should be, in order \\(ignoring element order for lists\\):$")]
+async fn result_should_be_in_order_ignoring_list_order(
+    world: &mut GraphWorld,
+    step: &cucumber::gherkin::Step,
+) {
+    assert!(
+        world.last_error.is_none(),
+        "Query failed: {:?}",
+        world.last_error
+    );
+
+    let expected_table = step.table.as_ref().expect("Expected table");
+    let actual_results = world
+        .last_result
+        .as_ref()
+        .expect("No results from previous query");
+
+    let rows = &expected_table.rows;
+    if rows.is_empty() {
+        return;
+    }
+    let headers = &rows[0];
+
+    let mut expected_rows = Vec::new();
+    for row in rows.iter().skip(1) {
+        let mut row_map = HashMap::new();
+        for (i, val_str) in row.iter().enumerate() {
+            if i < headers.len() {
+                let header = &headers[i];
+                let val = parse_tck_value(val_str);
+                row_map.insert(header.clone(), val);
+            }
+        }
+        expected_rows.push(row_map);
+    }
+
+    let expected_canonical: Vec<Vec<(String, Value)>> =
+        expected_rows.into_iter().map(canonicalize).collect();
+    let actual_canonical: Vec<Vec<(String, Value)>> = actual_results
+        .clone()
+        .into_iter()
+        .map(canonicalize)
+        .collect();
+
+    if expected_canonical.len() != actual_canonical.len() {
+        panic!(
+            "Row count mismatch.\nExpected: {} rows\nActual: {} rows\nExpected Data: {:?}\nActual Data: {:?}",
+            expected_canonical.len(),
+            actual_canonical.len(),
+            expected_canonical,
+            actual_canonical
+        );
+    }
+
+    for (idx, expected_row) in expected_canonical.iter().enumerate() {
+        let actual_row = &actual_canonical[idx];
+        if !row_eq_ignoring_list_order(actual_row, expected_row) {
+            panic!(
+                "Row mismatch at index {idx}.\nExpected Row: {:?}\nActual Row: {:?}\nAll Actual: {:?}",
+                expected_row, actual_row, actual_canonical
+            );
+        }
+    }
+}
+
+#[then(regex = r"^the side effects should be:$")]
+async fn side_effects_should_be(world: &mut GraphWorld, step: &cucumber::gherkin::Step) {
+    assert!(
+        world.last_error.is_none(),
+        "Query failed: {:?}",
+        world.last_error
+    );
+    let delta = world
+        .last_side_effects
+        .expect("Missing side effect metrics for previous query");
+
+    let table = step.table.as_ref().expect("Expected table");
+    let mut expected: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+    for row in &table.rows {
+        if row.len() < 2 {
+            continue;
+        }
+        let key = row[0].trim();
+        let raw = row[1].trim();
+        if key.is_empty() || raw.is_empty() {
+            continue;
+        }
+        let count: i64 = raw
+            .parse()
+            .unwrap_or_else(|_| panic!("Invalid side effect count for '{key}': '{raw}'"));
+        expected.insert(key.to_string(), count);
+    }
+
+    for (key, count) in expected {
+        let (sign, metric) = key.split_at(1);
+        let signed = match sign {
+            "+" => count,
+            "-" => -count,
+            _ => panic!("Invalid side effect key (expected +/- prefix): {key}"),
+        };
+
+        let actual = match metric {
+            "nodes" => delta.nodes,
+            "relationships" => delta.relationships,
+            "properties" => delta.properties,
+            "labels" => delta.labels,
+            other => panic!("Unsupported side effect metric: {other}"),
+        };
+
+        assert_eq!(
+            actual, signed,
+            "Side effect mismatch for {key}: expected {signed}, got {actual}. Full delta: {delta:?}"
+        );
+    }
+}
+
 fn canonicalize(row: HashMap<String, Value>) -> Vec<(String, Value)> {
     let mut v: Vec<_> = row.into_iter().collect();
     v.sort_by(|a, b| a.0.cmp(&b.0));
@@ -299,6 +631,21 @@ fn row_eq(a: &[(String, Value)], b: &[(String, Value)]) -> bool {
     true
 }
 
+fn row_eq_ignoring_list_order(a: &[(String, Value)], b: &[(String, Value)]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    for i in 0..a.len() {
+        if !column_name_eq(&a[i].0, &b[i].0) {
+            return false;
+        }
+        if !value_eq_ignoring_list_order(&a[i].1, &b[i].1) {
+            return false;
+        }
+    }
+    true
+}
+
 fn column_name_eq(left: &str, right: &str) -> bool {
     if left == right {
         return true;
@@ -312,6 +659,31 @@ fn normalize_column_name(input: &str) -> String {
         .filter(|ch| !ch.is_whitespace())
         .collect::<String>()
         .to_lowercase()
+}
+
+fn list_eq_ignoring_order(a: &[Value], b: &[Value]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut remaining = b.to_vec();
+    for item in a {
+        if let Some(pos) = remaining
+            .iter()
+            .position(|cand| value_eq_ignoring_list_order(item, cand))
+        {
+            remaining.remove(pos);
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+fn value_eq_ignoring_list_order(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::List(a), Value::List(b)) => list_eq_ignoring_order(a, b),
+        _ => value_eq(a, b),
+    }
 }
 
 fn value_eq(a: &Value, b: &Value) -> bool {
@@ -329,14 +701,14 @@ fn value_eq(a: &Value, b: &Value) -> bool {
     if let (Some(sa), Value::List(lb)) = (to_tck_relationship_inner(a), b)
         && lb.len() == 1
         && let Value::String(sb) = &lb[0]
-        && &sa == sb
+        && normalize_tck_literal(&sa) == normalize_tck_literal(sb)
     {
         return true;
     }
     if let (Value::List(la), Some(sb)) = (a, to_tck_relationship_inner(b))
         && la.len() == 1
         && let Value::String(sa) = &la[0]
-        && sa == &sb
+        && normalize_tck_literal(sa) == normalize_tck_literal(&sb)
     {
         return true;
     }
@@ -375,6 +747,75 @@ fn value_eq(a: &Value, b: &Value) -> bool {
         }
         // Fallback: compare debug representations
         _ => format!("{:?}", a) == format!("{:?}", b),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct SideEffectsDelta {
+    nodes: i64,
+    relationships: i64,
+    properties: i64,
+    labels: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct SideEffectsMetrics {
+    nodes: i64,
+    relationships: i64,
+    properties: i64,
+    labels: i64,
+}
+
+impl SideEffectsMetrics {
+    fn delta_from(&self, before: &SideEffectsMetrics) -> SideEffectsDelta {
+        SideEffectsDelta {
+            nodes: self.nodes - before.nodes,
+            relationships: self.relationships - before.relationships,
+            properties: self.properties - before.properties,
+            labels: self.labels - before.labels,
+        }
+    }
+}
+
+fn collect_side_effect_metrics<S: GraphSnapshot>(snapshot: &S) -> SideEffectsMetrics {
+    use std::collections::BTreeSet;
+
+    let mut node_count: i64 = 0;
+    let mut edge_keys: BTreeSet<nervusdb_api::EdgeKey> = BTreeSet::new();
+    let mut prop_count: i64 = 0;
+    let mut label_names: BTreeSet<String> = BTreeSet::new();
+
+    for node_id in snapshot.nodes() {
+        node_count += 1;
+
+        if let Some(props) = snapshot.node_properties(node_id) {
+            prop_count += props.len() as i64;
+        }
+
+        if let Some(labels) = snapshot.resolve_node_labels(node_id) {
+            for lid in labels {
+                if let Some(name) = snapshot.resolve_label_name(lid) {
+                    label_names.insert(name);
+                }
+            }
+        }
+
+        for edge in snapshot.neighbors(node_id, None) {
+            edge_keys.insert(edge);
+        }
+    }
+
+    for edge in &edge_keys {
+        if let Some(props) = snapshot.edge_properties(*edge) {
+            prop_count += props.len() as i64;
+        }
+    }
+
+    SideEffectsMetrics {
+        nodes: node_count,
+        relationships: edge_keys.len() as i64,
+        properties: prop_count,
+        labels: label_names.len() as i64,
     }
 }
 
@@ -420,14 +861,14 @@ fn to_tck_relationship_inner(value: &Value) -> Option<String> {
 fn normalize_tck_literal(input: &str) -> String {
     let s = input.trim();
     let Some(start) = s.find('{') else {
-        return s.replace(" ", "");
+        return normalize_node_label_order(&s.replace(" ", ""));
     };
     let Some(end) = s.rfind('}') else {
-        return s.replace(" ", "");
+        return normalize_node_label_order(&s.replace(" ", ""));
     };
 
     if end <= start {
-        return s.replace(" ", "");
+        return normalize_node_label_order(&s.replace(" ", ""));
     }
 
     let prefix = s[..start].replace(" ", "");
@@ -439,7 +880,63 @@ fn normalize_tck_literal(input: &str) -> String {
         .filter(|p| !p.is_empty())
         .collect();
     props.sort();
-    format!("{}{{{}}}{}", prefix, props.join(","), suffix)
+    normalize_node_label_order(&format!("{}{{{}}}{}", prefix, props.join(","), suffix))
+}
+
+fn normalize_node_label_order(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let chars: Vec<char> = input.chars().collect();
+    let mut i = 0usize;
+
+    while i < chars.len() {
+        if chars[i] == '('
+            && let Some(end) = chars[i + 1..].iter().position(|ch| *ch == ')')
+        {
+            let end_idx = i + 1 + end;
+            let node_segment: String = chars[i..=end_idx].iter().collect();
+            out.push_str(&normalize_single_node_segment(&node_segment));
+            i = end_idx + 1;
+            continue;
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+
+    out
+}
+
+fn normalize_single_node_segment(segment: &str) -> String {
+    if !segment.starts_with('(') || !segment.ends_with(')') {
+        return segment.to_string();
+    }
+
+    let inner = &segment[1..segment.len() - 1];
+    let props_start = inner.find('{').unwrap_or(inner.len());
+    let before_props = &inner[..props_start];
+    let props_and_tail = &inner[props_start..];
+
+    let Some(first_colon) = before_props.find(':') else {
+        return segment.to_string();
+    };
+
+    let var_prefix = &before_props[..first_colon];
+    let labels_src = &before_props[first_colon + 1..];
+    let mut labels: Vec<&str> = labels_src
+        .split(':')
+        .filter(|label| !label.is_empty())
+        .collect();
+    if labels.is_empty() {
+        return segment.to_string();
+    }
+    labels.sort_unstable();
+
+    let mut normalized = String::from("(");
+    normalized.push_str(var_prefix);
+    normalized.push(':');
+    normalized.push_str(&labels.join(":"));
+    normalized.push_str(props_and_tail);
+    normalized.push(')');
+    normalized
 }
 
 fn format_node_literal(node: &nervusdb_query::executor::NodeValue) -> String {

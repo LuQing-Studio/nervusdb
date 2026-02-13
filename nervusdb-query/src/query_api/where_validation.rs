@@ -20,7 +20,10 @@ pub(super) fn validate_where_expression_bindings(
     validate_pattern_predicate_bindings(expr, known_bindings)?;
     if matches!(
         infer_expression_binding_kind(expr, known_bindings),
-        BindingKind::Node | BindingKind::Relationship | BindingKind::Path
+        BindingKind::Node
+            | BindingKind::Relationship
+            | BindingKind::RelationshipList
+            | BindingKind::Path
     ) {
         return Err(Error::Other(
             "syntax error: InvalidArgumentType".to_string(),
@@ -152,7 +155,10 @@ fn validate_where_expression_variables(
         }
         Expression::PropertyAccess(pa) => {
             if !is_locally_bound(local_scopes, &pa.variable)
-                && matches!(known_bindings.get(&pa.variable), Some(BindingKind::Path))
+                && matches!(
+                    known_bindings.get(&pa.variable),
+                    Some(BindingKind::Path | BindingKind::RelationshipList)
+                )
             {
                 return Err(Error::Other(
                     "syntax error: InvalidArgumentType".to_string(),

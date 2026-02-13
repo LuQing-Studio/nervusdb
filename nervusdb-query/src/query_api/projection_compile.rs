@@ -69,6 +69,18 @@ fn validate_projection_expression_semantics(
                     "syntax error: InvalidArgumentType".to_string(),
                 ));
             }
+            if call.name.eq_ignore_ascii_case("length") && call.args.len() == 1 {
+                match infer_expression_binding_kind(&call.args[0], vars) {
+                    BindingKind::Node
+                    | BindingKind::Relationship
+                    | BindingKind::RelationshipList => {
+                        return Err(Error::Other(
+                            "syntax error: InvalidArgumentType".to_string(),
+                        ));
+                    }
+                    _ => {}
+                }
+            }
         }
         Expression::Unary(u) => validate_projection_expression_semantics(&u.operand, vars)?,
         Expression::Binary(b) => {

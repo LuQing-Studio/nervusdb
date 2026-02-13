@@ -112,11 +112,14 @@ fn delete_expression_may_yield_entity(
             known_bindings.get(name),
             Some(BindingKind::Node)
                 | Some(BindingKind::Relationship)
+                | Some(BindingKind::RelationshipList)
                 | Some(BindingKind::Path)
                 | Some(BindingKind::Unknown)
         ),
         Expression::PropertyAccess(pa) => match known_bindings.get(&pa.variable) {
-            Some(BindingKind::Node) | Some(BindingKind::Relationship) => false,
+            Some(BindingKind::Node)
+            | Some(BindingKind::Relationship)
+            | Some(BindingKind::RelationshipList) => false,
             Some(_) => true,
             None => false,
         },

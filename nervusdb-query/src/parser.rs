@@ -565,7 +565,14 @@ impl TokenParser {
                     labels.push("End".to_string());
                     self.advance();
                 }
-                _ => return Err(Error::Other("Expected label identifier".to_string())),
+                other => {
+                    if let Some(name) = Self::keyword_symbolic_name(other) {
+                        labels.push(name.to_string());
+                        self.advance();
+                    } else {
+                        return Err(Error::Other("Expected label identifier".to_string()));
+                    }
+                }
             }
         }
 
@@ -617,16 +624,33 @@ impl TokenParser {
                                 parse_non_negative_u64(&raw, "Relationship type id")?.to_string(),
                             );
                         }
-                        _ => {
-                            return Err(Error::Other(
-                                "Expected relationship type identifier".to_string(),
-                            ));
+                        other => {
+                            if let Some(name) = Self::keyword_symbolic_name(other) {
+                                types.push(name.to_string());
+                                self.advance();
+                            } else {
+                                return Err(Error::Other(
+                                    "Expected relationship type identifier".to_string(),
+                                ));
+                            }
                         }
                     }
 
                     if !self.match_token(&TokenType::Pipe) {
                         break;
                     }
+                    // Accept both `[:A|B]` and `[:A|:B]` forms.
+                    self.match_token(&TokenType::Colon);
+                }
+
+                if types.len() > 1 {
+                    let mut deduped = Vec::with_capacity(types.len());
+                    for ty in types {
+                        if !deduped.iter().any(|existing| existing == &ty) {
+                            deduped.push(ty);
+                        }
+                    }
+                    types = deduped;
                 }
             }
 
@@ -837,6 +861,53 @@ impl TokenParser {
         match &self.advance().token_type {
             TokenType::Identifier(name) => Ok(name.clone()),
             _ => Err(Error::Other(format!("Expected identifier for {ctx}"))),
+        }
+    }
+
+    fn keyword_symbolic_name(token: &TokenType) -> Option<&'static str> {
+        match token {
+            TokenType::Match => Some("MATCH"),
+            TokenType::Create => Some("CREATE"),
+            TokenType::Return => Some("RETURN"),
+            TokenType::Where => Some("WHERE"),
+            TokenType::With => Some("WITH"),
+            TokenType::Optional => Some("OPTIONAL"),
+            TokenType::Order => Some("ORDER"),
+            TokenType::By => Some("BY"),
+            TokenType::Asc => Some("ASC"),
+            TokenType::Desc => Some("DESC"),
+            TokenType::Limit => Some("LIMIT"),
+            TokenType::Skip => Some("SKIP"),
+            TokenType::Distinct => Some("DISTINCT"),
+            TokenType::And => Some("AND"),
+            TokenType::Or => Some("OR"),
+            TokenType::Not => Some("NOT"),
+            TokenType::Xor => Some("XOR"),
+            TokenType::Is => Some("IS"),
+            TokenType::In => Some("IN"),
+            TokenType::Starts => Some("STARTS"),
+            TokenType::Ends => Some("ENDS"),
+            TokenType::Contains => Some("CONTAINS"),
+            TokenType::Set => Some("SET"),
+            TokenType::Delete => Some("DELETE"),
+            TokenType::Detach => Some("DETACH"),
+            TokenType::Remove => Some("REMOVE"),
+            TokenType::Merge => Some("MERGE"),
+            TokenType::Union => Some("UNION"),
+            TokenType::All => Some("ALL"),
+            TokenType::Unwind => Some("UNWIND"),
+            TokenType::As => Some("AS"),
+            TokenType::Case => Some("CASE"),
+            TokenType::When => Some("WHEN"),
+            TokenType::Then => Some("THEN"),
+            TokenType::Else => Some("ELSE"),
+            TokenType::End => Some("END"),
+            TokenType::Call => Some("CALL"),
+            TokenType::Yield => Some("YIELD"),
+            TokenType::Foreach => Some("FOREACH"),
+            TokenType::On => Some("ON"),
+            TokenType::Exists => Some("EXISTS"),
+            _ => None,
         }
     }
 

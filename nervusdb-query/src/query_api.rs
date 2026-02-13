@@ -41,6 +41,7 @@ use foreach_compile::compile_foreach_plan;
 use internal_alias::{alloc_internal_path_alias, is_internal_path_alias};
 use match_anchor::{
     build_optional_unbind_aliases, first_relationship_is_bound, maybe_reanchor_pattern,
+    pattern_has_bound_relationship,
 };
 use match_compile::compile_match_plan;
 use merge_set::{compile_merge_set_items, extract_merge_pattern_vars};
@@ -71,6 +72,7 @@ pub(crate) enum WriteSemantics {
 enum BindingKind {
     Node,
     Relationship,
+    RelationshipList,
     Path,
     Scalar,
     Unknown,

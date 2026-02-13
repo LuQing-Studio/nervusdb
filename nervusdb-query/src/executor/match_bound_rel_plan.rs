@@ -1,7 +1,7 @@
 use super::{
     GraphSnapshot, InternalNodeId, Plan, PlanIterator, RelationshipDirection, Result, Row, Value,
     apply_optional_unbinds_row, execute_plan, node_matches_label_constraint,
-    resolve_label_constraint,
+    path_alias_contains_edge, resolve_label_constraint,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -64,6 +64,10 @@ pub(super) fn execute_match_bound_rel<'a, S: GraphSnapshot + 'a>(
                 };
 
                 for (src_id, dst_id) in orientations {
+                    if path_alias_contains_edge(snapshot, &row, path_alias.as_deref(), edge) {
+                        continue;
+                    }
+
                     let src_ok = match row.get(&src_alias) {
                         Some(Value::NodeId(id)) => *id == src_id,
                         Some(Value::Null) => false,

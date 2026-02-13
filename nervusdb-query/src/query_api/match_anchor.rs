@@ -5,18 +5,39 @@ pub(super) fn first_relationship_is_bound(
     known_bindings: &BTreeMap<String, BindingKind>,
 ) -> bool {
     match pattern.elements.get(1) {
-        Some(crate::ast::PathElement::Relationship(rel)) => {
-            rel.variable_length.is_none()
-                && rel
-                    .variable
-                    .as_ref()
-                    .and_then(|name| known_bindings.get(name))
-                    .is_some_and(|kind| {
-                        matches!(kind, BindingKind::Relationship | BindingKind::Unknown)
-                    })
-        }
+        Some(crate::ast::PathElement::Relationship(rel)) => rel
+            .variable
+            .as_ref()
+            .and_then(|name| known_bindings.get(name))
+            .is_some_and(|kind| {
+                if rel.variable_length.is_some() {
+                    matches!(kind, BindingKind::RelationshipList | BindingKind::Unknown)
+                } else {
+                    matches!(kind, BindingKind::Relationship | BindingKind::Unknown)
+                }
+            }),
         _ => false,
     }
+}
+
+pub(super) fn pattern_has_bound_relationship(
+    pattern: &crate::ast::Pattern,
+    known_bindings: &BTreeMap<String, BindingKind>,
+) -> bool {
+    pattern.elements.iter().any(|element| match element {
+        crate::ast::PathElement::Relationship(rel) => rel
+            .variable
+            .as_ref()
+            .and_then(|name| known_bindings.get(name))
+            .is_some_and(|kind| {
+                if rel.variable_length.is_some() {
+                    matches!(kind, BindingKind::RelationshipList | BindingKind::Unknown)
+                } else {
+                    matches!(kind, BindingKind::Relationship | BindingKind::Unknown)
+                }
+            }),
+        _ => false,
+    })
 }
 
 pub(super) fn build_optional_unbind_aliases(
@@ -40,7 +61,7 @@ pub(super) fn build_optional_unbind_aliases(
         push_alias(dst_alias);
     }
     if let Some(alias) = edge_alias
-        && !is_binding_compatible(known_bindings, alias, BindingKind::Relationship)
+        && !is_edge_binding_compatible(known_bindings, alias)
     {
         push_alias(alias);
     }
@@ -51,6 +72,13 @@ pub(super) fn build_optional_unbind_aliases(
     }
 
     out
+}
+
+fn is_edge_binding_compatible(known_bindings: &BTreeMap<String, BindingKind>, alias: &str) -> bool {
+    matches!(
+        known_bindings.get(alias),
+        Some(BindingKind::Relationship | BindingKind::RelationshipList | BindingKind::Unknown)
+    )
 }
 
 pub(super) fn maybe_reanchor_pattern(
