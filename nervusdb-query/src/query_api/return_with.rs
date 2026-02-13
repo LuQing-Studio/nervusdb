@@ -72,7 +72,7 @@ pub(super) fn compile_with_plan(input: Plan, with: &crate::ast::WithClause) -> R
     let mut input_bindings: BTreeMap<String, BindingKind> = BTreeMap::new();
     extract_output_var_kinds(&input, &mut input_bindings);
 
-    let (mut plan, project_cols) = compile_projection_aggregation(input, &with.items)?;
+    let (mut plan, project_cols) = compile_projection_aggregation(input, &with.items, true)?;
 
     if let Some(w) = &with.where_clause {
         validate_expression_types(&w.expression)?;
@@ -223,7 +223,7 @@ pub(super) fn compile_return_plan(
     input: Plan,
     ret: &crate::ast::ReturnClause,
 ) -> Result<(Plan, Vec<String>)> {
-    let (mut plan, project_cols) = compile_projection_aggregation(input, &ret.items)?;
+    let (mut plan, project_cols) = compile_projection_aggregation(input, &ret.items, false)?;
 
     if let Some(order_by) = &ret.order_by {
         let rewrite_bindings: Vec<(Expression, String)> = ret

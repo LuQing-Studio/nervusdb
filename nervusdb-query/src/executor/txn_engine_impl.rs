@@ -93,4 +93,8 @@ impl<'a> WriteableGraph for EngineWriteTxn<'a> {
     fn get_or_create_rel_type_id(&mut self, name: &str) -> Result<RelTypeId> {
         EngineWriteTxn::get_or_create_rel_type(self, name).map_err(|e| Error::Other(e.to_string()))
     }
+
+    fn staged_created_nodes_with_labels(&self) -> Vec<(InternalNodeId, Vec<String>)> {
+        EngineWriteTxn::staged_created_nodes_with_labels(self)
+    }
 }

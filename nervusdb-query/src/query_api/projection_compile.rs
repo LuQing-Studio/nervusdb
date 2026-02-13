@@ -1187,6 +1187,7 @@ fn rewrite_group_key_references(
 pub(super) fn compile_projection_aggregation(
     input: Plan,
     items: &[crate::ast::ReturnItem],
+    allow_empty_scope_with_star: bool,
 ) -> Result<(Plan, Vec<String>)> {
     let mut input_bindings = BTreeMap::new();
     extract_output_var_kinds(&input, &mut input_bindings);
@@ -1210,6 +1211,15 @@ pub(super) fn compile_projection_aggregation(
             .cloned()
             .collect();
         if cols.is_empty() {
+            if allow_empty_scope_with_star {
+                return Ok((
+                    Plan::Project {
+                        input: Box::new(input),
+                        projections: Vec::new(),
+                    },
+                    Vec::new(),
+                ));
+            }
             return Err(Error::Other("syntax error: NoVariablesInScope".to_string()));
         }
         let projections: Vec<(String, Expression)> = cols
@@ -1329,6 +1339,18 @@ pub(super) fn compile_projection_aggregation(
             | crate::ast::AggregateFunction::CollectDistinct(expr) => {
                 let mut deps = std::collections::HashSet::new();
                 extract_variables_from_expr(expr, &mut deps);
+                for dep in deps {
+                    if !projected_aliases.contains(&dep) {
+                        pre_projections.push((dep.clone(), Expression::Variable(dep.clone())));
+                        projected_aliases.insert(dep);
+                    }
+                }
+            }
+            crate::ast::AggregateFunction::PercentileDisc(value_expr, percentile_expr)
+            | crate::ast::AggregateFunction::PercentileCont(value_expr, percentile_expr) => {
+                let mut deps = std::collections::HashSet::new();
+                extract_variables_from_expr(value_expr, &mut deps);
+                extract_variables_from_expr(percentile_expr, &mut deps);
                 for dep in deps {
                     if !projected_aliases.contains(&dep) {
                         pre_projections.push((dep.clone(), Expression::Variable(dep.clone())));
@@ -1515,7 +1537,14 @@ pub(super) fn contains_aggregate_expression(expr: &Expression) -> bool {
             let name = call.name.to_lowercase();
             if matches!(
                 name.as_str(),
-                "count" | "sum" | "avg" | "min" | "max" | "collect"
+                "count"
+                    | "sum"
+                    | "avg"
+                    | "min"
+                    | "max"
+                    | "collect"
+                    | "percentiledisc"
+                    | "percentilecont"
             ) {
                 return true;
             }

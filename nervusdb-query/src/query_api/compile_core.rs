@@ -131,8 +131,27 @@ pub(crate) fn compile_m3_plan(
             Clause::Call(c) => match c {
                 CallClause::Subquery(sub_query) => {
                     let input = plan.unwrap_or(Plan::ReturnOne);
+                    let subquery_seed_input =
+                        if matches!(sub_query.clauses.first(), Some(Clause::With(_))) {
+                            let mut outer_bindings: BTreeMap<String, BindingKind> = BTreeMap::new();
+                            extract_output_var_kinds(&input, &mut outer_bindings);
+                            if outer_bindings.is_empty() {
+                                None
+                            } else {
+                                Some(Plan::Project {
+                                    input: Box::new(Plan::ReturnOne),
+                                    projections: outer_bindings
+                                        .keys()
+                                        .cloned()
+                                        .map(|name| (name.clone(), Expression::Variable(name)))
+                                        .collect(),
+                                })
+                            }
+                        } else {
+                            None
+                        };
                     let sub_query_compiled =
-                        compile_m3_plan(sub_query.clone(), merge_subclauses, None)?;
+                        compile_m3_plan(sub_query.clone(), merge_subclauses, subquery_seed_input)?;
                     plan = Some(Plan::Apply {
                         input: Box::new(input),
                         subquery: Box::new(sub_query_compiled.plan),
@@ -384,6 +403,12 @@ mod tests {
         let err =
             compile_query("MATCH () RETURN *").expect_err("RETURN * without bindings should fail");
         assert_eq!(err.to_string(), "syntax error: NoVariablesInScope");
+    }
+
+    #[test]
+    fn with_star_allows_empty_scope() {
+        compile_query("MATCH () WITH * CREATE ()")
+            .expect("WITH * should preserve row stream even when scope is empty");
     }
 
     #[test]

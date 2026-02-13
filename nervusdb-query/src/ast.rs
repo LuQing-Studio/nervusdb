@@ -329,6 +329,8 @@ pub enum AggregateFunction {
     MaxDistinct(Expression),
     Collect(Expression),
     CollectDistinct(Expression),
+    PercentileDisc(Expression, Expression),
+    PercentileCont(Expression, Expression),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

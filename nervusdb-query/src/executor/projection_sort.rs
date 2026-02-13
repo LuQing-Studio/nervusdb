@@ -262,6 +262,24 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
                         }
                         Value::List(distinct_values)
                     }
+                    AggregateFunction::PercentileDisc(value_expr, percentile_expr) => {
+                        evaluate_percentile_disc(
+                            &rows,
+                            value_expr,
+                            percentile_expr,
+                            snapshot,
+                            params,
+                        )?
+                    }
+                    AggregateFunction::PercentileCont(value_expr, percentile_expr) => {
+                        evaluate_percentile_cont(
+                            &rows,
+                            value_expr,
+                            percentile_expr,
+                            snapshot,
+                            params,
+                        )?
+                    }
                 };
                 result = result.with(alias, value);
             }
@@ -271,4 +289,110 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
         .collect();
 
     Box::new(results.into_iter())
+}
+
+fn evaluate_percentile_disc<S: GraphSnapshot>(
+    rows: &[Row],
+    value_expr: &crate::ast::Expression,
+    percentile_expr: &crate::ast::Expression,
+    snapshot: &S,
+    params: &crate::query_api::Params,
+) -> Result<Value> {
+    let mut values = collect_numeric_values(rows, value_expr, snapshot, params);
+    if values.is_empty() {
+        return Ok(Value::Null);
+    }
+    values.sort_by(|(left, _), (right, _)| left.total_cmp(right));
+
+    let Some(percentile) = resolve_percentile(rows, percentile_expr, snapshot, params)? else {
+        return Ok(Value::Null);
+    };
+
+    let count = values.len();
+    let rank = if percentile <= 0.0 {
+        1
+    } else {
+        (percentile * count as f64).ceil() as usize
+    };
+    let index = rank.saturating_sub(1).min(count - 1);
+    Ok(values[index].1.clone())
+}
+
+fn evaluate_percentile_cont<S: GraphSnapshot>(
+    rows: &[Row],
+    value_expr: &crate::ast::Expression,
+    percentile_expr: &crate::ast::Expression,
+    snapshot: &S,
+    params: &crate::query_api::Params,
+) -> Result<Value> {
+    let mut values = collect_numeric_values(rows, value_expr, snapshot, params);
+    if values.is_empty() {
+        return Ok(Value::Null);
+    }
+    values.sort_by(|(left, _), (right, _)| left.total_cmp(right));
+
+    let Some(percentile) = resolve_percentile(rows, percentile_expr, snapshot, params)? else {
+        return Ok(Value::Null);
+    };
+
+    let sorted: Vec<f64> = values.into_iter().map(|(num, _)| num).collect();
+    let max_index = sorted.len() - 1;
+    let position = percentile * max_index as f64;
+    let lower = position.floor() as usize;
+    let upper = position.ceil() as usize;
+
+    if lower == upper {
+        return Ok(Value::Float(sorted[lower]));
+    }
+
+    let lower_value = sorted[lower];
+    let upper_value = sorted[upper];
+    let ratio = position - lower as f64;
+    Ok(Value::Float(
+        lower_value + (upper_value - lower_value) * ratio,
+    ))
+}
+
+fn collect_numeric_values<S: GraphSnapshot>(
+    rows: &[Row],
+    value_expr: &crate::ast::Expression,
+    snapshot: &S,
+    params: &crate::query_api::Params,
+) -> Vec<(f64, Value)> {
+    rows.iter()
+        .filter_map(|row| {
+            let value = evaluate_expression_value(value_expr, row, snapshot, params);
+            match value {
+                Value::Int(i) => Some((i as f64, Value::Int(i))),
+                Value::Float(f) => Some((f, Value::Float(f))),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+fn resolve_percentile<S: GraphSnapshot>(
+    rows: &[Row],
+    percentile_expr: &crate::ast::Expression,
+    snapshot: &S,
+    params: &crate::query_api::Params,
+) -> Result<Option<f64>> {
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+
+    let percentile = match evaluate_expression_value(percentile_expr, row, snapshot, params) {
+        Value::Int(i) => i as f64,
+        Value::Float(f) => f,
+        Value::Null => return Ok(None),
+        _ => return Ok(None),
+    };
+
+    if !(0.0..=1.0).contains(&percentile) {
+        return Err(crate::error::Error::Other(
+            "runtime error: NumberOutOfRange".to_string(),
+        ));
+    }
+
+    Ok(Some(percentile))
 }

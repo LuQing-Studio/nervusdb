@@ -181,6 +181,10 @@ pub trait WriteableGraph {
     // T65: Dynamic schema support
     fn get_or_create_label_id(&mut self, name: &str) -> Result<LabelId>;
     fn get_or_create_rel_type_id(&mut self, name: &str) -> Result<RelTypeId>;
+
+    fn staged_created_nodes_with_labels(&self) -> Vec<(InternalNodeId, Vec<String>)> {
+        Vec::new()
+    }
 }
 
 pub use nervusdb_storage::property::PropertyValue;

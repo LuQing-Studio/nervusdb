@@ -92,6 +92,28 @@ pub(super) fn parse_aggregate_function(
                 Ok(Some(crate::ast::AggregateFunction::Collect(arg)))
             }
         }
+        "percentiledisc" => {
+            if call.args.len() != 2 {
+                return Err(Error::Other(
+                    "PERCENTILEDISC takes exactly 2 arguments".into(),
+                ));
+            }
+            Ok(Some(crate::ast::AggregateFunction::PercentileDisc(
+                call.args[0].clone(),
+                call.args[1].clone(),
+            )))
+        }
+        "percentilecont" => {
+            if call.args.len() != 2 {
+                return Err(Error::Other(
+                    "PERCENTILECONT takes exactly 2 arguments".into(),
+                ));
+            }
+            Ok(Some(crate::ast::AggregateFunction::PercentileCont(
+                call.args[0].clone(),
+                call.args[1].clone(),
+            )))
+        }
         _ => Ok(None),
     }
 }
@@ -136,5 +158,24 @@ mod tests {
         };
         let err = parse_aggregate_function(&call).expect_err("sum() should fail");
         assert!(err.to_string().contains("SUM takes exactly 1 argument"));
+    }
+
+    #[test]
+    fn parse_percentile_disc_form() {
+        let call = FunctionCall {
+            name: "percentileDisc".to_string(),
+            args: vec![
+                Expression::Variable("n".to_string()),
+                Expression::Literal(Literal::Float(0.5)),
+            ],
+        };
+        let parsed = parse_aggregate_function(&call).expect("parse should succeed");
+        assert!(matches!(
+            parsed,
+            Some(AggregateFunction::PercentileDisc(
+                Expression::Variable(_),
+                Expression::Literal(Literal::Float(_))
+            ))
+        ));
     }
 }

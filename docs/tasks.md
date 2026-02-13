@@ -96,12 +96,14 @@
 | **Beta Gate** | **SQLite-Beta 必达门槛**                                   |        |        |                             |                                                          |
 | BETA-01       | [Storage] 强制 `storage_format_epoch` 校验                 | High   | Done   | feat/TB1-beta-gate          | `StorageFormatMismatch` + Compatibility 映射已落地 |
 | BETA-02       | [CI] Tier-3 全量通过率统计与 95% 阈值阻断                  | High   | Done   | feat/TB1-beta-gate          | `scripts/tck_full_rate.sh` + `scripts/beta_gate.sh` + nightly/manual workflow |
-| BETA-03       | [TCK] 官方全量通过率冲刺至 ≥95%                            | High   | WIP    | feat/TB1-tck-95             | 2026-02-13 最新 Tier-3：3306/3897=84.83%（skipped 535，failed 56；见 `artifacts/tck/tier3-rate-2026-02-13.md`、`artifacts/tck/tier3-cluster-2026-02-13.md`）。当前主阻断：大量场景因 TCK harness 未覆盖（结果有序比较/参数注入/side effects/graph fixtures/procedure test stubs 等）导致 skipped。R5 定向簇已清零：Temporal2/Temporal5、Aggregation2、Return2、List11、With1/With5、WithOrderBy1、Union3、Map1/Map2（见 `artifacts/tck/beta-03r5-*.log`）。 |
+| BETA-03       | [TCK] 官方全量通过率冲刺至 ≥95%                            | High   | WIP    | feat/TB1-tck-95             | 2026-02-13 最新 Tier-3：3682/3897=94.48%（skipped 199，failed 16；见 `artifacts/tck/tier3-rate-2026-02-13.md`、`artifacts/tck/tier3-cluster-2026-02-13.md`）。当前主阻断：剩余 16 个失败场景（`ReturnOrderBy4`、`Merge5/6/7`、`Comparison2` 等）。R4~R7 定向簇已清零，最新证据见 `artifacts/tck/beta-03r7-*.log`。 |
 | BETA-03R1     | [Refactor] 拆分 `query_api.rs`（解析/校验/Plan 组装模块化） | High   | Done   | codex/feat/phase1b1c-bigbang | 已由 Phase 1a (R1) 覆盖完成，query_api/ 目录已拆分为多文件模块；PR #131 全门禁通过 |
 | BETA-03R2     | [Refactor] 拆分 `executor.rs`（读路径/写路径/排序投影）      | High   | Done   | codex/feat/phase1b1c-bigbang | 已由 Phase 1a (R2) 覆盖完成，executor/ 目录已拆分为 34 文件；PR #131 全门禁通过 |
 | BETA-03R3     | [Refactor] 拆分 `evaluator.rs` Temporal/Duration 子模块     | High   | Done   | codex/feat/phase1b1c-bigbang | 已由 Phase 1a (R3) 覆盖完成，evaluator/ 目录已拆分为 25 文件；PR #131 全门禁通过 |
 | BETA-03R4     | [TCK] 重构后恢复推进（Match4/Match9 失败簇三波次）           | High   | Done   | codex/feat/phase1b1c-bigbang | 2026-02-13 主干攻坚 + Follow-up 完成：W1/W2/W3 落地（varlen 关系变量统一列表语义、`[rs*]` 受绑定关系列表约束、parser+varlen 过滤收口、复合 CREATE 管线修复、trail 去重修复），并补齐 follow-up 收口（多标签 MATCH 过滤、`[:T|:T]` parser 去重、`length()` 参数类型校验、`null` 绑定类型冲突修复、TCK 标签顺序归一化）。`Match4`/`Match9` 非跳过场景全通过，扩展矩阵历史失败已清零。证据：`artifacts/tck/beta-03r4-match-cluster-2026-02-13.log`、`artifacts/tck/beta-03r4-followup-cluster-2026-02-13.log`、`artifacts/tck/beta-03r4-regression-matrix-2026-02-13.log`、`artifacts/tck/beta-03r4-baseline-gates-r4-2026-02-13.log`。 |
-| BETA-03R5     | [TCK] 失败簇滚动清零（Temporal/Return/List/With/Map/Union） | High   | WIP    | codex/feat/phase1b1c-bigbang | 2026-02-13 已清零定向失败簇：`Temporal2`、`Temporal5`、`Aggregation2`、`Return2`、`List11`、`With1`、`With5`、`WithOrderBy1`、`Union1`、`Union2`、`Union3`、`Map1`、`Map2`；并补齐编译期 UnknownFunction、WITH DISTINCT、聚合量词作用域、列表含 null 排序、map keyword key 大小写、UNION/UNION ALL 混用校验、UNION 列名一致性校验等语义。待执行下一轮全量 tier3 复算。 |
+| BETA-03R5     | [TCK] 失败簇滚动清零（Temporal/Return/List/With/Map/Union） | High   | Done   | codex/feat/phase1b1c-bigbang | 2026-02-13 已清零 `Temporal2/5`、`Aggregation2`、`Return2`、`List11`、`With1/5`、`WithOrderBy1`、`Union1/2/3`、`Map1/2`，并补齐 UnknownFunction、WITH DISTINCT、UNION 校验等编译期语义。 |
+| BETA-03R6     | [TCK] 失败簇滚动清零（Merge/With/Return/Graph/Skip-Limit）  | High   | Done   | codex/feat/phase1b1c-bigbang | 2026-02-13 已清零 `Merge1/2/3`、`Match8`、`Create1`、`With4`、`Return1/7`、`Graph3/4`、`ReturnSkipLimit1/2`、`Mathematical8`；见 `artifacts/tck/beta-03r6-*.log`。 |
+| BETA-03R7     | [TCK] 主干攻坚（Temporal/Aggregation/Set/Remove/Create/Subquery） | High   | Done   | codex/feat/phase1b1c-bigbang | 2026-02-13 已清零 `Temporal4`、`Aggregation6`、`Remove1/3`、`Set2/4/5`、`Create3`，修复 correlated subquery 作用域回归，Tier-3 提升至 94.48%（3682/3897）。 |
 | BETA-04       | [Stability] 连续 7 天主 CI + nightly 稳定窗                | High   | Plan   | feat/TB1-stability-window   | 任一阻断失败即重置计数 |
 | BETA-05       | [Perf] 大规模 SLO 封板（读120/写180/向量220 ms P99）       | High   | Plan   | feat/TB1-perf-slo           | 达标后方可发布 Beta |
 
@@ -126,6 +128,13 @@
 - R6-W3：编译期作用域与类型校验收口，清零 `With4`、`Return1`、`Return7`、`Literals8`、`Graph3`、`Graph4` 非跳过失败；补齐 `WITH` 非变量表达式强制别名、`RETURN *` 空作用域阻断、投影表达式变量绑定校验、`labels(path)`/`type(node)` 编译期拦截。
 - R6-W4：`SKIP/LIMIT` 语义升级与列名渲染收口，清零 `ReturnSkipLimit1`、`ReturnSkipLimit2`、`Mathematical8` 非跳过失败；`SKIP/LIMIT` 从整数字面量升级为常量表达式（支持参数/函数，如 `toInteger(ceil(1.7))`），执行期统一求值并保留运行时参数错误语义；默认投影列名渲染补齐括号优先级保真。
 - 证据日志：`artifacts/tck/beta-03r6-seed-cluster-2026-02-13.log`、`artifacts/tck/beta-03r6-candidate-scan-2026-02-13.log`、`artifacts/tck/beta-03r6-candidate-scan-2026-02-13.cluster.md`、`artifacts/tck/beta-03r6-precommit-merge-match8-create1-2026-02-13.log`、`artifacts/tck/beta-03r6-candidate-rescan-post-merge-2026-02-13.log`、`artifacts/tck/beta-03r6-compile-scope-cluster-2026-02-13.log`、`artifacts/tck/beta-03r6-skip-limit-cluster-2026-02-13.log`、`artifacts/tck/beta-03r6-candidate-rescan-r3-2026-02-13.log`。
+
+### BETA-03R7 子进展（2026-02-13）
+- R7-W1：定向主簇清零，`Temporal4`、`Aggregation6`、`Remove1/3`、`Set2/4/5`、`Create3` 全通过（见 `artifacts/tck/beta-03r7-w3-regression-bundle-2026-02-13.log`）。
+- R7-W2：修复 correlated subquery 作用域回归：`CALL { WITH n/p ... }` 首子句注入 `subquery_seed_input`，并修复 `Plan::Apply` 输出绑定合并策略，避免外层别名被子查询 retain 覆盖。
+- R7-W3：回归补强：`t301_expression_ops` 对齐 list-vs-null 比较预期；新增 `binding_analysis` 单测 `extract_output_var_kinds_apply_preserves_input_aliases` 防回归。
+- Tier-3 全量复算：`3897 scenarios (3682 passed, 199 skipped, 16 failed)`，通过率 `94.48%`（见 `artifacts/tck/beta-03r7-w3-tier3-full-2026-02-13.log`、`artifacts/tck/tier3-rate-2026-02-13.md`、`artifacts/tck/tier3-cluster-2026-02-13.md`）。
+- 基线门禁复跑：`fmt + clippy + workspace_quick_test + tier0/1/2 + binding_smoke + contract_smoke` 全绿（见 `artifacts/tck/beta-03r7-w3-baseline-gates-rerun-2026-02-13.log`）。
 
 ## Archived (v1/Alpha)
 

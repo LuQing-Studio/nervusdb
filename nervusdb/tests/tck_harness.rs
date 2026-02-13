@@ -805,7 +805,7 @@ struct SideEffectsDelta {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SideEffectsSnapshot {
     nodes: std::collections::BTreeSet<nervusdb_api::InternalNodeId>,
-    relationships: std::collections::BTreeSet<nervusdb_api::EdgeKey>,
+    relationships: std::collections::BTreeMap<nervusdb_api::EdgeKey, i64>,
     node_props: std::collections::BTreeMap<
         nervusdb_api::InternalNodeId,
         std::collections::BTreeMap<String, Value>,
@@ -824,10 +824,20 @@ impl SideEffectsSnapshot {
     fn delta_from(&self, before: &SideEffectsSnapshot) -> SideEffectsDelta {
         let plus_nodes = self.nodes.difference(&before.nodes).count() as i64;
         let minus_nodes = before.nodes.difference(&self.nodes).count() as i64;
-        let plus_relationships =
-            self.relationships.difference(&before.relationships).count() as i64;
-        let minus_relationships =
-            before.relationships.difference(&self.relationships).count() as i64;
+        let mut plus_relationships = 0i64;
+        let mut minus_relationships = 0i64;
+        let mut all_rel_keys: std::collections::BTreeSet<nervusdb_api::EdgeKey> =
+            before.relationships.keys().copied().collect();
+        all_rel_keys.extend(self.relationships.keys().copied());
+        for rel in &all_rel_keys {
+            let before_count = *before.relationships.get(rel).unwrap_or(&0);
+            let after_count = *self.relationships.get(rel).unwrap_or(&0);
+            if after_count > before_count {
+                plus_relationships += after_count - before_count;
+            } else if before_count > after_count {
+                minus_relationships += before_count - after_count;
+            }
+        }
 
         let mut plus_properties = 0i64;
         let mut minus_properties = 0i64;
@@ -873,23 +883,31 @@ impl SideEffectsSnapshot {
         }
 
         // Relationships: created/deleted relationships contribute their full property counts; updates count as +/-.
-        let mut all_rels = before.relationships.clone();
-        all_rels.extend(self.relationships.iter().copied());
-        for rel in all_rels {
-            let before_exists = before.relationships.contains(&rel);
-            let after_exists = self.relationships.contains(&rel);
+        for rel in all_rel_keys {
+            let before_count = *before.relationships.get(&rel).unwrap_or(&0);
+            let after_count = *self.relationships.get(&rel).unwrap_or(&0);
             let before_props = before.rel_props.get(&rel).unwrap_or(&empty_props);
             let after_props = self.rel_props.get(&rel).unwrap_or(&empty_props);
 
-            match (before_exists, after_exists) {
-                (false, true) => plus_properties += after_props.len() as i64,
-                (true, false) => minus_properties += before_props.len() as i64,
-                (true, true) => {
-                    let (plus, minus) = diff_value_map(before_props, after_props);
-                    plus_properties += plus;
-                    minus_properties += minus;
+            if before_count == 0 && after_count > 0 {
+                plus_properties += after_props.len() as i64 * after_count;
+                continue;
+            }
+            if before_count > 0 && after_count == 0 {
+                minus_properties += before_props.len() as i64 * before_count;
+                continue;
+            }
+
+            if before_count > 0 && after_count > 0 {
+                let (plus, minus) = diff_value_map(before_props, after_props);
+                plus_properties += plus;
+                minus_properties += minus;
+
+                if after_count > before_count {
+                    plus_properties += after_props.len() as i64 * (after_count - before_count);
+                } else if before_count > after_count {
+                    minus_properties += before_props.len() as i64 * (before_count - after_count);
                 }
-                (false, false) => {}
             }
         }
 
@@ -961,7 +979,7 @@ fn collect_side_effect_snapshot<S: GraphSnapshot>(snapshot: &S) -> SideEffectsSn
     use std::collections::{BTreeMap, BTreeSet};
 
     let mut nodes: BTreeSet<nervusdb_api::InternalNodeId> = BTreeSet::new();
-    let mut relationships: BTreeSet<nervusdb_api::EdgeKey> = BTreeSet::new();
+    let mut relationships: BTreeMap<nervusdb_api::EdgeKey, i64> = BTreeMap::new();
     let mut node_props: BTreeMap<nervusdb_api::InternalNodeId, BTreeMap<String, Value>> =
         BTreeMap::new();
     let mut rel_props: BTreeMap<nervusdb_api::EdgeKey, BTreeMap<String, Value>> = BTreeMap::new();
@@ -987,11 +1005,11 @@ fn collect_side_effect_snapshot<S: GraphSnapshot>(snapshot: &S) -> SideEffectsSn
         }
 
         for edge in snapshot.neighbors(node_id, None) {
-            relationships.insert(edge);
+            *relationships.entry(edge).or_insert(0) += 1;
         }
     }
 
-    for edge in &relationships {
+    for edge in relationships.keys() {
         if let Some(props) = snapshot.edge_properties(*edge) {
             let mut converted = BTreeMap::new();
             for (k, v) in props {

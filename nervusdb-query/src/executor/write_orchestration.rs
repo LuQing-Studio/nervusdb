@@ -1,7 +1,7 @@
 use super::write_support::merge_eval_props_on_row;
 use super::{
-    EdgeKey, GraphSnapshot, InternalNodeId, MergeOverlayState, Plan, Result, Row, Value,
-    WriteableGraph, apply_label_overlay_to_rows, apply_removed_property_overlay_to_rows,
+    EdgeKey, GraphSnapshot, InternalNodeId, MergeOverlayNode, MergeOverlayState, Plan, Result, Row,
+    Value, WriteableGraph, apply_label_overlay_to_rows, apply_removed_property_overlay_to_rows,
     apply_set_map_overlay_to_rows, apply_set_property_overlay_to_rows, execute_create_write_rows,
     execute_delete_on_rows, execute_foreach, execute_merge_create_from_rows, execute_plan,
     execute_remove, execute_remove_labels, execute_set, execute_set_from_maps, execute_set_labels,
@@ -18,6 +18,16 @@ pub(super) fn execute_write_with_rows<S: GraphSnapshot>(
     match plan {
         Plan::Create { .. } | Plan::Delete { .. } => {
             execute_create_write_rows(plan, snapshot, txn, params)
+        }
+        Plan::NodeScan {
+            alias,
+            label,
+            optional,
+        } => {
+            let out_rows = execute_node_scan_with_staged_creates(
+                snapshot, plan, alias, label, *optional, txn, params,
+            )?;
+            Ok((0, out_rows))
         }
         Plan::SetProperty { input, items } => {
             let (prefix_mods, rows) = execute_write_with_rows(input, snapshot, txn, params)?;
@@ -372,6 +382,27 @@ pub(super) fn execute_write_with_rows<S: GraphSnapshot>(
             let out_rows = execute_plan(snapshot, &staged, params).collect::<Result<Vec<_>>>()?;
             Ok((mods, out_rows))
         }
+        Plan::CartesianProduct { left, right } => {
+            let (left_mods, left_rows) = execute_write_with_rows(left, snapshot, txn, params)?;
+            let (right_mods, right_rows) = execute_write_with_rows(right, snapshot, txn, params)?;
+            let staged = Plan::CartesianProduct {
+                left: Box::new(Plan::Values { rows: left_rows }),
+                right: Box::new(Plan::Values { rows: right_rows }),
+            };
+            let out_rows = execute_plan(snapshot, &staged, params).collect::<Result<Vec<_>>>()?;
+            Ok((left_mods + right_mods, out_rows))
+        }
+        Plan::Union { left, right, all } => {
+            let (left_mods, left_rows) = execute_write_with_rows(left, snapshot, txn, params)?;
+            let (right_mods, right_rows) = execute_write_with_rows(right, snapshot, txn, params)?;
+            let staged = Plan::Union {
+                left: Box::new(Plan::Values { rows: left_rows }),
+                right: Box::new(Plan::Values { rows: right_rows }),
+                all: *all,
+            };
+            let out_rows = execute_plan(snapshot, &staged, params).collect::<Result<Vec<_>>>()?;
+            Ok((left_mods + right_mods, out_rows))
+        }
         _ => {
             let out_rows = execute_plan(snapshot, plan, params).collect::<Result<Vec<_>>>()?;
             Ok((0, out_rows))
@@ -449,6 +480,14 @@ fn execute_merge_with_rows_inner<S: GraphSnapshot>(
                 let (created, out_rows) = super::create_delete_ops::execute_create_from_rows(
                     snapshot, input_rows, txn, pattern, params,
                 )?;
+                record_created_nodes_for_merge_overlay(
+                    snapshot,
+                    pattern,
+                    &create_rows,
+                    &out_rows,
+                    params,
+                    overlay,
+                )?;
                 record_anonymous_create_signatures(
                     snapshot,
                     pattern,
@@ -459,6 +498,16 @@ fn execute_merge_with_rows_inner<S: GraphSnapshot>(
                 (created, out_rows)
             };
             Ok((prefix_mods + created, out_rows))
+        }
+        Plan::NodeScan {
+            alias,
+            label,
+            optional,
+        } => {
+            let out_rows = execute_node_scan_with_staged_creates(
+                snapshot, plan, alias, label, *optional, txn, params,
+            )?;
+            Ok((0, out_rows))
         }
         Plan::Delete {
             input,
@@ -1082,6 +1131,67 @@ fn execute_merge_with_rows_inner<S: GraphSnapshot>(
             let out_rows = execute_plan(snapshot, &staged, params).collect::<Result<Vec<_>>>()?;
             Ok((mods, out_rows))
         }
+        Plan::CartesianProduct { left, right } => {
+            let (left_mods, left_rows) = execute_merge_with_rows_inner(
+                left,
+                snapshot,
+                txn,
+                params,
+                on_create_items,
+                on_match_items,
+                on_create_labels,
+                on_match_labels,
+                overlay,
+            )?;
+            let (right_mods, right_rows) = execute_merge_with_rows_inner(
+                right,
+                snapshot,
+                txn,
+                params,
+                on_create_items,
+                on_match_items,
+                on_create_labels,
+                on_match_labels,
+                overlay,
+            )?;
+            let staged = Plan::CartesianProduct {
+                left: Box::new(Plan::Values { rows: left_rows }),
+                right: Box::new(Plan::Values { rows: right_rows }),
+            };
+            let out_rows = execute_plan(snapshot, &staged, params).collect::<Result<Vec<_>>>()?;
+            Ok((left_mods + right_mods, out_rows))
+        }
+        Plan::Union { left, right, all } => {
+            let (left_mods, left_rows) = execute_merge_with_rows_inner(
+                left,
+                snapshot,
+                txn,
+                params,
+                on_create_items,
+                on_match_items,
+                on_create_labels,
+                on_match_labels,
+                overlay,
+            )?;
+            let (right_mods, right_rows) = execute_merge_with_rows_inner(
+                right,
+                snapshot,
+                txn,
+                params,
+                on_create_items,
+                on_match_items,
+                on_create_labels,
+                on_match_labels,
+                overlay,
+            )?;
+            let staged = Plan::Union {
+                left: Box::new(Plan::Values { rows: left_rows }),
+                right: Box::new(Plan::Values { rows: right_rows }),
+                all: *all,
+            };
+            let out_rows = execute_plan(snapshot, &staged, params).collect::<Result<Vec<_>>>()?;
+            Ok((left_mods + right_mods, out_rows))
+        }
         _ => {
             let out_rows = execute_plan(snapshot, plan, params).collect::<Result<Vec<_>>>()?;
             Ok((0, out_rows))
@@ -1116,6 +1226,48 @@ fn bind_plan_input_rows(plan: &mut Plan, rows: &[Row]) {
             *plan = values();
         }
     }
+}
+
+fn execute_node_scan_with_staged_creates<S: GraphSnapshot>(
+    snapshot: &S,
+    plan: &Plan,
+    alias: &str,
+    label: &Option<String>,
+    optional: bool,
+    txn: &dyn WriteableGraph,
+    params: &crate::query_api::Params,
+) -> Result<Vec<Row>> {
+    let mut out_rows = execute_plan(snapshot, plan, params).collect::<Result<Vec<_>>>()?;
+
+    if optional {
+        out_rows.retain(|row| !matches!(row.get(alias), Some(Value::Null)));
+    }
+
+    let mut seen_node_ids: std::collections::BTreeSet<InternalNodeId> = out_rows
+        .iter()
+        .filter_map(|row| row.get_node(alias))
+        .collect();
+
+    for (node_id, labels) in txn.staged_created_nodes_with_labels() {
+        if seen_node_ids.contains(&node_id) {
+            continue;
+        }
+
+        if let Some(label_name) = label
+            && !labels.iter().any(|existing| existing == label_name)
+        {
+            continue;
+        }
+
+        out_rows.push(Row::default().with(alias.to_string(), Value::NodeId(node_id)));
+        seen_node_ids.insert(node_id);
+    }
+
+    if optional && out_rows.is_empty() {
+        out_rows.push(Row::default().with(alias.to_string(), Value::Null));
+    }
+
+    Ok(out_rows)
 }
 
 fn collect_delete_targets_from_rows<S: GraphSnapshot>(
@@ -1160,6 +1312,56 @@ fn record_anonymous_create_signatures<S: GraphSnapshot>(
         overlay
             .anonymous_nodes
             .push((node_pat.labels.clone(), props));
+    }
+
+    Ok(())
+}
+
+fn record_created_nodes_for_merge_overlay<S: GraphSnapshot>(
+    snapshot: &S,
+    pattern: &crate::ast::Pattern,
+    input_rows: &[Row],
+    output_rows: &[Row],
+    params: &crate::query_api::Params,
+    overlay: &mut MergeOverlayState,
+) -> Result<()> {
+    let node_patterns: Vec<&crate::ast::NodePattern> = pattern
+        .elements
+        .iter()
+        .filter_map(|element| match element {
+            PathElement::Node(node) => Some(node),
+            _ => None,
+        })
+        .collect();
+
+    if node_patterns.is_empty() {
+        return Ok(());
+    }
+
+    let mut seen_nodes = std::collections::BTreeSet::new();
+    for (input_row, output_row) in input_rows.iter().zip(output_rows.iter()) {
+        for node_pat in &node_patterns {
+            let Some(var) = &node_pat.variable else {
+                continue;
+            };
+
+            let Some(after_node_id) = output_row.get_node(var) else {
+                continue;
+            };
+            if input_row.get_node(var) == Some(after_node_id) {
+                continue;
+            }
+            if !seen_nodes.insert(after_node_id) {
+                continue;
+            }
+
+            let props = merge_eval_props_on_row(snapshot, input_row, &node_pat.properties, params)?;
+            overlay.nodes.push(MergeOverlayNode {
+                iid: after_node_id,
+                labels: node_pat.labels.clone(),
+                props,
+            });
+        }
     }
 
     Ok(())

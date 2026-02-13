@@ -685,4 +685,8 @@ impl nervusdb_query::WriteableGraph for WriteTxn<'_> {
             .get_or_create_rel_type(name)
             .map_err(|e| nervusdb_query::Error::Other(e.to_string()))
     }
+
+    fn staged_created_nodes_with_labels(&self) -> Vec<(InternalNodeId, Vec<String>)> {
+        self.inner.staged_created_nodes_with_labels()
+    }
 }

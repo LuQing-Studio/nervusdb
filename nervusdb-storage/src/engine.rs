@@ -757,6 +757,50 @@ impl<'a> WriteTxn<'a> {
         self.memtable.remove_edge_property(src, rel, dst, key);
     }
 
+    pub fn staged_created_nodes_with_labels(&self) -> Vec<(InternalNodeId, Vec<String>)> {
+        let mut labels_by_node: BTreeMap<InternalNodeId, std::collections::BTreeSet<LabelId>> =
+            BTreeMap::new();
+
+        for (_, label_id, node_id) in &self.created_nodes {
+            if *label_id != LabelId::MAX {
+                labels_by_node
+                    .entry(*node_id)
+                    .or_default()
+                    .insert(*label_id);
+            } else {
+                labels_by_node.entry(*node_id).or_default();
+            }
+        }
+
+        for (node_id, label_id) in &self.pending_label_additions {
+            labels_by_node
+                .entry(*node_id)
+                .or_default()
+                .insert(*label_id);
+        }
+
+        for (node_id, label_id) in &self.pending_label_removals {
+            if let Some(labels) = labels_by_node.get_mut(node_id) {
+                labels.remove(label_id);
+            }
+        }
+
+        let interner = self.engine.label_interner.lock().unwrap();
+        self.created_nodes
+            .iter()
+            .map(|(_, _, node_id)| {
+                let labels = labels_by_node
+                    .get(node_id)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|label_id| interner.get_name(label_id).map(|name| name.to_string()))
+                    .collect::<Vec<_>>();
+                (*node_id, labels)
+            })
+            .collect()
+    }
+
     // T203: HNSW Support
     pub fn set_vector(&mut self, id: InternalNodeId, vector: Vec<f32>) -> Result<()> {
         self.engine.insert_vector(id, vector)
