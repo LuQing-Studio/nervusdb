@@ -289,7 +289,7 @@ fn row_eq(a: &[(String, Value)], b: &[(String, Value)]) -> bool {
         return false;
     }
     for i in 0..a.len() {
-        if a[i].0 != b[i].0 {
+        if !column_name_eq(&a[i].0, &b[i].0) {
             return false;
         }
         if !value_eq(&a[i].1, &b[i].1) {
@@ -297,6 +297,21 @@ fn row_eq(a: &[(String, Value)], b: &[(String, Value)]) -> bool {
         }
     }
     true
+}
+
+fn column_name_eq(left: &str, right: &str) -> bool {
+    if left == right {
+        return true;
+    }
+    normalize_column_name(left) == normalize_column_name(right)
+}
+
+fn normalize_column_name(input: &str) -> String {
+    input
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .collect::<String>()
+        .to_lowercase()
 }
 
 fn value_eq(a: &Value, b: &Value) -> bool {

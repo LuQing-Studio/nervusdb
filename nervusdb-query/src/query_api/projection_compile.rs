@@ -490,6 +490,13 @@ pub(super) fn compile_projection_aggregation(
         resolved_items.push((item.expression.clone(), alias, contains_agg));
     }
 
+    let mut seen_aliases = std::collections::HashSet::new();
+    for (_, alias, _) in &resolved_items {
+        if !seen_aliases.insert(alias.clone()) {
+            return Err(Error::Other("syntax error: ColumnNameConflict".to_string()));
+        }
+    }
+
     if !has_aggregation {
         let projections: Vec<(String, Expression)> = resolved_items
             .iter()

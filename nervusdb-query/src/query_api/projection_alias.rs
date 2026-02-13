@@ -57,6 +57,9 @@ fn expression_alias_fragment(expr: &Expression) -> String {
         Expression::Literal(Literal::Null) => "null".to_string(),
         Expression::Parameter(name) => format!("${}", name),
         Expression::FunctionCall(call) => {
+            if call.name.eq_ignore_ascii_case("__distinct") && call.args.len() == 1 {
+                return format!("distinct {}", expression_alias_fragment(&call.args[0]));
+            }
             if call.name.eq_ignore_ascii_case("__index") && call.args.len() == 2 {
                 return format!(
                     "{}[{}]",
@@ -194,5 +197,18 @@ mod tests {
         };
         let alias = default_aggregate_alias(&call, 0);
         assert_eq!(alias, "count(n)");
+    }
+
+    #[test]
+    fn aggregate_alias_renders_distinct_wrapper_as_distinct_keyword() {
+        let call = FunctionCall {
+            name: "COUNT".to_string(),
+            args: vec![Expression::FunctionCall(FunctionCall {
+                name: "__distinct".to_string(),
+                args: vec![Expression::Variable("p".to_string())],
+            })],
+        };
+        let alias = default_aggregate_alias(&call, 0);
+        assert_eq!(alias, "count(distinct p)");
     }
 }

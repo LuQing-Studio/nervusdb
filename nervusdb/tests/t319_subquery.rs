@@ -90,9 +90,11 @@ fn test_correlated_aggregation_subquery() -> Result<()> {
 
     // Alice: 2 friends
     // Bob: 1 friend
-    // Carol: 0 friends - BUT Apply uses INNER JOIN semantics
-    // Carol's subquery returns 0 rows (MATCH finds nothing), so she's filtered out
-    assert_eq!(results.len(), 2);
+    // Carol: 0 friends
+    //
+    // Cypher aggregate semantics require one row for aggregation without grouping keys,
+    // even when the inner MATCH has no rows.
+    assert_eq!(results.len(), 3);
 
     // Since we ordered by p.name
     // Alice
@@ -113,6 +115,13 @@ fn test_correlated_aggregation_subquery() -> Result<()> {
     assert!(matches!(
         results[1].get("deg").unwrap(),
         Value::Int(1) | Value::Float(1.0)
+    ));
+
+    // Carol (name is not set in fixture, so p.name is null)
+    assert_eq!(results[2].get("p.name").unwrap(), &Value::Null);
+    assert!(matches!(
+        results[2].get("deg").unwrap(),
+        Value::Int(0) | Value::Float(0.0)
     ));
 
     Ok(())

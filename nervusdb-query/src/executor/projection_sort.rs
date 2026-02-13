@@ -33,6 +33,11 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
         groups.entry(key).or_default().push(row);
     }
 
+    // Cypher aggregate semantics: no grouping keys still yields one row on empty input.
+    if groups.is_empty() && group_by.is_empty() {
+        groups.insert(Vec::new(), Vec::new());
+    }
+
     // Convert to result rows
     let results: Vec<Result<Row>> = groups
         .into_iter()
