@@ -420,10 +420,7 @@ fn test_range_comparison_list_and_nan_semantics() -> nervusdb::Result<()> {
         rows[0].get("list_gt_shorter"),
         Some(Value::Bool(true))
     ));
-    assert!(matches!(
-        rows[0].get("list_vs_null"),
-        Some(Value::Bool(false))
-    ));
+    assert!(matches!(rows[0].get("list_vs_null"), Some(Value::Null)));
     assert!(matches!(
         rows[0].get("list_first_cmp"),
         Some(Value::Bool(false))
