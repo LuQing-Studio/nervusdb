@@ -538,7 +538,7 @@ fn execute_merge_with_rows_inner<S: GraphSnapshot>(
                 overlay,
             )?;
             let (deleted_nodes, deleted_edges) =
-                collect_delete_targets_from_rows(snapshot, &rows, expressions, params);
+                collect_delete_targets_from_rows(snapshot, &rows, expressions, params)?;
             let deleted =
                 execute_delete_on_rows(snapshot, &rows, txn, *detach, expressions, params)?;
             overlay.deleted_nodes.extend(deleted_nodes);
@@ -1339,19 +1339,20 @@ fn collect_delete_targets_from_rows<S: GraphSnapshot>(
     rows: &[Row],
     expressions: &[Expression],
     params: &crate::query_api::Params,
-) -> (
+) -> Result<(
     std::collections::BTreeSet<InternalNodeId>,
     std::collections::BTreeSet<EdgeKey>,
-) {
+)> {
     let mut nodes = std::collections::BTreeSet::new();
     let mut edges = std::collections::BTreeSet::new();
     for row in rows {
         for expr in expressions {
+            super::plan_mid::ensure_runtime_expression_compatible(expr, row, snapshot, params)?;
             let value = evaluate_expression_value(expr, row, snapshot, params);
             collect_delete_targets_from_value(&value, &mut nodes, &mut edges);
         }
     }
-    (nodes, edges)
+    Ok((nodes, edges))
 }
 
 fn record_anonymous_create_signatures<S: GraphSnapshot>(
