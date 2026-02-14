@@ -861,3 +861,46 @@ TCK ≥95% → 7天稳定窗 → 性能 SLO 封板 → Beta 发布
 
 - `artifacts/tck/beta-04-r14w3-write-guard-targeted-2026-02-14.log`
 - `artifacts/tck/beta-04-r14w3-write-guard-tier0-2026-02-14.log`
+
+---
+
+## 22. 续更快照（2026-02-14，BETA-03R14-W4 FOREACH/DELETE 尾部入口收口）
+
+### 22.1 本轮完成项（R14-W4）
+
+- 以 TDD 方式补齐尾部执行入口的 runtime 类型语义：
+  - 新增并先跑红：
+    - `t324_foreach_invalid_toboolean_argument_raises_runtime_type_error`
+    - `test_delete_list_index_with_invalid_index_type_raises_runtime_type_error`
+  - 修复实现：
+    - 在 `execute_foreach` 的列表表达式求值前接入 `ensure_runtime_expression_compatible(...)`；
+    - 在 `execute_delete` 与 `execute_delete_on_rows` 的 DELETE 目标表达式求值前接入同一 guard。
+- 行为变化：
+  - 修复此前 `FOREACH/DELETE` 在非法表达式输入下可能“静默 `null` / 继续执行 / 返回 0 side effects”的行为差异；
+  - 与既有 `Project/OrderBy/WHERE/UNWIND/SET/MERGE` 的 runtime TypeError 处理路径对齐。
+
+### 22.2 回归结果
+
+- 定向测试：
+  - `cargo test -p nervusdb --test t324_foreach -- --nocapture`：`4 passed`（含新增 1 条）
+  - `cargo test -p nervusdb --test create_test test_delete_list_index_with_invalid_index_type_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test t108_set_clause test_set_invalid_toboolean_argument_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test t306_unwind test_unwind_toboolean_invalid_argument_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test t301_expression_ops test_where_invalid_list_index_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+- TCK 定向：
+  - `clauses/delete/Delete5.feature`、`clauses/delete/Delete1.feature`、`clauses/delete/Delete3.feature` 全通过。
+- 门禁：
+  - `bash scripts/tck_tier_gate.sh tier0` 全通过；
+  - `cargo fmt --all -- --check` 通过。
+
+### 22.3 对后续 R14 的影响
+
+- R14-W4 完成后，runtime guard 覆盖面进一步扩展到：
+  - `FOREACH` 列表入口
+  - `DELETE` 目标表达式入口（含 `execute_delete` 与 `execute_delete_on_rows`）
+- 当前 R14 的主要风险从“执行入口遗漏 guard”转向“函数覆盖面与错误码精细一致性”审计，可转入小步补洞策略。
+
+### 22.4 证据文件
+
+- `artifacts/tck/beta-04-r14w4-tail-guard-targeted-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w4-tail-guard-tier0-2026-02-14.log`

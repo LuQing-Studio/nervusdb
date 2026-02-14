@@ -344,6 +344,7 @@ pub(super) fn execute_delete_on_rows<S: GraphSnapshot>(
 
     for row in rows {
         for expr in expressions {
+            super::plan_mid::ensure_runtime_expression_compatible(expr, row, snapshot, params)?;
             let value = evaluate_expression_value(expr, row, snapshot, params);
             collect_delete_targets_from_value(
                 &value,
@@ -470,6 +471,7 @@ pub(super) fn execute_delete<S: GraphSnapshot>(
     for row in execute_plan(snapshot, input, params) {
         let row = row?;
         for expr in expressions {
+            super::plan_mid::ensure_runtime_expression_compatible(expr, &row, snapshot, params)?;
             let value = evaluate_expression_value(expr, &row, snapshot, params);
             collect_delete_targets_from_value(
                 &value,

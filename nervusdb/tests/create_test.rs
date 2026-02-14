@@ -457,3 +457,36 @@ fn test_delete_scalar_expression_rejected_at_compile_time() {
         "unexpected compile error: {err}"
     );
 }
+
+#[test]
+fn test_delete_list_index_with_invalid_index_type_raises_runtime_type_error() {
+    let dir = tempdir().unwrap();
+    let db = Db::open(dir.path()).unwrap();
+
+    {
+        let mut txn = db.begin_write();
+        prepare("CREATE (u:User)-[:FRIEND]->()")
+            .unwrap()
+            .execute_write(&db.snapshot(), &mut txn, &nervusdb_query::Params::new())
+            .unwrap();
+        txn.commit().unwrap();
+    }
+
+    let q = prepare(
+        "MATCH (:User)-[:FRIEND]->(n) \
+         WITH collect(n) AS friends, true AS idx \
+         DETACH DELETE friends[idx]",
+    )
+    .unwrap();
+
+    let mut txn = db.begin_write();
+    let err = q
+        .execute_write(&db.snapshot(), &mut txn, &nervusdb_query::Params::new())
+        .expect_err("invalid list index type in DELETE should raise runtime TypeError")
+        .to_string();
+
+    assert!(
+        err.contains("InvalidArgumentType"),
+        "expected InvalidArgumentType, got: {err}"
+    );
+}
