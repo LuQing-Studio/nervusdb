@@ -424,7 +424,7 @@ async fn result_should_be_in_order(world: &mut GraphWorld, step: &cucumber::gher
     }
 }
 
-#[then(regex = r"^the result should be \\(ignoring element order for lists\\):$")]
+#[then(regex = r"^the result should be \(ignoring element order for lists\):$")]
 async fn result_should_be_any_order_ignoring_list_order(
     world: &mut GraphWorld,
     step: &cucumber::gherkin::Step,
@@ -494,7 +494,7 @@ async fn result_should_be_any_order_ignoring_list_order(
     }
 }
 
-#[then(regex = r"^the result should be, in order \\(ignoring element order for lists\\):$")]
+#[then(regex = r"^the result should be, in order \(ignoring element order for lists\):$")]
 async fn result_should_be_in_order_ignoring_list_order(
     world: &mut GraphWorld,
     step: &cucumber::gherkin::Step,

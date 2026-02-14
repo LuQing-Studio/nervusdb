@@ -96,7 +96,7 @@
 | **Beta Gate** | **SQLite-Beta 必达门槛**                                   |        |        |                             |                                                          |
 | BETA-01       | [Storage] 强制 `storage_format_epoch` 校验                 | High   | Done   | feat/TB1-beta-gate          | `StorageFormatMismatch` + Compatibility 映射已落地 |
 | BETA-02       | [CI] Tier-3 全量通过率统计与 95% 阈值阻断                  | High   | Done   | feat/TB1-beta-gate          | `scripts/tck_full_rate.sh` + `scripts/beta_gate.sh` + nightly/manual workflow |
-| BETA-03       | [TCK] 官方全量通过率冲刺至 ≥95%                            | High   | WIP    | feat/TB1-tck-95             | 最近一次 Tier-3 全量快照仍为 2026-02-13：3682/3897=94.48%（skipped 199，failed 16；见 `artifacts/tck/tier3-rate-2026-02-13.md`、`artifacts/tck/tier3-cluster-2026-02-13.md`）。R8 已清零其中关键剩余簇（`Create4`、`Delete3`、`Delete5`、`Unwind1`，并复验 `Merge5/6/7`、`ReturnOrderBy4`、`Pattern2`、`Comparison2`、`Null3`）；待下一次 Tier-3 全量复算更新总通过率。 |
+| BETA-03       | [TCK] 官方全量通过率冲刺至 ≥95%                            | High   | Done   | feat/TB1-tck-95             | 2026-02-14 Tier-3 全量复算达到门槛：`3719/3897=95.43%`（skipped 178，failed 0）；见 `artifacts/tck/beta-03r9-tier3-full-2026-02-14.log`、`artifacts/tck/tier3-rate-2026-02-14.md`、`artifacts/tck/tier3-cluster-2026-02-14.md`。 |
 | BETA-03R1     | [Refactor] 拆分 `query_api.rs`（解析/校验/Plan 组装模块化） | High   | Done   | codex/feat/phase1b1c-bigbang | 已由 Phase 1a (R1) 覆盖完成，query_api/ 目录已拆分为多文件模块；PR #131 全门禁通过 |
 | BETA-03R2     | [Refactor] 拆分 `executor.rs`（读路径/写路径/排序投影）      | High   | Done   | codex/feat/phase1b1c-bigbang | 已由 Phase 1a (R2) 覆盖完成，executor/ 目录已拆分为 34 文件；PR #131 全门禁通过 |
 | BETA-03R3     | [Refactor] 拆分 `evaluator.rs` Temporal/Duration 子模块     | High   | Done   | codex/feat/phase1b1c-bigbang | 已由 Phase 1a (R3) 覆盖完成，evaluator/ 目录已拆分为 25 文件；PR #131 全门禁通过 |
@@ -143,6 +143,32 @@
 - R8-W4：TCK side-effects 标签口径修正：统计时排除 `UNLABELED` 哨兵标签，修复 `Create4[2]` `+labels` 与 `Delete3[1]` `-labels` 偏差。
 - 定向回归：`Merge5/6/7`、`ReturnOrderBy4`、`Pattern2`、`Comparison2`、`Null3`、`Create4`、`Delete3`、`Delete5`、`Unwind1` 全通过（非跳过）。
 - 证据日志：`artifacts/tck/beta-03r8-merge567-repro-2026-02-13.log`、`artifacts/tck/beta-03r8-merge567-fixed-2026-02-13.log`、`artifacts/tck/beta-03r8-next-cluster-repro-2026-02-13.log`、`artifacts/tck/beta-03r8-next-cluster-fixed-2026-02-13.log`、`artifacts/tck/beta-03r8-targeted-regression-clean-2026-02-13.log`。
+
+### BETA-03R9 子进展（2026-02-14）
+- R9-W1：修复 TCK harness 步骤正则过度转义（`\\(` → `\(`），恢复两类“忽略列表元素顺序”断言步骤：
+  - `the result should be (ignoring element order for lists):`
+  - `the result should be, in order (ignoring element order for lists):`
+- R9-W2：定向回归验证从 skipped 转 pass：
+  - `clauses/match/Match4.feature`：`9 passed, 1 skipped` → `10 passed`
+  - `expressions/map/Map3.feature`：`2 passed, 9 skipped` → `11 passed`
+  - `clauses/return-orderby/ReturnOrderBy2.feature`：场景 `[12]` 从 skipped 转 pass（全 14 passed）
+- R9-W3：Tier-3 全量复算通过门槛：
+  - `3897 scenarios (3719 passed, 178 skipped, 0 failed)`，通过率 `95.43%`（达到 `BETA-03` 目标）
+- R9-W4：基线门禁复验通过：
+  - `cargo fmt --all -- --check`
+  - `cargo clippy --workspace --exclude nervusdb-pyo3 --all-targets -- -W warnings`
+  - `bash scripts/binding_smoke.sh`
+  - `bash scripts/contract_smoke.sh`
+- 证据日志：
+  - `artifacts/tck/beta-03r9-step-regex-match4-before-2026-02-14.log`
+  - `artifacts/tck/beta-03r9-step-regex-match4-after-2026-02-14.log`
+  - `artifacts/tck/beta-03r9-step-regex-map3-before-2026-02-14.log`
+  - `artifacts/tck/beta-03r9-step-regex-map3-after-2026-02-14.log`
+  - `artifacts/tck/beta-03r9-step-regex-returnorderby2-after-2026-02-14.log`
+  - `artifacts/tck/beta-03r9-tier3-full-2026-02-14.log`
+  - `artifacts/tck/beta-03r9-baseline-gates-2026-02-14.log`
+  - `artifacts/tck/tier3-rate-2026-02-14.md`
+  - `artifacts/tck/tier3-cluster-2026-02-14.md`
 
 ## Archived (v1/Alpha)
 
