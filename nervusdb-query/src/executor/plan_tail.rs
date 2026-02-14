@@ -84,6 +84,14 @@ pub(super) fn execute_unwind<'a, S: GraphSnapshot + 'a>(
 
     PlanIterator::Dynamic(Box::new(input_iter.flat_map(move |result| match result {
         Ok(row) => {
+            if let Err(err) = super::plan_mid::ensure_runtime_expression_compatible(
+                &expression,
+                &row,
+                snapshot,
+                &params,
+            ) {
+                return vec![Err(err)];
+            }
             let val =
                 crate::evaluator::evaluate_expression_value(&expression, &row, snapshot, &params);
             match val {

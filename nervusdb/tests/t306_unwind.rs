@@ -128,3 +128,55 @@ fn test_unwind_chaining() -> nervusdb::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_unwind_invalid_list_index_raises_runtime_type_error() -> nervusdb::Result<()> {
+    let dir = tempdir()?;
+    let db = Db::open(
+        dir.path()
+            .join("t306_unwind_invalid_list_index_runtime_type_error.ndb"),
+    )?;
+    let snapshot = db.snapshot();
+
+    let query = "WITH [1, 2, 3] AS list, true AS idx \
+                 UNWIND [list[idx]] AS x \
+                 RETURN x";
+    let prep = nervusdb::query::prepare(query)?;
+    let err = prep
+        .execute_streaming(&snapshot, &Default::default())
+        .collect::<Result<Vec<_>, _>>()
+        .expect_err("invalid list index type in UNWIND should raise runtime TypeError")
+        .to_string();
+
+    assert!(
+        err.contains("InvalidArgumentType"),
+        "expected InvalidArgumentType, got: {err}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_unwind_toboolean_invalid_argument_raises_runtime_type_error() -> nervusdb::Result<()> {
+    let dir = tempdir()?;
+    let db = Db::open(
+        dir.path()
+            .join("t306_unwind_toboolean_invalid_argument_runtime_type_error.ndb"),
+    )?;
+    let snapshot = db.snapshot();
+
+    let query = "WITH 1 AS n UNWIND [toBoolean(n)] AS b RETURN b";
+    let prep = nervusdb::query::prepare(query)?;
+    let err = prep
+        .execute_streaming(&snapshot, &Default::default())
+        .collect::<Result<Vec<_>, _>>()
+        .expect_err("invalid toBoolean argument type in UNWIND should raise runtime TypeError")
+        .to_string();
+
+    assert!(
+        err.contains("InvalidArgumentValue"),
+        "expected InvalidArgumentValue, got: {err}"
+    );
+
+    Ok(())
+}

@@ -105,7 +105,7 @@
 | BETA-03R6     | [TCK] 失败簇滚动清零（Merge/With/Return/Graph/Skip-Limit）  | High   | Done   | codex/feat/phase1b1c-bigbang | 2026-02-13 已清零 `Merge1/2/3`、`Match8`、`Create1`、`With4`、`Return1/7`、`Graph3/4`、`ReturnSkipLimit1/2`、`Mathematical8`；见 `artifacts/tck/beta-03r6-*.log`。 |
 | BETA-03R7     | [TCK] 主干攻坚（Temporal/Aggregation/Set/Remove/Create/Subquery） | High   | Done   | codex/feat/phase1b1c-bigbang | 2026-02-13 已清零 `Temporal4`、`Aggregation6`、`Remove1/3`、`Set2/4/5`、`Create3`，修复 correlated subquery 作用域回归，Tier-3 提升至 94.48%（3682/3897）。 |
 | BETA-03R13    | [Hardening] `TypeError` 断言收紧（compile-time + any-time + runtime） | High   | Done   | codex/feat/beta-04-r13w2-anytime-hardening | R13-W1/W2/W3 已全部完成：compile-time、any-time、runtime 三类 `TypeError` 断言均切换为严格模式；补齐递归运行期表达式类型守卫（含 list comprehension 作用域）与属性写入非法 list 元素拦截，定向簇与基线门禁全绿。 |
-| BETA-03R14    | [Hardening] runtime 语义一致性收口（WHERE guard + type(rel)） | High   | WIP    | codex/feat/beta-04-r14w1-runtime-guard | R14-W1 已完成：`WHERE` 路径接入 runtime guard（修复非法索引静默过滤），补齐 `SET ... RETURN type(r)` 在 `Relationship` 值上的类型名返回语义；定向回归全绿。 |
+| BETA-03R14    | [Hardening] runtime 语义一致性收口（WHERE guard + type(rel)） | High   | WIP    | codex/feat/beta-04-r14w2-unwind-guard | R14-W1/W2 持续推进：已完成 `WHERE` guard + `type(rel)` 语义补齐，并在 `UNWIND` 接入 runtime guard（清零非法索引/非法 toBoolean 参数静默 `null` 语义缺口）；定向回归与 tier0 全绿。 |
 | BETA-04       | [Stability] 连续 7 天主 CI + nightly 稳定窗                | High   | WIP    | feat/TB1-stability-window   | 已新增 `scripts/stability_window.sh`（按最近 N 天 `tier3-rate-YYYY-MM-DD.json` 校验 `pass_rate>=95 且 failed=0`）；2026-02-14 最新快照 `100.00%`（`3897/3897`，`failed=0`），当前累计天数不足 7 天，继续滚动积累。 |
 | BETA-05       | [Perf] 大规模 SLO 封板（读120/写180/向量220 ms P99）       | High   | Plan   | feat/TB1-perf-slo           | 达标后方可发布 Beta |
 
@@ -284,9 +284,23 @@
   - 集成测试：`t301_expression_ops`、`t108_set_clause`、`t313_functions` 全通过。
   - TCK 定向：`List1`、`Graph4`、`Set1` 全通过。
   - `cargo fmt --all -- --check` 通过。
+- R14-W2（TDD：先红后绿，UNWIND 入口补洞）：
+  - 新增失败用例并先验证红灯：
+    - `test_unwind_invalid_list_index_raises_runtime_type_error`
+    - `test_unwind_toboolean_invalid_argument_raises_runtime_type_error`
+  - 修复点：
+    - `execute_unwind` 在每行展开前接入 `ensure_runtime_expression_compatible`，使 `UNWIND` 与 `Project/OrderBy/WHERE` 的 runtime TypeError 语义一致。
+    - 修复此前 `UNWIND` 对非法表达式“吞错并产出 null 行”的行为差异。
+- R14-W2（定向回归）：
+  - 集成测试：`t306_unwind`（含新增 2 条）全通过。
+  - 扩展回归：`t301_expression_ops`（where runtime guard）、`t108_set_clause`（type(rel)）、`t313_functions` 全通过。
+  - TCK 定向：`List1`、`Graph4`、`Set1` 全通过。
+  - 门禁：`bash scripts/tck_tier_gate.sh tier0` 全通过，`cargo fmt --all -- --check` 通过。
 - 证据日志：
   - `artifacts/tck/beta-04-r14w1-targeted-2026-02-14.log`
   - `artifacts/tck/beta-04-r14w1-tier0-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w2-targeted-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w2-tier0-2026-02-14.log`
 
 ## Archived (v1/Alpha)
 

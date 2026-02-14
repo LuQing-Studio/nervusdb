@@ -777,3 +777,44 @@ TCK ≥95% → 7天稳定窗 → 性能 SLO 封板 → Beta 发布
 
 - `artifacts/tck/beta-04-r14w1-targeted-2026-02-14.log`
 - `artifacts/tck/beta-04-r14w1-tier0-2026-02-14.log`
+
+---
+
+## 20. 续更快照（2026-02-14，BETA-03R14-W2 UNWIND runtime guard 收口）
+
+### 20.1 本轮完成项（R14-W2）
+
+- 以 TDD 方式补齐 `UNWIND` 执行入口的 runtime 类型语义一致性：
+  - 新增并先跑红：
+    - `test_unwind_invalid_list_index_raises_runtime_type_error`
+    - `test_unwind_toboolean_invalid_argument_raises_runtime_type_error`
+  - 修复实现：
+    - 在 `nervusdb-query/src/executor/plan_tail.rs` 的 `execute_unwind` 中复用 `ensure_runtime_expression_compatible(...)`。
+    - 在每行 `UNWIND` 展开前先做运行期表达式兼容性检查；不兼容时直接返回 runtime error。
+- 行为变化：
+  - 修复此前 `UNWIND` 对非法表达式“静默吞错并产出 `null` 行”的行为差异；
+  - 与既有 `Project`、`OrderBy`、`WHERE(FilterIter)` 的 runtime guard 语义对齐。
+
+### 20.2 回归结果
+
+- 定向测试：
+  - `cargo test -p nervusdb --test t306_unwind -- --nocapture`：`7 passed`（含新增 2 条）
+- 扩展回归：
+  - `t301_expression_ops`（`WHERE` runtime guard）
+  - `t108_set_clause`（`SET ... RETURN type(r)`）
+  - `t313_functions`（`type()` 既有语义）
+  - `tck_harness`: `List1`、`Graph4`、`Set1`
+  - 以上均通过。
+- 门禁：
+  - `bash scripts/tck_tier_gate.sh tier0` 全通过；
+  - `cargo fmt --all -- --check` 通过。
+
+### 20.3 对后续 R14 的影响
+
+- R14-W2 完成后，runtime guard 覆盖面从 `Project/OrderBy/WHERE` 扩展到 `UNWIND`。
+- 下一步可继续审计写路径表达式入口（`SET/MERGE` 相关）是否仍存在“未 guard 的直接求值点”。
+
+### 20.4 证据文件
+
+- `artifacts/tck/beta-04-r14w2-targeted-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w2-tier0-2026-02-14.log`
