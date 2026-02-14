@@ -359,7 +359,7 @@ async fn type_error_runtime_raised(world: &mut GraphWorld, error_type: String) {
 
 #[then(regex = r"^a TypeError should be raised at any time: (.+)$")]
 async fn type_error_any_time_raised(world: &mut GraphWorld, error_type: String) {
-    assert_error_raised(world, "TypeError", "any time", &error_type, true);
+    assert_error_raised(world, "TypeError", "any time", &error_type, false);
 }
 
 #[then(regex = r"^a ArgumentError should be raised at runtime: (.+)$")]

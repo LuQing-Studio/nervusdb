@@ -104,7 +104,7 @@
 | BETA-03R5     | [TCK] 失败簇滚动清零（Temporal/Return/List/With/Map/Union） | High   | Done   | codex/feat/phase1b1c-bigbang | 2026-02-13 已清零 `Temporal2/5`、`Aggregation2`、`Return2`、`List11`、`With1/5`、`WithOrderBy1`、`Union1/2/3`、`Map1/2`，并补齐 UnknownFunction、WITH DISTINCT、UNION 校验等编译期语义。 |
 | BETA-03R6     | [TCK] 失败簇滚动清零（Merge/With/Return/Graph/Skip-Limit）  | High   | Done   | codex/feat/phase1b1c-bigbang | 2026-02-13 已清零 `Merge1/2/3`、`Match8`、`Create1`、`With4`、`Return1/7`、`Graph3/4`、`ReturnSkipLimit1/2`、`Mathematical8`；见 `artifacts/tck/beta-03r6-*.log`。 |
 | BETA-03R7     | [TCK] 主干攻坚（Temporal/Aggregation/Set/Remove/Create/Subquery） | High   | Done   | codex/feat/phase1b1c-bigbang | 2026-02-13 已清零 `Temporal4`、`Aggregation6`、`Remove1/3`、`Set2/4/5`、`Create3`，修复 correlated subquery 作用域回归，Tier-3 提升至 94.48%（3682/3897）。 |
-| BETA-03R13    | [Hardening] `TypeError@compile-time` 严格化（属性访问）      | High   | WIP    | codex/feat/beta-04-r13-hardening | R13-W1 已完成：`TypeError should be raised at compile time` 从桥接改为严格；补齐投影属性访问静态追溯与 `InvalidArgumentType` 编译期拦截；`Map1/Graph6` 严格断言全通过。 |
+| BETA-03R13    | [Hardening] `TypeError` 断言收紧（compile-time + any-time） | High   | WIP    | codex/feat/beta-04-r13w2-anytime-hardening | R13-W1 已完成 compile-time 严格化；R13-W2 已完成 any-time 严格化并补齐 `__index` runtime 类型守卫（`List1` 全通过，扩展回归+基线门禁全绿）。 |
 | BETA-04       | [Stability] 连续 7 天主 CI + nightly 稳定窗                | High   | WIP    | feat/TB1-stability-window   | 已新增 `scripts/stability_window.sh`（按最近 N 天 `tier3-rate-YYYY-MM-DD.json` 校验 `pass_rate>=95 且 failed=0`）；2026-02-14 最新快照 `100.00%`（`3897/3897`，`failed=0`），当前累计天数不足 7 天，继续滚动积累。 |
 | BETA-05       | [Perf] 大规模 SLO 封板（读120/写180/向量220 ms P99）       | High   | Plan   | feat/TB1-perf-slo           | 达标后方可发布 Beta |
 
@@ -239,11 +239,22 @@
   - 定向：`expressions/map/Map1.feature`、`expressions/graph/Graph6.feature` 严格断言均全通过。
   - 扩展：`Map2`、`Graph3`、`Graph4`、`Return2` 全通过。
   - 基线门禁：`fmt + workspace_quick_test + tier0/1/2 + binding_smoke + contract_smoke` 全通过。
+- R13-W2（any-time 严格化）：
+  - 将 `TypeError should be raised at any time` 从桥接放行切换为严格断言（`allow_success=false`）。
+  - 收敛 `__index` 的 runtime 类型语义：在 `Plan::Project` 执行路径增加类型守卫，不兼容索引组合直接返回 runtime error（`InvalidArgumentType`）。
+  - 清零 `List1` 暴露簇：从收紧后的 `23 scenarios (5 passed, 18 failed)` 修复到 `23 passed`。
+- R13-W2（回归与门禁）：
+  - 定向：`expressions/list/List1.feature` 全通过。
+  - 扩展：`List11`、`Map1`、`Map2`、`Graph6`、`Return2` 全通过。
+  - 基线门禁：`fmt + workspace_quick_test + tier0/1/2 + binding_smoke + contract_smoke` 全通过。
 - 证据日志：
   - `artifacts/tck/beta-04-r13w1-map1-2026-02-14.log`
   - `artifacts/tck/beta-04-r13w1-graph6-2026-02-14.log`
   - `artifacts/tck/beta-04-r13w1-regression-2026-02-14.log`
   - `artifacts/tck/beta-04-r13w1-gate-2026-02-14.log`
+  - `artifacts/tck/beta-04-r13w2-list1-anytime-2026-02-14.log`
+  - `artifacts/tck/beta-04-r13w2-regression-2026-02-14.log`
+  - `artifacts/tck/beta-04-r13w2-gate-2026-02-14.log`
 
 ## Archived (v1/Alpha)
 

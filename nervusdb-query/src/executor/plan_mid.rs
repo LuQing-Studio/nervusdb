@@ -1,8 +1,48 @@
 use super::{
-    Direction, FilterIter, GraphSnapshot, Plan, PlanIterator, Result, Row, Value,
+    Direction, Error, FilterIter, GraphSnapshot, Plan, PlanIterator, Result, Row, Value,
     execute_aggregate as execute_aggregate_impl, execute_plan, row_contains_all_bindings,
 };
 use crate::ast::Expression;
+
+fn ensure_runtime_index_access_compatible<S: GraphSnapshot>(
+    expr: &Expression,
+    row: &Row,
+    snapshot: &S,
+    params: &crate::query_api::Params,
+) -> Result<()> {
+    let Expression::FunctionCall(call) = expr else {
+        return Ok(());
+    };
+    if !call.name.eq_ignore_ascii_case("__index") || call.args.len() != 2 {
+        return Ok(());
+    }
+
+    let container =
+        crate::evaluator::evaluate_expression_value(&call.args[0], row, snapshot, params);
+    let index = crate::evaluator::evaluate_expression_value(&call.args[1], row, snapshot, params);
+
+    if matches!(container, Value::Null) || matches!(index, Value::Null) {
+        return Ok(());
+    }
+
+    let valid = matches!(
+        (&container, &index),
+        (Value::List(_), Value::Int(_))
+            | (Value::Map(_), Value::String(_))
+            | (Value::Node(_), Value::String(_))
+            | (Value::Relationship(_), Value::String(_))
+            | (Value::NodeId(_), Value::String(_))
+            | (Value::EdgeKey(_), Value::String(_))
+    );
+
+    if valid {
+        Ok(())
+    } else {
+        Err(Error::Other(
+            "runtime error: InvalidArgumentType".to_string(),
+        ))
+    }
+}
 
 pub(super) fn execute_filter<'a, S: GraphSnapshot + 'a>(
     snapshot: &'a S,
@@ -70,6 +110,7 @@ pub(super) fn execute_project<'a, S: GraphSnapshot + 'a>(
         let row = result?;
         let mut new_row = Row::default();
         for (alias, expr) in &projections {
+            ensure_runtime_index_access_compatible(expr, &row, snapshot, &params)?;
             let val = crate::evaluator::evaluate_expression_value(expr, &row, snapshot, &params);
             new_row = new_row.with(alias.clone(), val);
         }
