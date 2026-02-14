@@ -245,3 +245,24 @@ fn test_return6_count_division_still_aggregates() -> nervusdb::Result<()> {
     assert_eq!(results[0].get("count"), Some(&Value::Int(2)));
     Ok(())
 }
+
+#[test]
+fn test_aggregate_argument_invalid_toboolean_raises_runtime_type_error() {
+    let dir = tempdir().unwrap();
+    let db_path = dir.path().join("t152_runtime_guard.ndb");
+    let db = Db::open(&db_path).unwrap();
+    let snapshot = db.snapshot();
+    let params = Default::default();
+
+    let query = nervusdb::query::prepare("RETURN count(toBoolean(1)) AS c").unwrap();
+    let err = query
+        .execute_streaming(&snapshot, &params)
+        .collect::<Result<Vec<_>, _>>()
+        .expect_err("invalid toBoolean argument in aggregate should raise runtime TypeError")
+        .to_string();
+
+    assert!(
+        err.contains("InvalidArgumentValue"),
+        "expected InvalidArgumentValue, got: {err}"
+    );
+}

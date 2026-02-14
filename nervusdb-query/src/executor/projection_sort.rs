@@ -20,6 +20,12 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
             Err(e) => return Box::new(std::iter::once(Err(e))),
         };
 
+        if let Err(err) =
+            validate_aggregate_runtime_expressions(&row, &aggregates, snapshot, params)
+        {
+            return Box::new(std::iter::once(Err(err)));
+        }
+
         let key: Vec<Value> = group_by
             .iter()
             .filter_map(|var| {
@@ -289,6 +295,46 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
         .collect();
 
     Box::new(results.into_iter())
+}
+
+fn validate_aggregate_runtime_expressions<S: GraphSnapshot>(
+    row: &Row,
+    aggregates: &[(AggregateFunction, String)],
+    snapshot: &S,
+    params: &crate::query_api::Params,
+) -> Result<()> {
+    for (func, _) in aggregates {
+        match func {
+            AggregateFunction::Count(None) => {}
+            AggregateFunction::Count(Some(expr))
+            | AggregateFunction::CountDistinct(expr)
+            | AggregateFunction::Sum(expr)
+            | AggregateFunction::SumDistinct(expr)
+            | AggregateFunction::Avg(expr)
+            | AggregateFunction::AvgDistinct(expr)
+            | AggregateFunction::Min(expr)
+            | AggregateFunction::MinDistinct(expr)
+            | AggregateFunction::Max(expr)
+            | AggregateFunction::MaxDistinct(expr)
+            | AggregateFunction::Collect(expr)
+            | AggregateFunction::CollectDistinct(expr) => {
+                super::plan_mid::ensure_runtime_expression_compatible(expr, row, snapshot, params)?
+            }
+            AggregateFunction::PercentileDisc(value_expr, percentile_expr)
+            | AggregateFunction::PercentileCont(value_expr, percentile_expr) => {
+                super::plan_mid::ensure_runtime_expression_compatible(
+                    value_expr, row, snapshot, params,
+                )?;
+                super::plan_mid::ensure_runtime_expression_compatible(
+                    percentile_expr,
+                    row,
+                    snapshot,
+                    params,
+                )?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn evaluate_percentile_disc<S: GraphSnapshot>(
