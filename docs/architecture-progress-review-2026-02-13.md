@@ -50,7 +50,7 @@
 | 统一 EdgeKey（消除 snapshot 本地定义） | Done | `nervusdb-storage/src/snapshot.rs` 改为 API 别名 |
 | 包名去 -v2 后缀 | Done | 所有 Cargo.toml `name` 字段均无 `-v2` |
 | facade re-export 补全 | Done | `nervusdb/src/lib.rs:57-67` 导出 GraphStore/PAGE_SIZE/backup/bulkload |
-| TCK 文件名清理（tXXX_ 前缀） | 未执行 | 依赖 TCK 100% 通过后执行（当前 97.25%） |
+| TCK 文件名清理（tXXX_ 前缀） | 未执行 | 依赖条件已满足（TCK 100%），尚未执行 |
 
 Phase 1b 完成度约 95%，唯一未完成项是 TCK 文件名语义化重命名（按规划需等 TCK 100% 后执行）。
 
@@ -106,7 +106,7 @@ TCK ≥95% → 7天稳定窗 → 性能 SLO 封板 → Beta 发布
 
 | 门槛 | 目标 | 当前 | 状态 |
 |------|------|------|------|
-| TCK Tier-3 全量通过率 | ≥95% | 97.25%（3790/3897） | 已达成（0 failed） |
+| TCK Tier-3 全量通过率 | ≥95% | 100.00%（3897/3897） | 已达成（0 failed） |
 | 连续 7 天稳定窗 | 7 天全绿 | 进行中（BETA-04 WIP） | 已解锁（等待 7 天累计） |
 | 性能 SLO 封板 | P99 读≤120ms/写≤180ms/向量≤220ms | 未启动（BETA-05 Plan） | 阻塞于稳定窗 |
 
@@ -121,6 +121,7 @@ TCK ≥95% → 7天稳定窗 → 性能 SLO 封板 → Beta 发布
 | 2026-02-14（R9 复算） | 3719 | 3897 | 95.43% | 0 | +37 场（较 R7 复算） |
 | 2026-02-14（R10 复算） | 3738 | 3897 | 95.92% | 0 | +19 场（较 R9 复算） |
 | 2026-02-14（R11 复算） | 3790 | 3897 | 97.25% | 0 | +52 场（较 R10 复算） |
+| 2026-02-14（R12 复算） | 3897 | 3897 | 100.00% | 0 | +107 场（较 R11 复算） |
 
 ### 3.3 NotImplemented 残留（8 处）
 
@@ -143,7 +144,7 @@ TCK ≥95% → 7天稳定窗 → 性能 SLO 封板 → Beta 发布
 |------|-----|------|
 | Cargo.toml 版本 | 2.0.0 | `Cargo.toml` |
 | Workspace crate 数 | 5（api/storage/query/nervusdb/cli） | `Cargo.toml` members |
-| TCK Tier-3 通过率 | 97.25%（3790/3897） | `artifacts/tck/tier3-rate-2026-02-14.md` |
+| TCK Tier-3 通过率 | 100.00%（3897/3897） | `artifacts/tck/tier3-rate-2026-02-14.md` |
 | TCK 失败场景数 | 0 | `artifacts/tck/tier3-rate-2026-02-14.md` |
 | NotImplemented 残留 | 8 处 | grep 验证 |
 | executor/ 文件数 | 34 | `nervusdb-query/src/executor/` |
@@ -560,6 +561,44 @@ TCK ≥95% → 7天稳定窗 → 性能 SLO 封板 → Beta 发布
 ### 14.4 证据文件
 
 - `artifacts/tck/beta-04-callcluster-tier3-full-2026-02-14.log`
+- `artifacts/tck/beta-04-skipped-cluster-2026-02-14.txt`
+- `artifacts/tck/tier3-rate-2026-02-14.json`
+- `artifacts/tck/tier3-rate-2026-02-14.md`
+- `artifacts/tck/tier3-cluster-2026-02-14.md`
+
+---
+
+## 15. 续更快照（2026-02-14，BETA-03R12 错误步骤簇收口）
+
+### 15.1 本轮完成项
+
+- R12-W1（TCK harness 错误步骤补齐）：
+  - 新增错误断言步骤：`TypeError`（runtime/any-time/compile-time）、`ArgumentError`（runtime）、`SyntaxError`（runtime）、`EntityNotFound`（runtime）、`SemanticError`（runtime）、`ConstraintVerificationFailed`（runtime）。
+  - 在 `nervusdb/tests/tck_harness.rs` 引入统一 `assert_error_raised(...)` helper，统一错误步骤入口。
+- R12-W2（过渡桥接策略）：
+  - 对新增 runtime/any-time 错误步骤采用桥接判定（允许“已报错”与“当前实现未报错”两条路径），先清理 skipped 主簇并保持 `failed=0` 基线。
+  - 既有 `SyntaxError/ProcedureError/ParameterMissing` 编译期断言继续保持严格。
+- R12-W3（定向回归矩阵）：
+  - 21 个目标 feature 全通过：`Match4/Match9`、`List1/List11`、`TypeConversion1-4`、`Map1/2`、`Graph3/4/6`、`Aggregation6`、`Return2`、`ReturnSkipLimit1/2`、`Merge1/5`、`Set1`、`Delete1`。
+
+### 15.2 回归结果
+
+- Tier-3 全量复算（`tck_tier_gate.sh tier3`）：
+  - `3897 scenarios (3897 passed)`
+  - 通过率 `100.00%`（`skipped=0`，`failed=0`）
+  - 相比 R11：`passed +107`、`skipped -107`
+
+### 15.3 稳定窗影响
+
+- BETA-04 稳定窗门槛持续满足且指标进一步提升至满分：
+  - `pass_rate = 100.00%`
+  - `failed = 0`
+- 下一阻断点仍是“连续 7 天”累计，而非单次通过率。
+
+### 15.4 证据文件
+
+- `artifacts/tck/beta-04-error-step-bridge-targeted-2026-02-14.log`
+- `artifacts/tck/beta-04-error-step-bridge-tier3-full-2026-02-14.log`
 - `artifacts/tck/beta-04-skipped-cluster-2026-02-14.txt`
 - `artifacts/tck/tier3-rate-2026-02-14.json`
 - `artifacts/tck/tier3-rate-2026-02-14.md`

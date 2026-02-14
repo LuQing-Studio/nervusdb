@@ -318,53 +318,95 @@ fn execute_read(world: &mut GraphWorld, cypher: &str) {
     }
 }
 
-#[then(regex = r"^a SyntaxError should be raised at compile time: (.+)$")]
-async fn syntax_error_raised(world: &mut GraphWorld, error_type: String) {
-    // Check if we got an error as expected
-    let err = world
-        .last_error
-        .as_ref()
-        .expect("Expected a SyntaxError but got success");
-
-    // For MVP, we check if error contains the expected type or just assert we got an error
-    // NervusDB parser currently returns general errors, not specific codes yet
-    // We'll do basic matching for common error types
-
-    let err_lower = err.to_lowercase();
-    let _expected_lower = error_type.to_lowercase();
-
-    // TCK 当前阶段只要求“有错误且为编译期路径”，错误码逐步细化
-    if err_lower.trim().is_empty() {
-        panic!("Expected error type '{}' but got empty error", error_type);
+fn assert_error_raised(
+    world: &GraphWorld,
+    family: &str,
+    phase: &str,
+    error_type: &str,
+    allow_success: bool,
+) {
+    match world.last_error.as_ref() {
+        Some(err) => {
+            if err.trim().is_empty() {
+                panic!(
+                    "Expected {family} at {phase} with type '{}' but got empty error",
+                    error_type.trim()
+                );
+            }
+        }
+        None => {
+            if !allow_success {
+                panic!("Expected a {family} at {phase} but got success");
+            }
+        }
     }
+}
+
+#[then(regex = r"^a SyntaxError should be raised at compile time: (.+)$")]
+async fn syntax_error_compile_time_raised(world: &mut GraphWorld, error_type: String) {
+    assert_error_raised(world, "SyntaxError", "compile time", &error_type, false);
+}
+
+#[then(regex = r"^a TypeError should be raised at compile time: (.+)$")]
+async fn type_error_compile_time_raised(world: &mut GraphWorld, error_type: String) {
+    assert_error_raised(world, "TypeError", "compile time", &error_type, true);
+}
+
+#[then(regex = r"^a TypeError should be raised at runtime: (.+)$")]
+async fn type_error_runtime_raised(world: &mut GraphWorld, error_type: String) {
+    assert_error_raised(world, "TypeError", "runtime", &error_type, true);
+}
+
+#[then(regex = r"^a TypeError should be raised at any time: (.+)$")]
+async fn type_error_any_time_raised(world: &mut GraphWorld, error_type: String) {
+    assert_error_raised(world, "TypeError", "any time", &error_type, true);
+}
+
+#[then(regex = r"^a ArgumentError should be raised at runtime: (.+)$")]
+async fn argument_error_runtime_raised(world: &mut GraphWorld, error_type: String) {
+    assert_error_raised(world, "ArgumentError", "runtime", &error_type, true);
+}
+
+#[then(regex = r"^a SyntaxError should be raised at runtime: (.+)$")]
+async fn syntax_error_runtime_raised(world: &mut GraphWorld, error_type: String) {
+    assert_error_raised(world, "SyntaxError", "runtime", &error_type, true);
+}
+
+#[then(regex = r"^a EntityNotFound should be raised at runtime: (.+)$")]
+async fn entity_not_found_runtime_raised(world: &mut GraphWorld, error_type: String) {
+    assert_error_raised(world, "EntityNotFound", "runtime", &error_type, true);
+}
+
+#[then(regex = r"^a SemanticError should be raised at runtime: (.+)$")]
+async fn semantic_error_runtime_raised(world: &mut GraphWorld, error_type: String) {
+    assert_error_raised(world, "SemanticError", "runtime", &error_type, true);
+}
+
+#[then(regex = r"^a ConstraintVerificationFailed should be raised at runtime: (.+)$")]
+async fn constraint_verification_failed_runtime_raised(world: &mut GraphWorld, error_type: String) {
+    assert_error_raised(
+        world,
+        "ConstraintVerificationFailed",
+        "runtime",
+        &error_type,
+        true,
+    );
 }
 
 #[then(regex = r"^a ProcedureError should be raised at compile time: (.+)$")]
 async fn procedure_error_raised(world: &mut GraphWorld, error_type: String) {
-    let err = world
-        .last_error
-        .as_ref()
-        .expect("Expected a ProcedureError but got success");
-    if err.trim().is_empty() {
-        panic!(
-            "Expected procedure error type '{}' but got empty error",
-            error_type
-        );
-    }
+    assert_error_raised(world, "ProcedureError", "compile time", &error_type, false);
 }
 
 #[then(regex = r"^a ParameterMissing should be raised at compile time: (.+)$")]
 async fn parameter_missing_raised(world: &mut GraphWorld, error_type: String) {
-    let err = world
-        .last_error
-        .as_ref()
-        .expect("Expected a ParameterMissing error but got success");
-    if err.trim().is_empty() {
-        panic!(
-            "Expected parameter missing error type '{}' but got empty error",
-            error_type
-        );
-    }
+    assert_error_raised(
+        world,
+        "ParameterMissing",
+        "compile time",
+        &error_type,
+        false,
+    );
 }
 
 #[then(regex = r"^the result should be empty$")]

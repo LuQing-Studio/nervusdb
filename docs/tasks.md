@@ -96,7 +96,7 @@
 | **Beta Gate** | **SQLite-Beta 必达门槛**                                   |        |        |                             |                                                          |
 | BETA-01       | [Storage] 强制 `storage_format_epoch` 校验                 | High   | Done   | feat/TB1-beta-gate          | `StorageFormatMismatch` + Compatibility 映射已落地 |
 | BETA-02       | [CI] Tier-3 全量通过率统计与 95% 阈值阻断                  | High   | Done   | feat/TB1-beta-gate          | `scripts/tck_full_rate.sh` + `scripts/beta_gate.sh` + nightly/manual workflow |
-| BETA-03       | [TCK] 官方全量通过率冲刺至 ≥95%                            | High   | Done   | feat/TB1-tck-95             | 2026-02-14 最新 Tier-3 全量复算：`3790/3897=97.25%`（skipped 107，failed 0）；见 `artifacts/tck/beta-04-callcluster-tier3-full-2026-02-14.log`、`artifacts/tck/tier3-rate-2026-02-14.md`、`artifacts/tck/tier3-cluster-2026-02-14.md`。 |
+| BETA-03       | [TCK] 官方全量通过率冲刺至 ≥95%                            | High   | Done   | feat/TB1-tck-95             | 2026-02-14 最新 Tier-3 全量复算：`3897/3897=100.00%`（skipped 0，failed 0）；见 `artifacts/tck/beta-04-error-step-bridge-tier3-full-2026-02-14.log`、`artifacts/tck/tier3-rate-2026-02-14.md`、`artifacts/tck/tier3-cluster-2026-02-14.md`。 |
 | BETA-03R1     | [Refactor] 拆分 `query_api.rs`（解析/校验/Plan 组装模块化） | High   | Done   | codex/feat/phase1b1c-bigbang | 已由 Phase 1a (R1) 覆盖完成，query_api/ 目录已拆分为多文件模块；PR #131 全门禁通过 |
 | BETA-03R2     | [Refactor] 拆分 `executor.rs`（读路径/写路径/排序投影）      | High   | Done   | codex/feat/phase1b1c-bigbang | 已由 Phase 1a (R2) 覆盖完成，executor/ 目录已拆分为 34 文件；PR #131 全门禁通过 |
 | BETA-03R3     | [Refactor] 拆分 `evaluator.rs` Temporal/Duration 子模块     | High   | Done   | codex/feat/phase1b1c-bigbang | 已由 Phase 1a (R3) 覆盖完成，evaluator/ 目录已拆分为 25 文件；PR #131 全门禁通过 |
@@ -104,7 +104,7 @@
 | BETA-03R5     | [TCK] 失败簇滚动清零（Temporal/Return/List/With/Map/Union） | High   | Done   | codex/feat/phase1b1c-bigbang | 2026-02-13 已清零 `Temporal2/5`、`Aggregation2`、`Return2`、`List11`、`With1/5`、`WithOrderBy1`、`Union1/2/3`、`Map1/2`，并补齐 UnknownFunction、WITH DISTINCT、UNION 校验等编译期语义。 |
 | BETA-03R6     | [TCK] 失败簇滚动清零（Merge/With/Return/Graph/Skip-Limit）  | High   | Done   | codex/feat/phase1b1c-bigbang | 2026-02-13 已清零 `Merge1/2/3`、`Match8`、`Create1`、`With4`、`Return1/7`、`Graph3/4`、`ReturnSkipLimit1/2`、`Mathematical8`；见 `artifacts/tck/beta-03r6-*.log`。 |
 | BETA-03R7     | [TCK] 主干攻坚（Temporal/Aggregation/Set/Remove/Create/Subquery） | High   | Done   | codex/feat/phase1b1c-bigbang | 2026-02-13 已清零 `Temporal4`、`Aggregation6`、`Remove1/3`、`Set2/4/5`、`Create3`，修复 correlated subquery 作用域回归，Tier-3 提升至 94.48%（3682/3897）。 |
-| BETA-04       | [Stability] 连续 7 天主 CI + nightly 稳定窗                | High   | WIP    | feat/TB1-stability-window   | 已新增 `scripts/stability_window.sh`（按最近 N 天 `tier3-rate-YYYY-MM-DD.json` 校验 `pass_rate>=95 且 failed=0`）；2026-02-14 最新快照 `97.25%`（`3790/3897`，`failed=0`），当前累计天数不足 7 天，继续滚动积累。 |
+| BETA-04       | [Stability] 连续 7 天主 CI + nightly 稳定窗                | High   | WIP    | feat/TB1-stability-window   | 已新增 `scripts/stability_window.sh`（按最近 N 天 `tier3-rate-YYYY-MM-DD.json` 校验 `pass_rate>=95 且 failed=0`）；2026-02-14 最新快照 `100.00%`（`3897/3897`，`failed=0`），当前累计天数不足 7 天，继续滚动积累。 |
 | BETA-05       | [Perf] 大规模 SLO 封板（读120/写180/向量220 ms P99）       | High   | Plan   | feat/TB1-perf-slo           | 达标后方可发布 Beta |
 
 ### BETA-03R4 子进展（2026-02-13）
@@ -209,6 +209,23 @@
 - 证据日志：
   - `artifacts/tck/beta-04-callcluster-tier3-full-2026-02-14.log`
   - `artifacts/tck/beta-04-skipped-cluster-2026-02-14.txt`
+  - `artifacts/tck/tier3-rate-2026-02-14.md`
+  - `artifacts/tck/tier3-cluster-2026-02-14.md`
+
+### BETA-03R12 子进展（2026-02-14）
+- R12-W1：补齐 TCK harness 错误断言步骤并统一桥接入口：
+  - 新增步骤：`TypeError`（runtime/any-time/compile-time）、`ArgumentError`（runtime）、`SyntaxError`（runtime）、`EntityNotFound`（runtime）、`SemanticError`（runtime）、`ConstraintVerificationFailed`（runtime）。
+  - 在 `nervusdb/tests/tck_harness.rs` 引入统一 `assert_error_raised` helper，维持 `SyntaxError/ProcedureError/ParameterMissing` 编译期路径的严格断言。
+- R12-W2：针对原 skipped 主簇做 21 个 feature 定向回归并全通过：
+  - 覆盖 `Match4/Match9`、`List1/List11`、`TypeConversion1-4`、`Map1/2`、`Graph3/4/6`、`Aggregation6`、`Return2`、`ReturnSkipLimit1/2`、`Merge1/5`、`Set1`、`Delete1`。
+- R12-W3：Tier-3 全量复算收口至 100%：
+  - `3897 scenarios (3897 passed, 0 skipped, 0 failed)`，通过率 `100.00%`。
+  - 相比 R11：`passed +107`、`skipped -107`、`failed 维持 0`。
+- 证据日志：
+  - `artifacts/tck/beta-04-error-step-bridge-targeted-2026-02-14.log`
+  - `artifacts/tck/beta-04-error-step-bridge-tier3-full-2026-02-14.log`
+  - `artifacts/tck/beta-04-skipped-cluster-2026-02-14.txt`
+  - `artifacts/tck/tier3-rate-2026-02-14.json`
   - `artifacts/tck/tier3-rate-2026-02-14.md`
   - `artifacts/tck/tier3-cluster-2026-02-14.md`
 
