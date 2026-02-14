@@ -736,3 +736,44 @@ TCK ≥95% → 7天稳定窗 → 性能 SLO 封板 → Beta 发布
 - `artifacts/tck/beta-04-r13w3-runtime-strict-rescan-2026-02-14.log`
 - `artifacts/tck/beta-04-r13w3-gate-2026-02-14.log`
 - `artifacts/tck/beta-04-r13w3-gate-rerun-2026-02-14.log`
+
+---
+
+## 19. 续更快照（2026-02-14，BETA-03R14-W1 runtime 语义一致性收口）
+
+### 19.1 本轮完成项（R14-W1）
+
+- 补齐 `WHERE` 路径的 runtime TypeError 严格语义：
+  - 在 `FilterIter` 中接入 `ensure_runtime_expression_compatible`，对谓词表达式先做运行期类型校验，再执行布尔求值。
+  - 修复此前“非法表达式在 WHERE 里静默变空结果”的语义缺口。
+- 补齐 `type()` 在写路径物化关系值上的兼容性：
+  - `evaluate_type` 新增 `Value::Relationship` 分支，与既有 `Value::EdgeKey` 同步解析关系类型名。
+  - 修复 `SET ... RETURN type(r)` 场景可能返回 `null` 的问题。
+- TDD 验证：
+  - 新增并先跑红：
+    - `test_where_invalid_list_index_raises_runtime_type_error`
+    - `test_set_relationship_return_type_keeps_rel_type_name`
+  - 完成修复后两条测试均转绿。
+
+### 19.2 回归结果
+
+- 集成测试：
+  - `t301_expression_ops` 全通过（含新增 WHERE runtime 错误断言）。
+  - `t108_set_clause` 全通过（含新增关系 `type(r)` 断言）。
+  - `t313_functions` 全通过（校验 `type()` 既有读路径行为未回退）。
+- TCK 定向：
+  - `expressions/list/List1.feature` 全通过。
+  - `expressions/graph/Graph4.feature` 全通过。
+  - `clauses/set/Set1.feature` 全通过。
+- 格式校验：
+  - `cargo fmt --all -- --check` 通过。
+
+### 19.3 对 BETA-04 稳定窗的影响
+
+- 该波次属于“语义一致性补洞”，不改变稳定窗口径，但能降低 runtime TypeError 在不同执行节点上的不一致风险。
+- 当前稳定窗阻断仍是“连续 7 天样本不足”，并且历史快照中仍包含非达标日（如 `2026-02-13`）。
+
+### 19.4 证据文件
+
+- `artifacts/tck/beta-04-r14w1-targeted-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w1-tier0-2026-02-14.log`

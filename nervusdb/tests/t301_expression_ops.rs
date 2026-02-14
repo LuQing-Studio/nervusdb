@@ -76,6 +76,28 @@ fn test_arithmetic_in_where_and_set() -> nervusdb::Result<()> {
 }
 
 #[test]
+fn test_where_invalid_list_index_raises_runtime_type_error() -> nervusdb::Result<()> {
+    let dir = tempdir()?;
+    let db = Db::open(dir.path().join("t301_where_runtime_type_error.ndb"))?;
+    let snapshot = db.snapshot();
+
+    let q = "WITH [1, 2, 3] AS list, true AS idx WHERE list[idx] = 1 RETURN 1 AS r";
+    let prep = nervusdb::query::prepare(q)?;
+    let err = prep
+        .execute_streaming(&snapshot, &Params::default())
+        .collect::<Result<Vec<_>, _>>()
+        .expect_err("invalid list index type in WHERE should raise runtime TypeError")
+        .to_string();
+
+    assert!(
+        err.contains("InvalidArgumentType"),
+        "expected InvalidArgumentType, got: {err}"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn test_string_ops_in_and_count_star() -> nervusdb::Result<()> {
     let dir = tempdir()?;
     let db_path = dir.path().join("t301_str.ndb");

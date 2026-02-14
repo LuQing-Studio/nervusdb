@@ -65,14 +65,22 @@ fn evaluate_labels<S: GraphSnapshot>(args: &[Value], snapshot: &S) -> Value {
 }
 
 fn evaluate_type<S: GraphSnapshot>(args: &[Value], snapshot: &S) -> Value {
-    if let Some(Value::EdgeKey(edge_key)) = args.first() {
-        if let Some(name) = snapshot.resolve_rel_type_name(edge_key.rel) {
-            Value::String(name)
-        } else {
-            Value::String(format!("<{}>", edge_key.rel))
+    match args.first() {
+        Some(Value::EdgeKey(edge_key)) => {
+            if let Some(name) = snapshot.resolve_rel_type_name(edge_key.rel) {
+                Value::String(name)
+            } else {
+                Value::String(format!("<{}>", edge_key.rel))
+            }
         }
-    } else {
-        Value::Null
+        Some(Value::Relationship(rel)) => {
+            if let Some(name) = snapshot.resolve_rel_type_name(rel.key.rel) {
+                Value::String(name)
+            } else {
+                Value::String(format!("<{}>", rel.key.rel))
+            }
+        }
+        _ => Value::Null,
     }
 }
 

@@ -45,6 +45,14 @@ impl<'a, S: GraphSnapshot> Iterator for FilterIter<'a, S> {
         loop {
             match self.input.next() {
                 Some(Ok(row)) => {
+                    if let Err(err) = super::plan_mid::ensure_runtime_expression_compatible(
+                        self.predicate,
+                        &row,
+                        self.snapshot,
+                        self.params,
+                    ) {
+                        return Some(Err(err));
+                    }
                     let pass = crate::evaluator::evaluate_expression_bool(
                         self.predicate,
                         &row,
