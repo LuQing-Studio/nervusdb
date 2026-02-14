@@ -120,7 +120,7 @@ fn ensure_runtime_function_call_compatible<S: GraphSnapshot>(
     }
 }
 
-fn ensure_runtime_expression_compatible<S: GraphSnapshot>(
+pub(super) fn ensure_runtime_expression_compatible<S: GraphSnapshot>(
     expr: &Expression,
     row: &Row,
     snapshot: &S,

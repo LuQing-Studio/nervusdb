@@ -139,6 +139,39 @@ fn test_set_clause_on_relationship() -> nervusdb::Result<()> {
 }
 
 #[test]
+fn test_set_relationship_return_type_keeps_rel_type_name() -> nervusdb::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let db_path = dir.path().join("t108_set_rel_return_type.ndb");
+    let db = Db::open(&db_path)?;
+
+    {
+        let mut txn = db.begin_write();
+        let person = txn.get_or_create_label("Person")?;
+        let knows = txn.get_or_create_rel_type("KNOWS")?;
+        let a = txn.create_node(1, person)?;
+        let b = txn.create_node(2, person)?;
+        txn.create_edge(a, knows, b);
+        txn.commit()?;
+    }
+
+    let snapshot = db.snapshot();
+    let mut txn = db.begin_write();
+    let q = "MATCH (a)-[r:KNOWS]->(b) SET r.since = 2026 RETURN type(r) AS t";
+    let (rows, count) =
+        nervusdb::query::prepare(q)?.execute_mixed(&snapshot, &mut txn, &Default::default())?;
+    txn.commit()?;
+
+    assert_eq!(count, 1);
+    assert_eq!(rows.len(), 1);
+    assert!(matches!(
+        rows[0].get("t"),
+        Some(nervusdb::query::Value::String(name)) if name == "KNOWS"
+    ));
+
+    Ok(())
+}
+
+#[test]
 fn test_set_clause_add_node_label() -> nervusdb::Result<()> {
     let dir = tempfile::tempdir()?;
     let db_path = dir.path().join("t108_set_label.ndb");
