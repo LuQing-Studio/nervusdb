@@ -1131,3 +1131,26 @@ TCK ≥95% → 7天稳定窗 → 性能 SLO 封板 → Beta 发布
 - `artifacts/tck/beta-04-r14w10-index-seek-guard-targeted-2026-02-14.log`
 - `artifacts/tck/beta-04-r14w10-index-seek-guard-fmt-2026-02-14.log`
 - `artifacts/tck/beta-04-r14w10-index-seek-guard-tier0-2026-02-14.log`
+
+---
+
+## 29. 续更快照（2026-02-14，BETA-03R14-W11 runtime guard 审计脚本落地）
+
+### 29.1 本轮完成项（R14-W11）
+
+- 新增可重复执行的审计脚本，量化 executor 侧 runtime guard 覆盖面：
+  - 新增：`scripts/runtime_guard_audit.sh`
+  - 兼容性：避免使用 bash 4+ 才支持的关联数组（macOS 默认 bash 3.2 可直接运行）。
+- 脚本输出内容：
+  - 统计 `nervusdb-query/src/executor` 下 `evaluate_expression_value(...)` 与 `ensure_runtime_expression_compatible(...)` 的分布；
+  - 自动列出 `eval>0 && guard==0` 的潜在热点文件，用于后续收口排查。
+
+### 29.2 审计结论（当前快照）
+
+- 当前唯一被标记的潜在热点：`nervusdb-query/src/executor/write_orchestration.rs`
+  - 说明：该处为 delete overlay 目标收集逻辑（`collect_delete_targets_from_rows`），不在实际删除执行入口；
+  - 后续动作：可评估是否需要将收集函数改为 `Result<...>` 并在收集阶段也显式 guard（当前不会影响 DELETE 的最终 runtime 错误语义，因为执行入口已有 guard）。
+
+### 29.3 证据文件
+
+- `artifacts/tck/beta-04-r14w11-runtime-guard-audit-2026-02-14.log`
