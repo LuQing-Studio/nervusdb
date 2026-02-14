@@ -317,7 +317,7 @@
 - R14-W4（定向回归）：
   - 集成测试：`t324_foreach`（4/4，含新增 1 条）、`create_test` 新增 DELETE runtime 错误断言、`t108/t306/t301` runtime 严格化断言全通过。
   - TCK 定向：`Delete5`、`Delete1`、`Delete3` 全通过。
-  - 门禁：`bash scripts/tck_tier_gate.sh tier0` 全通过，`cargo fmt --all -- --check` 通过。
+  - 门禁：`bash scripts/tck_tier_gate.sh tier0|tier1|tier2` 全通过，`cargo fmt --all -- --check` 通过。
 - 证据日志：
   - `artifacts/tck/beta-04-r14w1-targeted-2026-02-14.log`
   - `artifacts/tck/beta-04-r14w1-tier0-2026-02-14.log`
@@ -327,6 +327,7 @@
   - `artifacts/tck/beta-04-r14w3-write-guard-tier0-2026-02-14.log`
   - `artifacts/tck/beta-04-r14w4-tail-guard-targeted-2026-02-14.log`
   - `artifacts/tck/beta-04-r14w4-tail-guard-tier0-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w4-tail-guard-tier12-2026-02-14.log`
 
 ## Archived (v1/Alpha)
 

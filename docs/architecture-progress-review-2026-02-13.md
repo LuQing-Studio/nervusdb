@@ -890,7 +890,7 @@ TCK ≥95% → 7天稳定窗 → 性能 SLO 封板 → Beta 发布
 - TCK 定向：
   - `clauses/delete/Delete5.feature`、`clauses/delete/Delete1.feature`、`clauses/delete/Delete3.feature` 全通过。
 - 门禁：
-  - `bash scripts/tck_tier_gate.sh tier0` 全通过；
+  - `bash scripts/tck_tier_gate.sh tier0|tier1|tier2` 全通过；
   - `cargo fmt --all -- --check` 通过。
 
 ### 22.3 对后续 R14 的影响
@@ -904,3 +904,4 @@ TCK ≥95% → 7天稳定窗 → 性能 SLO 封板 → Beta 发布
 
 - `artifacts/tck/beta-04-r14w4-tail-guard-targeted-2026-02-14.log`
 - `artifacts/tck/beta-04-r14w4-tail-guard-tier0-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w4-tail-guard-tier12-2026-02-14.log`
