@@ -105,8 +105,8 @@
 | BETA-03R6     | [TCK] 失败簇滚动清零（Merge/With/Return/Graph/Skip-Limit）  | High   | Done   | codex/feat/phase1b1c-bigbang | 2026-02-13 已清零 `Merge1/2/3`、`Match8`、`Create1`、`With4`、`Return1/7`、`Graph3/4`、`ReturnSkipLimit1/2`、`Mathematical8`；见 `artifacts/tck/beta-03r6-*.log`。 |
 | BETA-03R7     | [TCK] 主干攻坚（Temporal/Aggregation/Set/Remove/Create/Subquery） | High   | Done   | codex/feat/phase1b1c-bigbang | 2026-02-13 已清零 `Temporal4`、`Aggregation6`、`Remove1/3`、`Set2/4/5`、`Create3`，修复 correlated subquery 作用域回归，Tier-3 提升至 94.48%（3682/3897）。 |
 | BETA-03R13    | [Hardening] `TypeError` 断言收紧（compile-time + any-time + runtime） | High   | Done   | codex/feat/beta-04-r13w2-anytime-hardening | R13-W1/W2/W3 已全部完成：compile-time、any-time、runtime 三类 `TypeError` 断言均切换为严格模式；补齐递归运行期表达式类型守卫（含 list comprehension 作用域）与属性写入非法 list 元素拦截，定向簇与基线门禁全绿。 |
-| BETA-03R14    | [Hardening] runtime 语义一致性收口（WHERE guard + type(rel)） | High   | WIP    | codex/feat/beta-04-r14w1-runtime-guard | R14-W1 已完成：`WHERE` 路径接入 runtime guard（修复非法索引静默过滤），补齐 `SET ... RETURN type(r)` 在 `Relationship` 值上的类型名返回语义；定向回归全绿。 |
-| BETA-04       | [Stability] 连续 7 天主 CI + nightly 稳定窗                | High   | WIP    | feat/TB1-stability-window   | 已新增 `scripts/stability_window.sh`（按最近 N 天 `tier3-rate-YYYY-MM-DD.json` 校验 `pass_rate>=95 且 failed=0`）；2026-02-14 最新快照 `100.00%`（`3897/3897`，`failed=0`），当前累计天数不足 7 天，继续滚动积累。 |
+| BETA-03R14    | [Hardening] runtime 语义一致性收口（WHERE guard + type(rel)） | High   | Done   | codex/feat/beta-04-r14w2-unwind-guard | R14-W1~W13 已完成：`WHERE/UNWIND/SET/MERGE/FOREACH/DELETE/CREATE/CALL/Aggregate/IndexSeek` 入口 runtime guard 全覆盖，`runtime_guard_audit` 热点清零并接入 CI；W13-A 全量证据：core gates 全绿、Tier-3 全量 `3897/3897` 全通过。 |
+| BETA-04       | [Stability] 连续 7 天主 CI + nightly 稳定窗                | High   | WIP    | feat/TB1-stability-window   | strict 稳定窗基建已落地（`ci-daily-snapshot` + `stability_window.sh --mode strict` + `beta_release_gate.sh` + release 接线）；Day1（2026-02-15）快照已写入，当前 `consecutive_days=0/7`（nightly GitHub 数据待主分支 workflow 运行后累计）。 |
 | BETA-05       | [Perf] 大规模 SLO 封板（读120/写180/向量220 ms P99）       | High   | Plan   | feat/TB1-perf-slo           | 达标后方可发布 Beta |
 
 ### BETA-03R4 子进展（2026-02-13）
@@ -284,9 +284,167 @@
   - 集成测试：`t301_expression_ops`、`t108_set_clause`、`t313_functions` 全通过。
   - TCK 定向：`List1`、`Graph4`、`Set1` 全通过。
   - `cargo fmt --all -- --check` 通过。
+- R14-W2（TDD：先红后绿，UNWIND 入口补洞）：
+  - 新增失败用例并先验证红灯：
+    - `test_unwind_invalid_list_index_raises_runtime_type_error`
+    - `test_unwind_toboolean_invalid_argument_raises_runtime_type_error`
+  - 修复点：
+    - `execute_unwind` 在每行展开前接入 `ensure_runtime_expression_compatible`，使 `UNWIND` 与 `Project/OrderBy/WHERE` 的 runtime TypeError 语义一致。
+    - 修复此前 `UNWIND` 对非法表达式“吞错并产出 null 行”的行为差异。
+- R14-W2（定向回归）：
+  - 集成测试：`t306_unwind`（含新增 2 条）全通过。
+  - 扩展回归：`t301_expression_ops`（where runtime guard）、`t108_set_clause`（type(rel)）、`t313_functions` 全通过。
+  - TCK 定向：`List1`、`Graph4`、`Set1` 全通过。
+  - 门禁：`bash scripts/tck_tier_gate.sh tier0` 全通过，`cargo fmt --all -- --check` 通过。
+- R14-W3（TDD：先红后绿，写路径表达式入口补洞）：
+  - 新增失败用例并先验证红灯：
+    - `test_set_invalid_toboolean_argument_raises_runtime_type_error`
+  - 修复点：
+    - `execute_set`、`execute_set_from_maps` 在表达式求值前接入 `ensure_runtime_expression_compatible`。
+    - `merge_apply_set_items`、`merge_eval_props_on_row` 同步接入 guard，消除 `SET/MERGE` 写路径对非法表达式“静默 `null`/继续执行”的语义缺口。
+- R14-W3（定向回归）：
+  - 集成测试：`t108_set_clause`（11/11，含新增 runtime 错误断言）、`t105_merge_test`、`t323_merge_semantics`、`t306_unwind`、`t301_expression_ops`、`t313_functions` 全通过。
+  - TCK 定向：`Set1`、`List1`、`Graph4` 全通过。
+  - 门禁：`bash scripts/tck_tier_gate.sh tier0` 全通过，`cargo fmt --all -- --check` 通过。
+- R14-W4（TDD：先红后绿，尾部执行入口收口）：
+  - 新增失败用例并先验证红灯：
+    - `t324_foreach_invalid_toboolean_argument_raises_runtime_type_error`
+    - `test_delete_list_index_with_invalid_index_type_raises_runtime_type_error`
+  - 修复点：
+    - `execute_foreach` 对列表表达式求值前接入 `ensure_runtime_expression_compatible`。
+    - `execute_delete` / `execute_delete_on_rows` 对 DELETE 目标表达式求值前接入 `ensure_runtime_expression_compatible`。
+    - 修复 `FOREACH/DELETE` 在非法表达式下“静默 `null` 或继续执行”的语义缺口，与既有 runtime guard 路径保持一致。
+- R14-W4（定向回归）：
+  - 集成测试：`t324_foreach`（4/4，含新增 1 条）、`create_test` 新增 DELETE runtime 错误断言、`t108/t306/t301` runtime 严格化断言全通过。
+  - TCK 定向：`Delete5`、`Delete1`、`Delete3` 全通过。
+  - 门禁：`bash scripts/tck_tier_gate.sh tier0|tier1|tier2` 全通过，`cargo fmt --all -- --check` 通过。
+- R14-W5（TDD：先红后绿，CREATE 属性表达式入口补洞）：
+  - 新增失败用例并先验证红灯：
+    - `test_create_property_with_invalid_toboolean_argument_raises_runtime_type_error`
+  - 修复点：
+    - `execute_create_from_rows` 的节点/关系属性表达式求值前接入 `ensure_runtime_expression_compatible`。
+    - 修复此前 `CREATE ... {prop: toBoolean(1)}` 可能“静默写入 null/跳过属性”的行为差异，与其他执行入口 runtime TypeError 语义对齐。
+- R14-W5（定向回归）：
+  - 集成测试：`create_test`（新增 CREATE runtime 错误断言 + DELETE runtime 错误断言）、`t324_foreach`、`t108`、`t306` 全通过。
+  - TCK 定向：`Create1`、`Delete5` 全通过。
+  - 门禁：`bash scripts/tck_tier_gate.sh tier0` 全通过，`cargo fmt --all -- --check` 通过。
+- R14-W6（TDD：先红后绿，CALL 参数表达式入口补洞）：
+  - 新增失败用例并先验证红灯：
+    - `test_procedure_argument_expression_invalid_toboolean_raises_runtime_type_error`
+  - 修复点：
+    - `ProcedureCallIter::next` 在过程参数逐项求值前接入 `ensure_runtime_expression_compatible`。
+    - 修复 `CALL ...` 参数表达式在非法输入下先落到过程内部报错（如 `math.add requires numeric arguments`）的语义偏差，统一为 runtime `InvalidArgumentValue`。
+- R14-W6（定向回归）：
+  - 集成测试：`t320_procedures`（新增 1 条）、`t324_foreach`、`t108_set_clause`、`t306_unwind`、`create_test`、`t301_expression_ops` 全通过。
+  - TCK 定向：`clauses/call/Call1.feature`、`clauses/call/Call2.feature`、`clauses/call/Call3.feature` 全通过。
+  - 门禁：`bash scripts/tck_tier_gate.sh tier0` 全通过，`cargo fmt --all -- --check` 通过。
+- R14-W7（TDD：先红后绿，聚合参数表达式入口补洞）：
+  - 新增失败用例并先验证红灯：
+    - `test_aggregate_argument_invalid_toboolean_raises_runtime_type_error`
+  - 修复点：
+    - `execute_aggregate` 对每行输入的聚合参数表达式（含 `count/sum/avg/min/max/collect/percentile`）统一接入 `ensure_runtime_expression_compatible`。
+    - 修复 `RETURN count(toBoolean(1))` 被吞成 `0` 的语义偏差，统一为 runtime `InvalidArgumentValue`。
+- R14-W7（定向回归）：
+  - 集成测试：`t152_aggregation`（新增 1 条）、`t320_procedures` 全通过。
+  - TCK 定向：`expressions/aggregation/Aggregation1.feature`、`expressions/aggregation/Aggregation2.feature`、`expressions/typeConversion/TypeConversion1.feature` 全通过。
+  - 门禁：`bash scripts/tck_tier_gate.sh tier0` 全通过，`cargo fmt --all -- --check` 通过。
+- R14-W8（审计：`IndexSeek` 非法值表达式回归加固）：
+  - 新增回归用例：
+    - `test_index_seek_invalid_value_expression_raises_runtime_type_error`
+  - 审计结论：
+    - `MATCH (n:Person) WHERE n.name = toBoolean(1) RETURN n` 在索引路径下保持 runtime `InvalidArgumentValue` 语义，不会被“空结果”静默吞错。
+  - 定向回归：`t107_index_integration` 新增用例通过；`expressions/typeConversion/TypeConversion1.feature` 全通过；`cargo fmt --all -- --check` 通过。
+- R14-W9（审计：`percentile` 双参数 guard 回归加固）：
+  - 新增回归用例：
+    - `test_percentile_argument_invalid_toboolean_raises_runtime_type_error`
+  - 审计结论：
+    - `RETURN percentileDisc(1, toBoolean(1))` 在聚合路径下稳定抛 runtime `InvalidArgumentValue`，`PercentileDisc/Cont` 的双表达式 guard 分支已被覆盖。
+  - 定向回归：`t152_aggregation`（新增 1 条）通过；`expressions/aggregation/Aggregation2.feature`、`expressions/typeConversion/TypeConversion1.feature` 全通过；`cargo fmt --all -- --check` 通过。
+- R14-W10（TDD：先红后绿，`IndexSeek` 值表达式入口补洞）：
+  - 执行入口修复：
+    - `execute_index_seek` 在值表达式求值前接入 `ensure_runtime_expression_compatible`，避免依赖 fallback 路径兜底 runtime 错误语义。
+  - 回归补强：
+    - `test_index_seek_invalid_value_expression_raises_runtime_type_error` 保持覆盖，锁定 `MATCH (n:Person) WHERE n.name = toBoolean(1) RETURN n` 仍抛 runtime `InvalidArgumentValue`。
+  - 定向回归：`t107_index_integration`、`t320_procedures`、`t152_aggregation` 全通过；`expressions/typeConversion/TypeConversion1.feature` 全通过。
+  - 门禁：`bash scripts/tck_tier_gate.sh tier0` 全通过，`cargo fmt --all -- --check` 通过。
+- R14-W11（审计：runtime guard 扫描脚本落地）：
+  - 新增脚本：`scripts/runtime_guard_audit.sh`（兼容 macOS 默认 bash 3.2）
+  - 审计输出：
+    - 统计 `executor/` 中 `evaluate_expression_value` vs `ensure_runtime_expression_compatible` 分布；
+    - 当前唯一潜在热点：`write_orchestration.rs`（存在一次直接求值且未显式 guard；该处为 delete overlay 目标收集，后续可评估是否需要改为 Result 传播）。
+  - 证据：`artifacts/tck/beta-04-r14w11-runtime-guard-audit-2026-02-14.log`。
+- R14-W12（收口：清零 executor 侧 runtime guard 审计热点）：
+  - 修复点：
+    - `collect_delete_targets_from_rows` 升级为 `Result`，并在表达式求值前接入 `ensure_runtime_expression_compatible`，避免 delete overlay 目标收集阶段的“未 guard 直接求值”。
+  - 结果：
+    - `scripts/runtime_guard_audit.sh` 输出 `potential hotspots` 为 `none`。
+  - 门禁：`bash scripts/tck_tier_gate.sh tier0` 全通过，`cargo fmt --all -- --check` 通过。
 - 证据日志：
   - `artifacts/tck/beta-04-r14w1-targeted-2026-02-14.log`
   - `artifacts/tck/beta-04-r14w1-tier0-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w2-targeted-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w2-tier0-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w3-write-guard-targeted-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w3-write-guard-tier0-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w4-tail-guard-targeted-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w4-tail-guard-tier0-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w4-tail-guard-tier12-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w5-create-guard-targeted-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w5-create-guard-tier0-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w6-call-guard-unit-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w6-call-guard-targeted-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w6-call-guard-tier0-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w6-call-guard-fmt-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w7-aggregate-guard-targeted-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w7-aggregate-guard-tier0-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w7-aggregate-guard-fmt-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w8-index-seek-audit-targeted-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w8-index-seek-audit-fmt-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w9-percentile-guard-targeted-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w9-percentile-guard-fmt-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w10-index-seek-guard-targeted-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w10-index-seek-guard-fmt-2026-02-14.log`
+  - `artifacts/tck/beta-04-r14w10-index-seek-guard-tier0-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w11-runtime-guard-audit-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w12-runtime-guard-hotspot-fix-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w12-runtime-guard-hotspot-fix-tier0-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w12-runtime-guard-hotspot-fix-fmt-2026-02-14.log`
+
+### BETA-03R14 子进展（2026-02-15，W13 收尾）
+- R14-W13-A（收口与门禁）：
+  - `runtime_guard_audit` CLI 固化：保留 `--root`、`--fail-on-hotspot`、`--help`，并支持无 `rg` 时回退 `grep -RIn`。
+  - CI 接线：`ci.yml` 已加入 `bash scripts/runtime_guard_audit.sh --fail-on-hotspot`（位于 `fmt/clippy` 后、`workspace_quick_test` 前）。
+  - W13 核心门禁复跑全绿：`fmt + clippy + runtime_guard + workspace_quick_test + tier0/1/2 + binding_smoke + contract_smoke` 全通过。
+  - Tier-3 全量复跑保持全绿：`3897 scenarios (3897 passed)`，失败簇报告 `No step failures found.`。
+- R14-W13-A（语义补点）：
+  - 修复写路径 list 属性转换对 duration map 的误拦截，允许 `List<Duration>` 写入属性；普通 map list 仍维持 `InvalidPropertyType`。
+  - 新增回归单测：
+    - `allows_duration_maps_inside_list_properties`
+    - `rejects_regular_map_inside_list_properties`
+- 证据日志：
+  - `artifacts/tck/beta-04-r14w13-runtime-guard-gate-2026-02-15.log`
+  - `artifacts/tck/beta-04-r14w13-core-gates-2026-02-15.log`
+  - `artifacts/tck/beta-04-r14w13-tier3-full-2026-02-15.log`
+  - `artifacts/tck/beta-04-r14w13-tier3-full-2026-02-15.cluster.md`
+
+### BETA-04 子进展（2026-02-15，strict 稳定窗 Day1）
+- W13-B（基建）：
+  - 已落地 `ci-daily-snapshot.yml`、`stability-window-daily.yml`、`beta_release_gate.sh`、strict 模式 `stability_window.sh`，并接入发布流程阻断（不阻断日常 PR）。
+- W13-C（Day1 记账）：
+  - 当日快照产物：
+    - `artifacts/tck/tier3-rate-2026-02-15.json`（`pass_rate=100.00`，`failed=0`）
+    - `artifacts/tck/ci-daily-2026-02-15.json`（`all_passed=true`）
+    - `artifacts/tck/stability-daily-2026-02-15.json`
+    - `artifacts/tck/stability-window.json`
+    - `artifacts/tck/stability-window.md`
+  - strict 窗口当前状态：
+    - `consecutive_days=0/7`
+    - `window_passed=false`
+    - 本地 Day1 统计因 `github_data_unavailable`（nightly 工作流历史需在主分支运行后回填）未计入连续通过天数。
+  - 计划完成日（若后续连续 7 天全通过）：最早 `2026-02-21`。
+  - 证据日志：
+    - `artifacts/tck/beta-04-r14w13-stability-window-day1-2026-02-15.log`
+    - `artifacts/tck/beta-04-r14w13-stability-window-day1-2026-02-15.rc`
 
 ## Archived (v1/Alpha)
 

@@ -16,6 +16,7 @@ pub(super) fn execute_foreach<S: GraphSnapshot>(
 
     for row in execute_plan(snapshot, input, params) {
         let row = row?;
+        super::plan_mid::ensure_runtime_expression_compatible(list, &row, snapshot, params)?;
         let list_val = evaluate_expression_value(list, &row, snapshot, params);
 
         let items = match list_val {

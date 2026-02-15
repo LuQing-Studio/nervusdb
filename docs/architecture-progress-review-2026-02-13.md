@@ -107,7 +107,7 @@ TCK ≥95% → 7天稳定窗 → 性能 SLO 封板 → Beta 发布
 | 门槛 | 目标 | 当前 | 状态 |
 |------|------|------|------|
 | TCK Tier-3 全量通过率 | ≥95% | 100.00%（3897/3897） | 已达成（0 failed） |
-| 连续 7 天稳定窗 | 7 天全绿 | 进行中（BETA-04 WIP） | 已解锁（等待 7 天累计） |
+| 连续 7 天稳定窗 | 7 天全绿 | 进行中（BETA-04 WIP，strict Day1 已记账） | 已解锁（当前 0/7，最早 2026-02-21） |
 | 性能 SLO 封板 | P99 读≤120ms/写≤180ms/向量≤220ms | 未启动（BETA-05 Plan） | 阻塞于稳定窗 |
 
 ### 3.2 TCK 收敛进展
@@ -122,6 +122,7 @@ TCK ≥95% → 7天稳定窗 → 性能 SLO 封板 → Beta 发布
 | 2026-02-14（R10 复算） | 3738 | 3897 | 95.92% | 0 | +19 场（较 R9 复算） |
 | 2026-02-14（R11 复算） | 3790 | 3897 | 97.25% | 0 | +52 场（较 R10 复算） |
 | 2026-02-14（R12 复算） | 3897 | 3897 | 100.00% | 0 | +107 场（较 R11 复算） |
+| 2026-02-15（R14-W13 复算） | 3897 | 3897 | 100.00% | 0 | 持平（全绿保持） |
 
 ### 3.3 NotImplemented 残留（8 处）
 
@@ -777,3 +778,467 @@ TCK ≥95% → 7天稳定窗 → 性能 SLO 封板 → Beta 发布
 
 - `artifacts/tck/beta-04-r14w1-targeted-2026-02-14.log`
 - `artifacts/tck/beta-04-r14w1-tier0-2026-02-14.log`
+
+---
+
+## 20. 续更快照（2026-02-14，BETA-03R14-W2 UNWIND runtime guard 收口）
+
+### 20.1 本轮完成项（R14-W2）
+
+- 以 TDD 方式补齐 `UNWIND` 执行入口的 runtime 类型语义一致性：
+  - 新增并先跑红：
+    - `test_unwind_invalid_list_index_raises_runtime_type_error`
+    - `test_unwind_toboolean_invalid_argument_raises_runtime_type_error`
+  - 修复实现：
+    - 在 `nervusdb-query/src/executor/plan_tail.rs` 的 `execute_unwind` 中复用 `ensure_runtime_expression_compatible(...)`。
+    - 在每行 `UNWIND` 展开前先做运行期表达式兼容性检查；不兼容时直接返回 runtime error。
+- 行为变化：
+  - 修复此前 `UNWIND` 对非法表达式“静默吞错并产出 `null` 行”的行为差异；
+  - 与既有 `Project`、`OrderBy`、`WHERE(FilterIter)` 的 runtime guard 语义对齐。
+
+### 20.2 回归结果
+
+- 定向测试：
+  - `cargo test -p nervusdb --test t306_unwind -- --nocapture`：`7 passed`（含新增 2 条）
+- 扩展回归：
+  - `t301_expression_ops`（`WHERE` runtime guard）
+  - `t108_set_clause`（`SET ... RETURN type(r)`）
+  - `t313_functions`（`type()` 既有语义）
+  - `tck_harness`: `List1`、`Graph4`、`Set1`
+  - 以上均通过。
+- 门禁：
+  - `bash scripts/tck_tier_gate.sh tier0` 全通过；
+  - `cargo fmt --all -- --check` 通过。
+
+### 20.3 对后续 R14 的影响
+
+- R14-W2 完成后，runtime guard 覆盖面从 `Project/OrderBy/WHERE` 扩展到 `UNWIND`。
+- 下一步可继续审计写路径表达式入口（`SET/MERGE` 相关）是否仍存在“未 guard 的直接求值点”。
+
+### 20.4 证据文件
+
+- `artifacts/tck/beta-04-r14w2-targeted-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w2-tier0-2026-02-14.log`
+
+---
+
+## 21. 续更快照（2026-02-14，BETA-03R14-W3 写路径 runtime guard 收口）
+
+### 21.1 本轮完成项（R14-W3）
+
+- 以 TDD 方式补齐写路径表达式求值入口的 runtime 类型语义：
+  - 新增并先跑红：
+    - `test_set_invalid_toboolean_argument_raises_runtime_type_error`
+  - 修复实现：
+    - 在 `execute_set`、`execute_set_from_maps` 中，表达式求值前接入 `ensure_runtime_expression_compatible(...)`；
+    - 在 `merge_apply_set_items`、`merge_eval_props_on_row` 中同步接入 guard。
+- 行为变化：
+  - 修复此前写路径（`SET/MERGE`）对非法函数参数（如 `toBoolean(1)`）可能“静默变 `null` 并继续执行”的语义差异；
+  - 与既有 `Project/OrderBy/WHERE/UNWIND` 的 runtime TypeError 处理策略统一。
+
+### 21.2 回归结果
+
+- 定向测试：
+  - `cargo test -p nervusdb --test t108_set_clause -- --nocapture`：`11 passed`（含新增 runtime 错误断言）
+  - `cargo test -p nervusdb --test t105_merge_test -- --nocapture`：`2 passed`
+  - `cargo test -p nervusdb --test t323_merge_semantics -- --nocapture`：`4 passed`
+  - `cargo test -p nervusdb --test t306_unwind -- --nocapture`：`7 passed`
+  - `cargo test -p nervusdb --test t301_expression_ops test_where_invalid_list_index_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test t313_functions -- --nocapture`：`18 passed`
+- TCK 定向：
+  - `clauses/set/Set1.feature`、`expressions/list/List1.feature`、`expressions/graph/Graph4.feature` 全通过。
+- 门禁：
+  - `bash scripts/tck_tier_gate.sh tier0` 全通过；
+  - `cargo fmt --all -- --check` 通过。
+
+### 21.3 对后续 R14 的影响
+
+- R14-W3 完成后，runtime guard 已覆盖：
+  - 读路径：`Project`、`OrderBy`、`WHERE`、`UNWIND`
+  - 写路径：`SET`、`SET +=/=` map、`MERGE` 属性求值
+- 下一步可把审计范围扩到 `DELETE/FOREACH` 这类“非投影表达式入口”，继续清理未 guard 的直接求值点。
+
+### 21.4 证据文件
+
+- `artifacts/tck/beta-04-r14w3-write-guard-targeted-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w3-write-guard-tier0-2026-02-14.log`
+
+---
+
+## 22. 续更快照（2026-02-14，BETA-03R14-W4 FOREACH/DELETE 尾部入口收口）
+
+### 22.1 本轮完成项（R14-W4）
+
+- 以 TDD 方式补齐尾部执行入口的 runtime 类型语义：
+  - 新增并先跑红：
+    - `t324_foreach_invalid_toboolean_argument_raises_runtime_type_error`
+    - `test_delete_list_index_with_invalid_index_type_raises_runtime_type_error`
+  - 修复实现：
+    - 在 `execute_foreach` 的列表表达式求值前接入 `ensure_runtime_expression_compatible(...)`；
+    - 在 `execute_delete` 与 `execute_delete_on_rows` 的 DELETE 目标表达式求值前接入同一 guard。
+- 行为变化：
+  - 修复此前 `FOREACH/DELETE` 在非法表达式输入下可能“静默 `null` / 继续执行 / 返回 0 side effects”的行为差异；
+  - 与既有 `Project/OrderBy/WHERE/UNWIND/SET/MERGE` 的 runtime TypeError 处理路径对齐。
+
+### 22.2 回归结果
+
+- 定向测试：
+  - `cargo test -p nervusdb --test t324_foreach -- --nocapture`：`4 passed`（含新增 1 条）
+  - `cargo test -p nervusdb --test create_test test_delete_list_index_with_invalid_index_type_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test t108_set_clause test_set_invalid_toboolean_argument_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test t306_unwind test_unwind_toboolean_invalid_argument_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test t301_expression_ops test_where_invalid_list_index_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+- TCK 定向：
+  - `clauses/delete/Delete5.feature`、`clauses/delete/Delete1.feature`、`clauses/delete/Delete3.feature` 全通过。
+- 门禁：
+  - `bash scripts/tck_tier_gate.sh tier0|tier1|tier2` 全通过；
+  - `cargo fmt --all -- --check` 通过。
+
+### 22.3 对后续 R14 的影响
+
+- R14-W4 完成后，runtime guard 覆盖面进一步扩展到：
+  - `FOREACH` 列表入口
+  - `DELETE` 目标表达式入口（含 `execute_delete` 与 `execute_delete_on_rows`）
+- 当前 R14 的主要风险从“执行入口遗漏 guard”转向“函数覆盖面与错误码精细一致性”审计，可转入小步补洞策略。
+
+### 22.4 证据文件
+
+- `artifacts/tck/beta-04-r14w4-tail-guard-targeted-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w4-tail-guard-tier0-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w4-tail-guard-tier12-2026-02-14.log`
+
+---
+
+## 23. 续更快照（2026-02-14，BETA-03R14-W5 CREATE 属性入口收口）
+
+### 23.1 本轮完成项（R14-W5）
+
+- 以 TDD 方式补齐 `CREATE` 属性表达式入口的 runtime 类型语义：
+  - 新增并先跑红：
+    - `test_create_property_with_invalid_toboolean_argument_raises_runtime_type_error`
+  - 修复实现：
+    - 在 `execute_create_from_rows` 中，对节点/关系属性表达式求值前接入 `ensure_runtime_expression_compatible(...)`。
+- 行为变化：
+  - 修复 `CREATE (:N {flag: toBoolean(1)})` 在非法参数输入下可能“静默跳过属性”的行为差异；
+  - 将 `CREATE` 属性入口与既有 `WHERE/UNWIND/SET/MERGE/FOREACH/DELETE` 统一到同一 runtime TypeError 语义链路。
+
+### 23.2 回归结果
+
+- 定向测试：
+  - `cargo test -p nervusdb --test create_test test_create_property_with_invalid_toboolean_argument_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test create_test test_delete_list_index_with_invalid_index_type_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test t324_foreach t324_foreach_invalid_toboolean_argument_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test t108_set_clause test_set_invalid_toboolean_argument_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test t306_unwind test_unwind_toboolean_invalid_argument_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+- TCK 定向：
+  - `clauses/create/Create1.feature`、`clauses/delete/Delete5.feature` 全通过。
+- 门禁：
+  - `bash scripts/tck_tier_gate.sh tier0` 全通过；
+  - `cargo fmt --all -- --check` 通过。
+
+### 23.3 对后续 R14 的影响
+
+- R14-W5 完成后，运行期类型守卫已覆盖主要写读执行入口；
+- 后续可转为“函数白名单覆盖完整性”与“错误码精细一致性”审计，避免新增函数路径再次出现 silent null。
+
+### 23.4 证据文件
+
+- `artifacts/tck/beta-04-r14w5-create-guard-targeted-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w5-create-guard-tier0-2026-02-14.log`
+
+---
+
+## 24. 续更快照（2026-02-14，BETA-03R14-W6 CALL 参数入口收口）
+
+### 24.1 本轮完成项（R14-W6）
+
+- 以 TDD 方式补齐 `CALL` 参数表达式入口的 runtime 类型语义：
+  - 新增并先跑红：
+    - `test_procedure_argument_expression_invalid_toboolean_raises_runtime_type_error`
+  - 修复实现：
+    - 在 `ProcedureCallIter::next` 的参数求值循环中，对每个参数表达式先接入 `ensure_runtime_expression_compatible(...)`，guard 失败即返回执行错误。
+- 行为变化：
+  - 修复 `CALL math.add(toBoolean(1), 2)` 先进入过程内部并返回 `math.add requires numeric arguments` 的偏差；
+  - 将 `CALL` 参数入口统一到既有 `WHERE/UNWIND/SET/MERGE/FOREACH/DELETE/CREATE` 的 runtime `InvalidArgumentValue` 语义链路。
+
+### 24.2 回归结果
+
+- 定向测试：
+  - `cargo test -p nervusdb --test t320_procedures test_procedure_argument_expression_invalid_toboolean_raises_runtime_type_error -- --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test t324_foreach t324_foreach_invalid_toboolean_argument_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test t108_set_clause test_set_invalid_toboolean_argument_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test t306_unwind test_unwind_toboolean_invalid_argument_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test create_test test_create_property_with_invalid_toboolean_argument_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test t301_expression_ops test_where_invalid_list_index_raises_runtime_type_error -- --exact --nocapture`：`1 passed`
+- TCK 定向：
+  - `clauses/call/Call1.feature`、`clauses/call/Call2.feature`、`clauses/call/Call3.feature` 全通过。
+- 门禁：
+  - `bash scripts/tck_tier_gate.sh tier0` 全通过；
+  - `cargo fmt --all -- --check` 通过。
+
+### 24.3 对后续 R14 的影响
+
+- R14-W6 完成后，运行期表达式 guard 已覆盖主要读取、写入、尾部和过程调用入口；
+- 后续优先级可切换到“函数覆盖白名单审计 + 错误码一致性抽查”，重点防止新增函数路径绕过 guard。
+
+### 24.4 证据文件
+
+- `artifacts/tck/beta-04-r14w6-call-guard-unit-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w6-call-guard-targeted-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w6-call-guard-tier0-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w6-call-guard-fmt-2026-02-14.log`
+
+---
+
+## 25. 续更快照（2026-02-14，BETA-03R14-W7 聚合参数入口收口）
+
+### 25.1 本轮完成项（R14-W7）
+
+- 以 TDD 方式补齐聚合执行入口的 runtime 类型语义：
+  - 新增并先跑红：
+    - `test_aggregate_argument_invalid_toboolean_raises_runtime_type_error`
+  - 红灯现象：
+    - `RETURN count(toBoolean(1)) AS c` 未抛错，错误返回 `c=0`（非法参数被吞成 `null` 后进入 `count`）。
+  - 修复实现：
+    - 在 `execute_aggregate` 的输入行处理阶段，新增 `validate_aggregate_runtime_expressions(...)`；
+    - 对 `count/sum/avg/min/max/collect/percentile` 的聚合参数表达式统一接入 `ensure_runtime_expression_compatible(...)`。
+- 行为变化：
+  - 聚合参数表达式与 `WHERE/UNWIND/SET/MERGE/FOREACH/DELETE/CREATE/CALL` 统一到同一 runtime TypeError 语义链路；
+  - 修复“非法函数参数在聚合中被静默吞掉”的剩余入口。
+
+### 25.2 回归结果
+
+- 定向测试：
+  - `cargo test -p nervusdb --test t152_aggregation test_aggregate_argument_invalid_toboolean_raises_runtime_type_error -- --nocapture`：
+    - 红灯阶段：返回 `Row { c: Int(0) }`
+    - 绿灯阶段：`1 passed`（抛 runtime `InvalidArgumentValue`）
+  - `cargo test -p nervusdb --test t320_procedures test_procedure_argument_expression_invalid_toboolean_raises_runtime_type_error -- --nocapture`：`1 passed`
+- TCK 定向：
+  - `expressions/aggregation/Aggregation1.feature` 全通过；
+  - `expressions/aggregation/Aggregation2.feature` 全通过；
+  - `expressions/typeConversion/TypeConversion1.feature` 全通过。
+- 门禁：
+  - `bash scripts/tck_tier_gate.sh tier0` 全通过；
+  - `cargo fmt --all -- --check` 通过。
+
+### 25.3 对后续 R14 的影响
+
+- R14-W7 完成后，运行期表达式 guard 已覆盖常见表达式执行面；
+- 后续剩余工作可聚焦到“低频入口白名单审计 + 错误码一致性抽样回归”，避免边缘路径重新引入 silent null。
+
+### 25.4 证据文件
+
+- `artifacts/tck/beta-04-r14w7-aggregate-guard-targeted-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w7-aggregate-guard-tier0-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w7-aggregate-guard-fmt-2026-02-14.log`
+
+---
+
+## 26. 续更快照（2026-02-14，BETA-03R14-W8 IndexSeek 入口审计加固）
+
+### 26.1 本轮完成项（R14-W8）
+
+- 进行低频入口审计，聚焦 `IndexSeek` 值表达式路径：
+  - 新增回归测试：
+    - `test_index_seek_invalid_value_expression_raises_runtime_type_error`
+- 场景与结论：
+  - 场景：`MATCH (n:Person) WHERE n.name = toBoolean(1) RETURN n`
+  - 结论：在索引路径下仍抛 runtime `InvalidArgumentValue`，不存在“被索引短路为空结果”的静默吞错。
+
+### 26.2 回归结果
+
+- 定向测试：
+  - `cargo test -p nervusdb --test t107_index_integration test_index_seek_invalid_value_expression_raises_runtime_type_error -- --nocapture`：`1 passed`
+- TCK 定向：
+  - `expressions/typeConversion/TypeConversion1.feature` 全通过。
+- 门禁：
+  - `cargo fmt --all -- --check` 通过。
+
+### 26.3 对后续 R14 的影响
+
+- 审计结果表明 `IndexSeek` 路径在非法值表达式上未引入新的 runtime 语义偏差；
+- 下一步可继续对剩余低频入口做同类“先断言、再验证”的薄层审计，逐步关闭回归面。
+
+### 26.4 证据文件
+
+- `artifacts/tck/beta-04-r14w8-index-seek-audit-targeted-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w8-index-seek-audit-fmt-2026-02-14.log`
+
+---
+
+## 27. 续更快照（2026-02-14，BETA-03R14-W9 percentile 双参数审计加固）
+
+### 27.1 本轮完成项（R14-W9）
+
+- 补齐 `percentile` 双参数路径的 runtime 回归断言：
+  - 新增测试：
+    - `test_percentile_argument_invalid_toboolean_raises_runtime_type_error`
+- 场景与结论：
+  - 场景：`RETURN percentileDisc(1, toBoolean(1)) AS p`
+  - 结论：稳定抛 runtime `InvalidArgumentValue`，`PercentileDisc/PercentileCont` 双表达式 guard 分支语义稳定。
+
+### 27.2 回归结果
+
+- 定向测试：
+  - `cargo test -p nervusdb --test t152_aggregation test_aggregate_argument_invalid_toboolean_raises_runtime_type_error -- --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test t152_aggregation test_percentile_argument_invalid_toboolean_raises_runtime_type_error -- --nocapture`：`1 passed`
+- TCK 定向：
+  - `expressions/aggregation/Aggregation2.feature` 全通过；
+  - `expressions/typeConversion/TypeConversion1.feature` 全通过。
+- 门禁：
+  - `cargo fmt --all -- --check` 通过。
+
+### 27.3 对后续 R14 的影响
+
+- `percentile` 聚合路径的双参数 guard 现已有独立回归锁定；
+- 后续可进一步转向“遗漏入口枚举清单 + 自动扫描脚本”来量化 R14 收口完成度。
+
+### 27.4 证据文件
+
+- `artifacts/tck/beta-04-r14w9-percentile-guard-targeted-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w9-percentile-guard-fmt-2026-02-14.log`
+
+---
+
+## 28. 续更快照（2026-02-14，BETA-03R14-W10 IndexSeek 值表达式入口收口）
+
+### 28.1 本轮完成项（R14-W10）
+
+- 修复 `IndexSeek` 执行入口的 runtime guard 覆盖：
+  - 在 `execute_index_seek` 中对 `value_expr` 求值前接入 `ensure_runtime_expression_compatible(...)`；
+  - 行为目标：即使未来 planner/路径发生变化，也不会依赖 fallback 分支来“碰巧触发 runtime 错误”。
+- 回归用例保留：
+  - `test_index_seek_invalid_value_expression_raises_runtime_type_error` 锁定 `MATCH (n:Person) WHERE n.name = toBoolean(1) RETURN n` 抛 runtime `InvalidArgumentValue`。
+
+### 28.2 回归结果
+
+- 定向测试：
+  - `cargo test -p nervusdb --test t107_index_integration test_index_seek_invalid_value_expression_raises_runtime_type_error -- --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test t320_procedures test_procedure_argument_expression_invalid_toboolean_raises_runtime_type_error -- --nocapture`：`1 passed`
+  - `cargo test -p nervusdb --test t152_aggregation test_percentile_argument_invalid_toboolean_raises_runtime_type_error -- --nocapture`：`1 passed`
+- TCK 定向：
+  - `expressions/typeConversion/TypeConversion1.feature` 全通过。
+- 门禁：
+  - `bash scripts/tck_tier_gate.sh tier0` 全通过；
+  - `cargo fmt --all -- --check` 通过。
+
+### 28.3 对后续 R14 的影响
+
+- `IndexSeek` 值表达式路径的 runtime guard 已从“间接覆盖”提升为“入口强覆盖”；
+- 后续可继续按同模式对剩余低频入口做显式 guard 与回归断言锁定。
+
+### 28.4 证据文件
+
+- `artifacts/tck/beta-04-r14w10-index-seek-guard-targeted-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w10-index-seek-guard-fmt-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w10-index-seek-guard-tier0-2026-02-14.log`
+
+---
+
+## 29. 续更快照（2026-02-14，BETA-03R14-W11 runtime guard 审计脚本落地）
+
+### 29.1 本轮完成项（R14-W11）
+
+- 新增可重复执行的审计脚本，量化 executor 侧 runtime guard 覆盖面：
+  - 新增：`scripts/runtime_guard_audit.sh`
+  - 兼容性：避免使用 bash 4+ 才支持的关联数组（macOS 默认 bash 3.2 可直接运行）。
+- 脚本输出内容：
+  - 统计 `nervusdb-query/src/executor` 下 `evaluate_expression_value(...)` 与 `ensure_runtime_expression_compatible(...)` 的分布；
+  - 自动列出 `eval>0 && guard==0` 的潜在热点文件，用于后续收口排查。
+
+### 29.2 审计结论（当前快照）
+
+- 当前唯一被标记的潜在热点：`nervusdb-query/src/executor/write_orchestration.rs`
+  - 说明：该处为 delete overlay 目标收集逻辑（`collect_delete_targets_from_rows`），不在实际删除执行入口；
+  - 后续动作：可评估是否需要将收集函数改为 `Result<...>` 并在收集阶段也显式 guard（当前不会影响 DELETE 的最终 runtime 错误语义，因为执行入口已有 guard）。
+
+### 29.3 证据文件
+
+- `artifacts/tck/beta-04-r14w11-runtime-guard-audit-2026-02-14.log`
+
+---
+
+## 30. 续更快照（2026-02-14，BETA-03R14-W12 清零 runtime guard 审计热点）
+
+### 30.1 本轮完成项（R14-W12）
+
+- 修复审计脚本识别出的唯一 executor 热点（`write_orchestration.rs`）：
+  - 将 `collect_delete_targets_from_rows` 升级为 `Result<...>`；
+  - 在 delete overlay 目标收集阶段，对每个 `DELETE` 目标表达式求值前接入 `ensure_runtime_expression_compatible(...)`。
+- 目标：
+  - 消除“内部收集阶段直接求值但未 guard”的剩余路径，使 runtime 语义一致性更稳健（不依赖后续执行入口兜底）。
+
+### 30.2 回归与门禁结果
+
+- 审计脚本：
+  - `scripts/runtime_guard_audit.sh` 输出 `potential hotspots (eval>0 && guard==0)` 为 `none`。
+- 门禁：
+  - `bash scripts/tck_tier_gate.sh tier0` 全通过；
+  - `cargo fmt --all -- --check` 通过。
+
+### 30.3 证据文件
+
+- `artifacts/tck/beta-04-r14w12-runtime-guard-hotspot-fix-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w12-runtime-guard-hotspot-fix-tier0-2026-02-14.log`
+- `artifacts/tck/beta-04-r14w12-runtime-guard-hotspot-fix-fmt-2026-02-14.log`
+
+---
+
+## 31. 续更快照（2026-02-15，BETA-03R14-W13 收尾 + BETA-04 strict 稳定窗 Day1）
+
+### 31.1 本轮完成项（R14-W13-A）
+
+- runtime guard 审计脚本收口到可发布形态：
+  - `scripts/runtime_guard_audit.sh` 正式支持 `--root <dir>`、`--fail-on-hotspot`、`--help`；
+  - 在无 `rg` 环境下自动回退 `grep -RIn`，保持可执行性。
+- CI 门禁前置接线：
+  - `ci.yml` 增加 `bash scripts/runtime_guard_audit.sh --fail-on-hotspot`；
+  - 位置放在 `fmt/clippy` 后、`workspace_quick_test` 前，做到尽早失败。
+- 写路径语义补点（Temporal4 失败簇收口）：
+  - 修复 list 属性转换对 duration map 的误拦截；
+  - 允许 `List<Duration>` 写入属性，普通 map list 仍保持 `InvalidPropertyType` 拦截；
+  - 新增双向回归测试：允许 duration map list / 拒绝普通 map list。
+
+### 31.2 验证结果（W13-A）
+
+- 核心门禁链全绿：
+  - `cargo fmt --all -- --check`
+  - `cargo clippy --workspace --exclude nervusdb-pyo3 --all-targets -- -W warnings`
+  - `bash scripts/runtime_guard_audit.sh --fail-on-hotspot`
+  - `bash scripts/workspace_quick_test.sh`
+  - `bash scripts/tck_tier_gate.sh tier0`
+  - `bash scripts/tck_tier_gate.sh tier1`
+  - `bash scripts/tck_tier_gate.sh tier2`
+  - `bash scripts/binding_smoke.sh`
+  - `bash scripts/contract_smoke.sh`
+- Tier-3 全量保持全绿：
+  - `3897 scenarios (3897 passed)`，失败簇报告 `No step failures found`。
+
+### 31.3 BETA-04 strict 稳定窗 Day1（W13-B/W13-C）
+
+- 基建已落地：
+  - `ci-daily-snapshot.yml`
+  - `stability-window-daily.yml`
+  - `scripts/stability_window.sh`（strict 模式）
+  - `scripts/beta_release_gate.sh`
+  - `release.yml` 接入发布阻断（仅发布阻断，不阻断日常 PR）。
+- Day1（2026-02-15）产物已写入：
+  - `artifacts/tck/tier3-rate-2026-02-15.json`（`pass_rate=100.00`，`failed=0`）
+  - `artifacts/tck/ci-daily-2026-02-15.json`（`all_passed=true`）
+  - `artifacts/tck/stability-daily-2026-02-15.json`
+  - `artifacts/tck/stability-window.json`
+  - `artifacts/tck/stability-window.md`
+- strict 窗口状态（截至 2026-02-15）：
+  - `consecutive_days=0/7`
+  - `window_passed=false`
+  - 本地运行因 `github_data_unavailable`（nightly workflow 历史需主分支运行后可回填）未形成连续计数。
+- 若后续每日全通过且无重置，最早达标日期：`2026-02-21`。
+
+### 31.4 证据文件
+
+- `artifacts/tck/beta-04-r14w13-runtime-guard-gate-2026-02-15.log`
+- `artifacts/tck/beta-04-r14w13-core-gates-2026-02-15.log`
+- `artifacts/tck/beta-04-r14w13-tier3-full-2026-02-15.log`
+- `artifacts/tck/beta-04-r14w13-tier3-full-2026-02-15.cluster.md`
+- `artifacts/tck/beta-04-r14w13-stability-window-day1-2026-02-15.log`
+- `artifacts/tck/beta-04-r14w13-stability-window-day1-2026-02-15.rc`

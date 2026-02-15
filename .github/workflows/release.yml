@@ -9,9 +9,43 @@ permissions:
   contents: write
 
 jobs:
+  beta-release-gate:
+    name: Beta Release Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build stability window report
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p artifacts/tck
+          bash scripts/stability_window.sh \
+            --mode strict \
+            --github-repo "${GITHUB_REPOSITORY}" \
+            --github-token-env GITHUB_TOKEN
+
+      - name: Enforce beta release gate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash scripts/beta_release_gate.sh \
+            --mode strict \
+            --github-repo "${GITHUB_REPOSITORY}" \
+            --github-token-env GITHUB_TOKEN
+
+      - name: Upload beta release gate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: beta-release-gate-artifacts
+          path: artifacts/tck/
+
   linux:
     name: Build Linux (x64)
     runs-on: ubuntu-latest
+    needs: [beta-release-gate]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -37,6 +71,7 @@ jobs:
   macos:
     name: Build macOS (ARM64)
     runs-on: macos-latest
+    needs: [beta-release-gate]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -64,6 +99,7 @@ jobs:
   windows:
     name: Build Windows (x64)
     runs-on: windows-latest
+    needs: [beta-release-gate]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

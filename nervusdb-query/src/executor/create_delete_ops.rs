@@ -62,6 +62,12 @@ pub(super) fn execute_create_from_rows<S: GraphSnapshot>(
             let mut node_props = std::collections::BTreeMap::new();
             if let Some(props) = &node_pat.properties {
                 for prop in &props.properties {
+                    super::plan_mid::ensure_runtime_expression_compatible(
+                        &prop.value,
+                        &row,
+                        snapshot,
+                        params,
+                    )?;
                     let val = evaluate_expression_value(&prop.value, &row, snapshot, params);
                     if matches!(val, Value::Null) {
                         continue;
@@ -137,6 +143,12 @@ pub(super) fn execute_create_from_rows<S: GraphSnapshot>(
             let mut rel_props = std::collections::BTreeMap::new();
             if let Some(props) = &rel_pat.properties {
                 for prop in &props.properties {
+                    super::plan_mid::ensure_runtime_expression_compatible(
+                        &prop.value,
+                        &row,
+                        snapshot,
+                        params,
+                    )?;
                     let val = evaluate_expression_value(&prop.value, &row, snapshot, params);
                     if matches!(val, Value::Null) {
                         continue;
@@ -344,6 +356,7 @@ pub(super) fn execute_delete_on_rows<S: GraphSnapshot>(
 
     for row in rows {
         for expr in expressions {
+            super::plan_mid::ensure_runtime_expression_compatible(expr, row, snapshot, params)?;
             let value = evaluate_expression_value(expr, row, snapshot, params);
             collect_delete_targets_from_value(
                 &value,
@@ -470,6 +483,7 @@ pub(super) fn execute_delete<S: GraphSnapshot>(
     for row in execute_plan(snapshot, input, params) {
         let row = row?;
         for expr in expressions {
+            super::plan_mid::ensure_runtime_expression_compatible(expr, &row, snapshot, params)?;
             let value = evaluate_expression_value(expr, &row, snapshot, params);
             collect_delete_targets_from_value(
                 &value,

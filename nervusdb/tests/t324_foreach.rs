@@ -138,3 +138,22 @@ fn t324_nested_foreach() {
         ));
     }
 }
+
+#[test]
+fn t324_foreach_invalid_toboolean_argument_raises_runtime_type_error() {
+    let dir = tempdir().unwrap();
+    let db = Db::open(dir.path()).unwrap();
+
+    let q = prepare("FOREACH (x IN [toBoolean(1)] | CREATE (:Node {val: x}))").unwrap();
+
+    let mut txn = db.begin_write();
+    let err = q
+        .execute_write(&db.snapshot(), &mut txn, &Params::new())
+        .expect_err("invalid toBoolean argument in FOREACH list should raise runtime TypeError")
+        .to_string();
+
+    assert!(
+        err.contains("InvalidArgumentValue"),
+        "expected InvalidArgumentValue, got: {err}"
+    );
+}
