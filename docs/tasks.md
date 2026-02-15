@@ -107,7 +107,7 @@
 | BETA-03R13    | [Hardening] `TypeError` 断言收紧（compile-time + any-time + runtime） | High   | Done   | codex/feat/beta-04-r13w2-anytime-hardening | R13-W1/W2/W3 已全部完成：compile-time、any-time、runtime 三类 `TypeError` 断言均切换为严格模式；补齐递归运行期表达式类型守卫（含 list comprehension 作用域）与属性写入非法 list 元素拦截，定向簇与基线门禁全绿。 |
 | BETA-03R14    | [Hardening] runtime 语义一致性收口（WHERE guard + type(rel)） | High   | Done   | codex/feat/beta-04-r14w2-unwind-guard | R14-W1~W13 已完成：`WHERE/UNWIND/SET/MERGE/FOREACH/DELETE/CREATE/CALL/Aggregate/IndexSeek` 入口 runtime guard 全覆盖，`runtime_guard_audit` 热点清零并接入 CI；W13-A 全量证据：core gates 全绿、Tier-3 全量 `3897/3897` 全通过。 |
 | BETA-04       | [Stability] 连续 7 天主 CI + nightly 稳定窗                | High   | WIP    | feat/TB1-stability-window   | strict 稳定窗基建已落地（`ci-daily-snapshot` + `stability_window.sh --mode strict` + `beta_release_gate.sh` + release 接线）；Day1（2026-02-15）快照已写入，当前 `consecutive_days=0/7`（nightly GitHub 数据待主分支 workflow 运行后累计）。 |
-| BETA-05       | [Perf] 大规模 SLO 封板（读120/写180/向量220 ms P99）       | High   | Plan   | feat/TB1-perf-slo           | 达标后方可发布 Beta |
+| BETA-05       | [Perf] 大规模 SLO 封板（读120/写180/向量220 ms P99）       | High   | WIP    | codex/feat/w13-perf-guard-stream | W13-PERF 已落地资源护栏+高内存算子收敛；待主分支 Nightly 8h 复测并累计稳定窗证据。 |
 
 ### BETA-03R4 子进展（2026-02-13）
 - W1：引入 `BindingKind::RelationshipList`，varlen 关系变量输出统一为 `List<Relationship>`，0-hop 命中输出 `[]`，OPTIONAL miss 保持 `null`。
@@ -445,6 +445,34 @@
   - 证据日志：
     - `artifacts/tck/beta-04-r14w13-stability-window-day1-2026-02-15.log`
     - `artifacts/tck/beta-04-r14w13-stability-window-day1-2026-02-15.rc`
+
+### BETA-05 子进展（2026-02-15，W13-PERF 一次到位）
+- W13-A（资源护栏）：
+  - `Params` 新增 `ExecuteOptions`（默认平衡档）：
+    - `max_intermediate_rows=500000`
+    - `max_collection_items=200000`
+    - `soft_timeout_ms=5000`
+    - `max_apply_rows_per_outer=200000`
+  - 新增 `Error::ResourceLimitExceeded { kind, limit, observed, stage }`，并通过 `Params` runtime 计数器统一触发。
+  - 新增回归：`nervusdb/tests/t341_resource_limits.rs`（5/5 通过）。
+- W13-B（高内存算子收敛）：
+  - `UNWIND` 从“每行先物化 Vec 再发射”改为迭代发射；
+  - `ORDER BY`、`OptionalWhereFixup` 加入有界收集与超时检查；
+  - `Aggregate` 增加 group/rows/collect distinct 规模限制；
+  - `Apply` 增加每外层行子查询输出上限。
+- W13-C（CI/Fuzz 策略）：
+  - `fuzz-nightly.yml` 中 `query_execute` 增加 `-timeout=5`，保留 `rss_limit_mb=4096`。
+  - Node/Python 错误分类补齐 `ResourceLimitExceeded` 路径（归类 execution）。
+- 回归与门禁（本轮）：
+  - 定向：`Match4`、`Match9` 全通过；
+  - 扩展矩阵：`Match1/2/3/6/7 + Path1/2/3 + Quantifier1/2` 全通过；
+  - 基线：`fmt + clippy + workspace_quick_test + tier0/1/2 + binding_smoke + contract_smoke` 全通过。
+- 证据产物：
+  - `artifacts/tck/w13-perf-baseline.json`
+  - `artifacts/tck/w13-perf-after-A.json`
+  - `artifacts/tck/w13-perf-after-B.json`
+  - `artifacts/tck/w13-perf-final.json`
+  - 说明：8h Fuzz 指标（`slowest/rss/exec_s`）需在主分支 Nightly 跑完后补录到 final 快照。
 
 ## Archived (v1/Alpha)
 

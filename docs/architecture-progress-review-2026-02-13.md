@@ -1242,3 +1242,48 @@ TCK ≥95% → 7天稳定窗 → 性能 SLO 封板 → Beta 发布
 - `artifacts/tck/beta-04-r14w13-tier3-full-2026-02-15.cluster.md`
 - `artifacts/tck/beta-04-r14w13-stability-window-day1-2026-02-15.log`
 - `artifacts/tck/beta-04-r14w13-stability-window-day1-2026-02-15.rc`
+
+---
+
+## 32. 续更快照（2026-02-15，W13-PERF 内存上涨→吞吐下降攻坚）
+
+### 32.1 本轮完成项
+
+- 执行资源护栏统一落地（默认开启）：
+  - `ExecuteOptions` 新增并接入 `Params`（平衡档默认值）；
+  - `ResourceLimitExceeded` 错误语义新增（`kind/limit/observed/stage`）；
+  - 执行期 runtime 计数器（超时/中间行数/集合大小/Apply 每外层行上限）接入全链路。
+- 执行器热点收敛：
+  - `UNWIND` 改为迭代发射，避免每输入行先构造完整 `Vec<Row>`；
+  - `ORDER BY`、`OptionalWhereFixup` 增加有界收集与超时检查；
+  - `Aggregate` 增加 group/rows/collect-distinct 规模限制；
+  - `Apply` 增加 `max_apply_rows_per_outer` 限制。
+- Fuzz 策略补强：
+  - `query_execute` 增加 `-timeout=5`（保留 `rss_limit_mb=4096`）。
+
+### 32.2 验证结果
+
+- 新增资源限制回归：`t341_resource_limits`（5/5 通过）。
+- 定向主簇：`Match4`、`Match9` 全通过。
+- 扩展回归矩阵：`Match1/2/3/6/7 + Path1/2/3 + Quantifier1/2` 全通过。
+- 基线门禁全绿：
+  - `cargo fmt --all -- --check`
+  - `cargo clippy --workspace --exclude nervusdb-pyo3 --all-targets -- -W warnings`
+  - `bash scripts/workspace_quick_test.sh`
+  - `bash scripts/tck_tier_gate.sh tier0`
+  - `bash scripts/tck_tier_gate.sh tier1`
+  - `bash scripts/tck_tier_gate.sh tier2`
+  - `bash scripts/binding_smoke.sh`
+  - `bash scripts/contract_smoke.sh`
+
+### 32.3 当前状态与剩余动作
+
+- 代码级护栏与回归已经闭环，当前状态可进入 Nightly 观察。
+- 8h Fuzz 平衡目标（`slowest<=5s`, `rss<=2048MB`, `exec/s>=baseline 70%`）需主分支 Nightly 跑完后以自动产物补齐最终判定。
+
+### 32.4 证据文件
+
+- `artifacts/tck/w13-perf-baseline.json`
+- `artifacts/tck/w13-perf-after-A.json`
+- `artifacts/tck/w13-perf-after-B.json`
+- `artifacts/tck/w13-perf-final.json`
