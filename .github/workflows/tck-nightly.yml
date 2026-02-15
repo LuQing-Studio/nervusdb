@@ -44,6 +44,32 @@ jobs:
           chmod +x scripts/tck_full_rate.sh
           TCK_REPORT_DIR=artifacts/tck TCK_ALLOW_FAIL=1 bash scripts/tck_full_rate.sh
 
+      - name: Record daily Tier-3 snapshot
+        if: always()
+        run: |
+          DATE_UTC="$(date -u +%F)"
+          if [[ -f artifacts/tck/tier3-rate.json ]]; then
+            cp artifacts/tck/tier3-rate.json "artifacts/tck/tier3-rate-${DATE_UTC}.json"
+          fi
+          if [[ -f artifacts/tck/tier3-rate.md ]]; then
+            cp artifacts/tck/tier3-rate.md "artifacts/tck/tier3-rate-${DATE_UTC}.md"
+          fi
+
+      - name: Build strict stability-window snapshot
+        if: always()
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DATE_UTC="$(date -u +%F)"
+          LOG_FILE="artifacts/tck/stability-window-${DATE_UTC}.log"
+          bash scripts/stability_window.sh \
+            --mode strict \
+            --date "${DATE_UTC}" \
+            --github-repo "${GITHUB_REPOSITORY}" \
+            --github-token-env GITHUB_TOKEN \
+            >"${LOG_FILE}" 2>&1 || true
+
       - name: Upload TCK artifacts
         if: always()
         uses: actions/upload-artifact@v4
