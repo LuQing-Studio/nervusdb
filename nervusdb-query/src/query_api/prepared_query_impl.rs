@@ -44,6 +44,7 @@ impl PreparedQuery {
             )));
             return it;
         }
+        params.begin_execution();
         Box::new(execute_plan(snapshot, &self.plan, params))
     }
 
@@ -70,6 +71,7 @@ impl PreparedQuery {
                 "EXPLAIN cannot be executed as a write query".into(),
             ));
         }
+        params.begin_execution();
         match self.write {
             WriteSemantics::Default => execute_write(&self.plan, snapshot, txn, params),
             WriteSemantics::Merge => crate::executor::execute_merge(
@@ -101,6 +103,7 @@ impl PreparedQuery {
                 "EXPLAIN cannot be executed as a mixed query".into(),
             ));
         }
+        params.begin_execution();
 
         if plan_contains_write(&self.plan) {
             return match self.write {

@@ -82,32 +82,48 @@ pub(super) fn execute_unwind<'a, S: GraphSnapshot + 'a>(
     let alias = alias.to_string();
     let params = params.clone();
 
-    PlanIterator::Dynamic(Box::new(input_iter.flat_map(move |result| match result {
-        Ok(row) => {
-            if let Err(err) = super::plan_mid::ensure_runtime_expression_compatible(
-                &expression,
-                &row,
-                snapshot,
-                &params,
-            ) {
-                return vec![Err(err)];
-            }
-            let val =
-                crate::evaluator::evaluate_expression_value(&expression, &row, snapshot, &params);
-            match val {
-                Value::List(list) => {
-                    let mut rows = Vec::with_capacity(list.len());
-                    for item in list {
-                        rows.push(Ok(row.clone().with(alias.clone(), item)));
+    PlanIterator::Dynamic(Box::new(input_iter.flat_map(
+        move |result| -> Box<dyn Iterator<Item = super::Result<Row>>> {
+            match result {
+                Ok(row) => {
+                    if let Err(err) = params.check_timeout("Unwind.eval") {
+                        return Box::new(std::iter::once(Err(err)));
                     }
-                    rows
+                    if let Err(err) = super::plan_mid::ensure_runtime_expression_compatible(
+                        &expression,
+                        &row,
+                        snapshot,
+                        &params,
+                    ) {
+                        return Box::new(std::iter::once(Err(err)));
+                    }
+                    let val = crate::evaluator::evaluate_expression_value(
+                        &expression,
+                        &row,
+                        snapshot,
+                        &params,
+                    );
+                    match val {
+                        Value::List(list) => {
+                            if let Err(err) =
+                                params.check_collection_size("Unwind.list", list.len())
+                            {
+                                return Box::new(std::iter::once(Err(err)));
+                            }
+                            let alias = alias.clone();
+                            Box::new(
+                                list.into_iter()
+                                    .map(move |item| Ok(row.clone().with(alias.clone(), item))),
+                            )
+                        }
+                        Value::Null => Box::new(std::iter::empty()),
+                        _ => Box::new(std::iter::once(Ok(row.with(alias.clone(), val)))),
+                    }
                 }
-                Value::Null => vec![],
-                _ => vec![Ok(row.clone().with(alias.clone(), val))],
+                Err(e) => Box::new(std::iter::once(Err(e))),
             }
-        }
-        Err(e) => vec![Err(e)],
-    })))
+        },
+    )))
 }
 
 pub(super) fn execute_union<'a, S: GraphSnapshot + 'a>(

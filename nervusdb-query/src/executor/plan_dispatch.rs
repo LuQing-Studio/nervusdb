@@ -1,6 +1,6 @@
 use super::{
     GraphSnapshot, Plan, PlanIterator, Row, index_seek_plan, match_bound_rel_plan,
-    match_in_undirected_plan, match_out_plan, plan_head, plan_mid, plan_tail,
+    match_in_undirected_plan, match_out_plan, plan_head, plan_mid, plan_tail, runtime_limits,
 };
 
 pub(super) fn execute_plan<'a, S: GraphSnapshot + 'a>(
@@ -8,7 +8,8 @@ pub(super) fn execute_plan<'a, S: GraphSnapshot + 'a>(
     plan: &'a Plan,
     params: &'a crate::query_api::Params,
 ) -> PlanIterator<'a, S> {
-    match plan {
+    let stage = plan_stage_name(plan);
+    let iter = match plan {
         Plan::ReturnOne => PlanIterator::ReturnOne(std::iter::once(Ok(Row::default()))),
         Plan::CartesianProduct { left, right } => {
             plan_head::execute_cartesian_product(snapshot, left, right, params)
@@ -228,5 +229,42 @@ pub(super) fn execute_plan<'a, S: GraphSnapshot + 'a>(
             snapshot, alias, label, field, value_expr, fallback, params,
         ),
         Plan::Values { rows } => plan_tail::execute_values(rows),
+    };
+
+    runtime_limits::wrap_plan_iterator(iter, params, stage)
+}
+
+fn plan_stage_name(plan: &Plan) -> &'static str {
+    match plan {
+        Plan::ReturnOne => "ReturnOne",
+        Plan::NodeScan { .. } => "NodeScan",
+        Plan::MatchOut { .. } => "MatchOut",
+        Plan::MatchOutVarLen { .. } => "MatchOutVarLen",
+        Plan::MatchIn { .. } => "MatchIn",
+        Plan::MatchUndirected { .. } => "MatchUndirected",
+        Plan::MatchBoundRel { .. } => "MatchBoundRel",
+        Plan::Filter { .. } => "Filter",
+        Plan::OptionalWhereFixup { .. } => "OptionalWhereFixup",
+        Plan::Project { .. } => "Project",
+        Plan::Aggregate { .. } => "Aggregate",
+        Plan::OrderBy { .. } => "OrderBy",
+        Plan::Skip { .. } => "Skip",
+        Plan::Limit { .. } => "Limit",
+        Plan::Distinct { .. } => "Distinct",
+        Plan::Unwind { .. } => "Unwind",
+        Plan::Union { .. } => "Union",
+        Plan::Delete { .. } => "Delete",
+        Plan::SetProperty { .. } => "SetProperty",
+        Plan::SetPropertiesFromMap { .. } => "SetPropertiesFromMap",
+        Plan::SetLabels { .. } => "SetLabels",
+        Plan::RemoveProperty { .. } => "RemoveProperty",
+        Plan::RemoveLabels { .. } => "RemoveLabels",
+        Plan::IndexSeek { .. } => "IndexSeek",
+        Plan::CartesianProduct { .. } => "CartesianProduct",
+        Plan::Apply { .. } => "Apply",
+        Plan::ProcedureCall { .. } => "ProcedureCall",
+        Plan::Foreach { .. } => "Foreach",
+        Plan::Values { .. } => "Values",
+        Plan::Create { .. } => "Create",
     }
 }

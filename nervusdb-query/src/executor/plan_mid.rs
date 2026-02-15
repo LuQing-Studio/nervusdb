@@ -103,6 +103,28 @@ fn ensure_runtime_function_call_compatible<S: GraphSnapshot>(
                 Err(runtime_type_error("InvalidArgumentValue"))
             }
         }
+        "range" if call.args.len() == 2 || call.args.len() == 3 => {
+            let start =
+                crate::evaluator::evaluate_expression_value(&call.args[0], row, snapshot, params);
+            let end =
+                crate::evaluator::evaluate_expression_value(&call.args[1], row, snapshot, params);
+            let step = if call.args.len() == 3 {
+                crate::evaluator::evaluate_expression_value(&call.args[2], row, snapshot, params)
+            } else {
+                Value::Int(1)
+            };
+
+            let (start, end, step) = match (start, end, step) {
+                (Value::Int(s), Value::Int(e), Value::Int(st)) => (s, e, st),
+                (Value::Null, _, _) | (_, Value::Null, _) | (_, _, Value::Null) => return Ok(()),
+                _ => return Ok(()),
+            };
+            if step == 0 {
+                return Ok(());
+            }
+            let observed = estimate_range_len(start, end, step);
+            params.check_collection_size("Function(range)", observed)
+        }
         "tostring" if call.args.len() == 1 => {
             let value =
                 crate::evaluator::evaluate_expression_value(&call.args[0], row, snapshot, params);
@@ -118,6 +140,24 @@ fn ensure_runtime_function_call_compatible<S: GraphSnapshot>(
         }
         _ => Ok(()),
     }
+}
+
+fn estimate_range_len(start: i64, end: i64, step: i64) -> usize {
+    if step > 0 && start > end {
+        return 0;
+    }
+    if step < 0 && start < end {
+        return 0;
+    }
+
+    let delta = if step > 0 {
+        end.saturating_sub(start)
+    } else {
+        start.saturating_sub(end)
+    };
+    let step_abs = step.unsigned_abs();
+    let len = (delta as u128 / step_abs as u128) + 1;
+    usize::try_from(len).unwrap_or(usize::MAX)
 }
 
 pub(super) fn ensure_runtime_expression_compatible<S: GraphSnapshot>(
@@ -224,17 +264,44 @@ pub(super) fn execute_optional_where_fixup<'a, S: GraphSnapshot + 'a>(
     null_aliases: &[String],
     params: &'a crate::query_api::Params,
 ) -> PlanIterator<'a, S> {
-    let outer_rows: Vec<Row> = match execute_plan(snapshot, outer, params).collect() {
-        Ok(rows) => rows,
-        Err(err) => return PlanIterator::Dynamic(Box::new(std::iter::once(Err(err)))),
-    };
-    let filtered_rows: Vec<Row> = match execute_plan(snapshot, filtered, params).collect() {
-        Ok(rows) => rows,
-        Err(err) => return PlanIterator::Dynamic(Box::new(std::iter::once(Err(err)))),
-    };
+    let mut outer_rows: Vec<Row> = Vec::new();
+    for item in execute_plan(snapshot, outer, params) {
+        if let Err(err) = params.check_timeout("OptionalWhereFixup.outer") {
+            return PlanIterator::Dynamic(Box::new(std::iter::once(Err(err))));
+        }
+        let row = match item {
+            Ok(row) => row,
+            Err(err) => return PlanIterator::Dynamic(Box::new(std::iter::once(Err(err)))),
+        };
+        outer_rows.push(row);
+        if let Err(err) = params.check_collection_size("OptionalWhereFixup.outer", outer_rows.len())
+        {
+            return PlanIterator::Dynamic(Box::new(std::iter::once(Err(err))));
+        }
+    }
+
+    let mut filtered_rows: Vec<Row> = Vec::new();
+    for item in execute_plan(snapshot, filtered, params) {
+        if let Err(err) = params.check_timeout("OptionalWhereFixup.filtered") {
+            return PlanIterator::Dynamic(Box::new(std::iter::once(Err(err))));
+        }
+        let row = match item {
+            Ok(row) => row,
+            Err(err) => return PlanIterator::Dynamic(Box::new(std::iter::once(Err(err)))),
+        };
+        filtered_rows.push(row);
+        if let Err(err) =
+            params.check_collection_size("OptionalWhereFixup.filtered", filtered_rows.len())
+        {
+            return PlanIterator::Dynamic(Box::new(std::iter::once(Err(err))));
+        }
+    }
 
     let mut out: Vec<Result<Row>> = Vec::new();
     for outer_row in outer_rows {
+        if let Err(err) = params.check_timeout("OptionalWhereFixup.merge") {
+            return PlanIterator::Dynamic(Box::new(std::iter::once(Err(err))));
+        }
         let mut matched = false;
         for row in &filtered_rows {
             if row_contains_all_bindings(row, &outer_row) {
@@ -248,6 +315,9 @@ pub(super) fn execute_optional_where_fixup<'a, S: GraphSnapshot + 'a>(
                 null_row = null_row.with(alias.clone(), Value::Null);
             }
             out.push(Ok(null_row));
+        }
+        if let Err(err) = params.check_collection_size("OptionalWhereFixup.output", out.len()) {
+            return PlanIterator::Dynamic(Box::new(std::iter::once(Err(err))));
         }
     }
 
@@ -300,7 +370,16 @@ pub(super) fn execute_order_by<'a, S: GraphSnapshot + 'a>(
     params: &'a crate::query_api::Params,
 ) -> PlanIterator<'a, S> {
     let input_iter = execute_plan(snapshot, input, params);
-    let rows: Vec<Result<Row>> = input_iter.collect();
+    let mut rows: Vec<Result<Row>> = Vec::new();
+    for item in input_iter {
+        if let Err(err) = params.check_timeout("OrderBy.collect") {
+            return PlanIterator::Dynamic(Box::new(std::iter::once(Err(err))));
+        }
+        rows.push(item);
+        if let Err(err) = params.check_collection_size("OrderBy.collect", rows.len()) {
+            return PlanIterator::Dynamic(Box::new(std::iter::once(Err(err))));
+        }
+    }
     #[allow(clippy::type_complexity)]
     let mut sortable: Vec<(Result<Row>, Vec<(Value, Direction)>)> = rows
         .into_iter()

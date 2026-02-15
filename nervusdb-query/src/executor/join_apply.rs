@@ -20,6 +20,9 @@ impl<'a, S: GraphSnapshot> Iterator for ApplyIter<'a, S> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
+            if let Err(err) = self.base_params.check_timeout("Apply.next") {
+                return Some(Err(err));
+            }
             // 1. Try to yield from current subquery results
             if let Some(inner_row) = self.current_results.next() {
                 if let Some(outer) = &self.current_outer_row {
@@ -50,6 +53,12 @@ impl<'a, S: GraphSnapshot> Iterator for ApplyIter<'a, S> {
                         Ok(rows) => rows,
                         Err(e) => return Some(Err(e)),
                     };
+                    if let Err(err) = self
+                        .base_params
+                        .check_apply_rows_per_outer("Apply.subquery", results.len())
+                    {
+                        return Some(Err(err));
+                    }
 
                     self.current_results = results.into_iter();
                     // Loop will continue and pick up the first result

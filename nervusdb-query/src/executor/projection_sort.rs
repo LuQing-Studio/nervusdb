@@ -13,8 +13,12 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
     // Collect all rows and group them
     let mut groups: std::collections::HashMap<Vec<Value>, Vec<Row>> =
         std::collections::HashMap::new();
+    let mut total_rows: usize = 0;
 
     for item in input {
+        if let Err(err) = params.check_timeout("Aggregate.collect") {
+            return Box::new(std::iter::once(Err(err)));
+        }
         let row = match item {
             Ok(r) => r,
             Err(e) => return Box::new(std::iter::once(Err(e))),
@@ -37,6 +41,13 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
             .collect();
 
         groups.entry(key).or_default().push(row);
+        total_rows = total_rows.saturating_add(1);
+        if let Err(err) = params.check_collection_size("Aggregate.groups", groups.len()) {
+            return Box::new(std::iter::once(Err(err)));
+        }
+        if let Err(err) = params.check_collection_size("Aggregate.rows", total_rows) {
+            return Box::new(std::iter::once(Err(err)));
+        }
     }
 
     // Cypher aggregate semantics: no grouping keys still yields one row on empty input.
@@ -48,6 +59,7 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
     let results: Vec<Result<Row>> = groups
         .into_iter()
         .map(|(key, rows)| {
+            params.check_timeout("Aggregate.finalize")?;
             // Build group key row
             let mut result = Row::default();
             for (i, var) in group_by.iter().enumerate() {
@@ -85,6 +97,10 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
                             }
                             if !distinct_values.iter().any(|existing| existing == &value) {
                                 distinct_values.push(value);
+                                params.check_collection_size(
+                                    "Aggregate.count_distinct",
+                                    distinct_values.len(),
+                                )?;
                             }
                         }
                         Value::Int(distinct_values.len() as i64)
@@ -123,6 +139,10 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
                             }
                             if !distinct_values.iter().any(|existing| existing == &value) {
                                 distinct_values.push(value);
+                                params.check_collection_size(
+                                    "Aggregate.sum_distinct",
+                                    distinct_values.len(),
+                                )?;
                             }
                         }
 
@@ -175,6 +195,10 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
                             }
                             if !distinct_values.iter().any(|existing| existing == &value) {
                                 distinct_values.push(value);
+                                params.check_collection_size(
+                                    "Aggregate.avg_distinct",
+                                    distinct_values.len(),
+                                )?;
                             }
                         }
 
@@ -212,6 +236,10 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
                             }
                             if !distinct_values.iter().any(|existing| existing == &value) {
                                 distinct_values.push(value);
+                                params.check_collection_size(
+                                    "Aggregate.min_distinct",
+                                    distinct_values.len(),
+                                )?;
                             }
                         }
 
@@ -239,6 +267,10 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
                             }
                             if !distinct_values.iter().any(|existing| existing == &value) {
                                 distinct_values.push(value);
+                                params.check_collection_size(
+                                    "Aggregate.max_distinct",
+                                    distinct_values.len(),
+                                )?;
                             }
                         }
 
@@ -253,6 +285,7 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
                             .map(|r| evaluate_expression_value(expr, r, snapshot, params))
                             .filter(|v| *v != Value::Null)
                             .collect();
+                        params.check_collection_size("Aggregate.collect", values.len())?;
                         Value::List(values)
                     }
                     AggregateFunction::CollectDistinct(expr) => {
@@ -264,6 +297,10 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
                             }
                             if !distinct_values.iter().any(|existing| existing == &value) {
                                 distinct_values.push(value);
+                                params.check_collection_size(
+                                    "Aggregate.collect_distinct",
+                                    distinct_values.len(),
+                                )?;
                             }
                         }
                         Value::List(distinct_values)
