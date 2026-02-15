@@ -45,6 +45,8 @@ fn classify_error_text(msg: &str) -> ErrorClass {
         || lower.contains("epoch")
     {
         ErrorClass::Compatibility
+    } else if lower.contains("resourcelimitexceeded") {
+        ErrorClass::Execution
     } else if lower.contains("syntax")
         || lower.contains("parse")
         || lower.contains("unexpected token")
@@ -160,6 +162,12 @@ mod tests {
     fn classify_maps_execution_errors_by_default() {
         assert_eq!(
             classify_error_text("not implemented: expression"),
+            ErrorClass::Execution
+        );
+        assert_eq!(
+            classify_error_text(
+                "execution error: ResourceLimitExceeded(kind=Timeout, limit=1, observed=10, stage=ReturnOne)"
+            ),
             ErrorClass::Execution
         );
     }

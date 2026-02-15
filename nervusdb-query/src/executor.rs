@@ -28,6 +28,7 @@ mod procedure_registry;
 mod projection_sort;
 mod property_bridge;
 mod read_path;
+mod runtime_limits;
 mod txn_engine_impl;
 mod write_dispatch;
 mod write_forwarders;

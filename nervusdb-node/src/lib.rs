@@ -17,7 +17,9 @@ fn error_payload(code: &str, category: &str, message: impl ToString) -> String {
 
 fn classify_err_message(msg: &str) -> (&'static str, &'static str) {
     let lower = msg.to_lowercase();
-    if lower.contains("storage format mismatch") || lower.contains("compatibility") {
+    if lower.contains("resourcelimitexceeded") {
+        ("NERVUS_RESOURCE_LIMIT", "execution")
+    } else if lower.contains("storage format mismatch") || lower.contains("compatibility") {
         ("NERVUS_COMPATIBILITY", "compatibility")
     } else if lower.contains("syntax")
         || lower.contains("parse")
@@ -297,5 +299,14 @@ mod tests {
             classify_err_message("compatibility warning with parse token details");
         assert_eq!(code, "NERVUS_COMPATIBILITY");
         assert_eq!(category, "compatibility");
+    }
+
+    #[test]
+    fn classify_err_message_detects_resource_limit() {
+        let (code, category) = classify_err_message(
+            "execution error: ResourceLimitExceeded(kind=Timeout, limit=1, observed=10, stage=ReturnOne)",
+        );
+        assert_eq!(code, "NERVUS_RESOURCE_LIMIT");
+        assert_eq!(category, "execution");
     }
 }

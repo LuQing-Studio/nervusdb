@@ -3,6 +3,8 @@ use crate::error::{Error, Result};
 use crate::executor::{Plan, Row, Value, execute_plan, execute_write};
 use nervusdb_api::GraphSnapshot;
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 mod aggregate_parse;
 mod ast_walk;
@@ -80,6 +82,39 @@ enum BindingKind {
 
 const INTERNAL_PATH_ALIAS_PREFIX: &str = "__nervus_internal_path_";
 
+/// Execution resource limits applied to each query execution.
+///
+/// Defaults are tuned to a balanced profile for CI/runtime stability.
+#[derive(Debug, Clone)]
+pub struct ExecuteOptions {
+    pub max_intermediate_rows: usize,
+    pub max_collection_items: usize,
+    pub soft_timeout_ms: u64,
+    pub max_apply_rows_per_outer: usize,
+}
+
+impl Default for ExecuteOptions {
+    fn default() -> Self {
+        Self {
+            max_intermediate_rows: 500_000,
+            max_collection_items: 200_000,
+            soft_timeout_ms: 5_000,
+            max_apply_rows_per_outer: 200_000,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct ExecutionRuntimeState {
+    started_at: Option<Instant>,
+    emitted_rows: usize,
+}
+
+#[derive(Debug, Default)]
+struct ExecutionRuntime {
+    state: Mutex<ExecutionRuntimeState>,
+}
+
 /// Query parameters for parameterized Cypher queries.
 ///
 /// # Example
@@ -92,12 +127,21 @@ const INTERNAL_PATH_ALIAS_PREFIX: &str = "__nervus_internal_path_";
 #[derive(Debug, Clone, Default)]
 pub struct Params {
     inner: BTreeMap<String, Value>,
+    execute_options: ExecuteOptions,
+    runtime: Arc<ExecutionRuntime>,
 }
 
 impl Params {
     /// Creates a new empty parameters map.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates a parameter bag with custom execution options.
+    pub fn with_execute_options(options: ExecuteOptions) -> Self {
+        let mut params = Self::new();
+        params.set_execute_options(options);
+        params
     }
 
     /// Inserts a parameter value.
@@ -110,6 +154,100 @@ impl Params {
     /// Gets a parameter value by name.
     pub fn get(&self, name: &str) -> Option<&Value> {
         self.inner.get(name)
+    }
+
+    /// Returns execution options associated with this parameter bag.
+    pub fn execute_options(&self) -> &ExecuteOptions {
+        &self.execute_options
+    }
+
+    /// Overrides execution options used for subsequent query executions.
+    pub fn set_execute_options(&mut self, options: ExecuteOptions) {
+        self.execute_options = options;
+    }
+
+    pub(crate) fn begin_execution(&self) {
+        if let Ok(mut state) = self.runtime.state.lock() {
+            state.started_at = Some(Instant::now());
+            state.emitted_rows = 0;
+        }
+    }
+
+    pub(crate) fn check_timeout(&self, stage: &str) -> Result<()> {
+        let timeout_ms = self.execute_options.soft_timeout_ms;
+        if timeout_ms == 0 {
+            return Ok(());
+        }
+        let elapsed_ms = {
+            let state = self
+                .runtime
+                .state
+                .lock()
+                .map_err(|_| Error::Other("execution runtime lock poisoned".to_string()))?;
+            state
+                .started_at
+                .map(|started| started.elapsed().as_millis() as usize)
+                .unwrap_or(0)
+        };
+        let timeout_ms = timeout_ms as usize;
+        if elapsed_ms > timeout_ms {
+            return Err(Error::resource_limit_exceeded(
+                crate::error::ResourceLimitKind::Timeout,
+                timeout_ms,
+                elapsed_ms,
+                stage,
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn note_emitted_row(&self, stage: &str) -> Result<()> {
+        let observed = {
+            let mut state = self
+                .runtime
+                .state
+                .lock()
+                .map_err(|_| Error::Other("execution runtime lock poisoned".to_string()))?;
+            state.emitted_rows = state.emitted_rows.saturating_add(1);
+            state.emitted_rows
+        };
+
+        let limit = self.execute_options.max_intermediate_rows;
+        if observed > limit {
+            return Err(Error::resource_limit_exceeded(
+                crate::error::ResourceLimitKind::IntermediateRows,
+                limit,
+                observed,
+                stage,
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn check_collection_size(&self, stage: &str, observed: usize) -> Result<()> {
+        let limit = self.execute_options.max_collection_items;
+        if observed > limit {
+            return Err(Error::resource_limit_exceeded(
+                crate::error::ResourceLimitKind::CollectionItems,
+                limit,
+                observed,
+                stage,
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn check_apply_rows_per_outer(&self, stage: &str, observed: usize) -> Result<()> {
+        let limit = self.execute_options.max_apply_rows_per_outer;
+        if observed > limit {
+            return Err(Error::resource_limit_exceeded(
+                crate::error::ResourceLimitKind::ApplyRowsPerOuter,
+                limit,
+                observed,
+                stage,
+            ));
+        }
+        Ok(())
     }
 }
 
