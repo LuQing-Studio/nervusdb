@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const repoRoot = path.resolve(__dirname, "../../../../rust/nervusdb");
+const repoRoot = path.resolve(__dirname, "../../..");
 const releaseDir = path.join(repoRoot, "nervusdb-node", "target", "release");
 const nativeDir = path.resolve(__dirname, "..", "native");
 const targetAddon = path.join(nativeDir, "nervusdb_node.node");

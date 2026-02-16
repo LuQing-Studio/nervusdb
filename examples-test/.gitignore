@@ -9,3 +9,7 @@ nervusdb-node-test/native/
 nervusdb-python-test/.venv/
 nervusdb-python-test/__pycache__/
 *.pyc
+
+# Rust local build artifacts
+nervusdb-rust-test/target/
+nervusdb-rust-test/Cargo.lock

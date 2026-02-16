@@ -68,17 +68,13 @@ jobs:
         if: runner.os == 'Linux'
         run: make tck-tier2
 
-      - name: Binding smoke (Python + Node scaffold)
-        if: runner.os == 'Linux'
-        run: bash scripts/binding_smoke.sh
-
       - name: Examples smoke (TS + Python local)
         if: runner.os == 'Linux'
         run: bash scripts/examples_smoke.sh
 
-      - name: Cross-language contract smoke
+      - name: Binding parity gate (Rust/Node/Python)
         if: runner.os == 'Linux'
-        run: bash scripts/contract_smoke.sh
+        run: bash scripts/binding_parity_gate.sh
 
       - name: Run workspace quick tests
         run: bash scripts/workspace_quick_test.sh
