@@ -3,17 +3,17 @@ use crate::property::PropertyValue;
 use crate::snapshot::EdgeKey;
 use std::collections::BTreeMap;
 
-pub(crate) fn node_properties_in_run<'a>(
-    node_properties: &'a BTreeMap<InternalNodeId, BTreeMap<String, PropertyValue>>,
+pub(crate) fn node_properties_in_run(
+    node_properties: &BTreeMap<InternalNodeId, BTreeMap<String, PropertyValue>>,
     node: InternalNodeId,
-) -> Option<&'a BTreeMap<String, PropertyValue>> {
+) -> Option<&BTreeMap<String, PropertyValue>> {
     node_properties.get(&node)
 }
 
-pub(crate) fn edge_properties_in_run<'a>(
-    edge_properties: &'a BTreeMap<EdgeKey, BTreeMap<String, PropertyValue>>,
+pub(crate) fn edge_properties_in_run(
+    edge_properties: &BTreeMap<EdgeKey, BTreeMap<String, PropertyValue>>,
     edge: EdgeKey,
-) -> Option<&'a BTreeMap<String, PropertyValue>> {
+) -> Option<&BTreeMap<String, PropertyValue>> {
     edge_properties.get(&edge)
 }
 

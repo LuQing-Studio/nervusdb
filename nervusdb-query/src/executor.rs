@@ -96,6 +96,7 @@ pub fn execute_write_with_rows<S: GraphSnapshot>(
     write_orchestration::execute_write_with_rows(plan, snapshot, txn, params)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn execute_merge_with_rows<S: GraphSnapshot>(
     plan: &Plan,
     snapshot: &S,
@@ -122,6 +123,7 @@ pub fn execute_merge_with_rows<S: GraphSnapshot>(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn execute_merge<S: GraphSnapshot>(
     plan: &Plan,
     snapshot: &S,

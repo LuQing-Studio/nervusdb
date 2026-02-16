@@ -224,7 +224,7 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
                                 let v = evaluate_expression_value(expr, r, snapshot, params);
                                 if v == Value::Null { None } else { Some(v) }
                             })
-                            .min_by(|a, b| order_compare(a, b));
+                            .min_by(order_compare);
                         min_val.unwrap_or(Value::Null)
                     }
                     AggregateFunction::MinDistinct(expr) => {
@@ -245,7 +245,7 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
 
                         distinct_values
                             .into_iter()
-                            .min_by(|a, b| order_compare(a, b))
+                            .min_by(order_compare)
                             .unwrap_or(Value::Null)
                     }
                     AggregateFunction::Max(expr) => {
@@ -255,7 +255,7 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
                                 let v = evaluate_expression_value(expr, r, snapshot, params);
                                 if v == Value::Null { None } else { Some(v) }
                             })
-                            .max_by(|a, b| order_compare(a, b));
+                            .max_by(order_compare);
                         max_val.unwrap_or(Value::Null)
                     }
                     AggregateFunction::MaxDistinct(expr) => {
@@ -276,7 +276,7 @@ pub(super) fn execute_aggregate<'a, S: GraphSnapshot + 'a>(
 
                         distinct_values
                             .into_iter()
-                            .max_by(|a, b| order_compare(a, b))
+                            .max_by(order_compare)
                             .unwrap_or(Value::Null)
                     }
                     AggregateFunction::Collect(expr) => {
