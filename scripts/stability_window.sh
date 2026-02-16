@@ -384,7 +384,13 @@ fetch_tier3_rate_from_artifact() {
   mkdir -p "$extract_dir"
   unzip -oq "$zip_file" -d "$extract_dir"
 
-  source_file="$(find "$extract_dir" -type f \( -name 'tier3-rate.json' -o -name 'tier3-rate-*.json' \) | head -n1 || true)"
+  source_file="$(find "$extract_dir" -type f -name "tier3-rate-${day}.json" | head -n1 || true)"
+  if [ -z "$source_file" ]; then
+    source_file="$(find "$extract_dir" -type f -name "tier3-rate.json" | head -n1 || true)"
+  fi
+  if [ -z "$source_file" ]; then
+    source_file="$(find "$extract_dir" -type f -name "tier3-rate-*.json" | sort | tail -n1 || true)"
+  fi
   if [ -z "$source_file" ]; then
     return 1
   fi
