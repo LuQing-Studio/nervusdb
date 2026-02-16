@@ -47,9 +47,7 @@ pub(super) fn execute_match_bound_rel<'a, S: GraphSnapshot + 'a>(
             let mut out: Vec<Result<Row>> = Vec::new();
 
             if let Some(edge) = bound_edge
-                && rel_ids
-                    .as_ref()
-                    .is_none_or(|ids| ids.iter().any(|id| *id == edge.rel))
+                && rel_ids.as_ref().map_or(true, |ids| ids.contains(&edge.rel))
             {
                 let orientations: Vec<(InternalNodeId, InternalNodeId)> = match direction {
                     RelationshipDirection::LeftToRight => vec![(edge.src, edge.dst)],

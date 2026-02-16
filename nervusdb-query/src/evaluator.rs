@@ -447,7 +447,7 @@ fn evaluate_temporal_accessor(raw: &str, temporal: TemporalValue, property: &str
             match property {
                 "timezone" => evaluator_temporal_parse::extract_timezone_name(raw)
                     .map(Value::String)
-                    .or_else(|| Some(Value::String(offset_str))),
+                    .or(Some(Value::String(offset_str))),
                 "offset" => Some(Value::String(offset_str)),
                 "offsetMinutes" => Some(Value::Int(i64::from(offset.local_minus_utc() / 60))),
                 "offsetSeconds" => Some(Value::Int(i64::from(offset.local_minus_utc()))),

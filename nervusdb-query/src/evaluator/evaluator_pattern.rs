@@ -123,6 +123,7 @@ pub(super) fn evaluate_pattern_comprehension<S: GraphSnapshot>(
     Value::List(out)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_pattern_comprehension_matches_from<S: GraphSnapshot>(
     pattern: &Pattern,
     rel_index: usize,
@@ -482,9 +483,9 @@ fn match_variable_length_pattern<S: GraphSnapshot>(
         params: &Params,
         used_edges: &mut Vec<EdgeKey>,
     ) -> bool {
-        if depth >= min_hops && node_pattern_matches(dst_node_pattern, node, row, snapshot, params)
-        {
-            if match_pattern_from(
+        if depth >= min_hops
+            && node_pattern_matches(dst_node_pattern, node, row, snapshot, params)
+            && match_pattern_from(
                 pattern,
                 next_rel_index,
                 node,
@@ -492,9 +493,9 @@ fn match_variable_length_pattern<S: GraphSnapshot>(
                 snapshot,
                 params,
                 used_edges,
-            ) {
-                return true;
-            }
+            )
+        {
+            return true;
         }
 
         if depth >= max_hops {
@@ -578,7 +579,7 @@ fn candidate_edges<S: GraphSnapshot>(
 
     match direction {
         RelationshipDirection::LeftToRight => match rel_type_ids {
-            Some(ids) if ids.is_empty() => {}
+            Some([]) => {}
             Some(ids) => {
                 for rel in ids {
                     for edge in snapshot.neighbors(src, Some(*rel)) {
@@ -593,7 +594,7 @@ fn candidate_edges<S: GraphSnapshot>(
             }
         },
         RelationshipDirection::RightToLeft => match rel_type_ids {
-            Some(ids) if ids.is_empty() => {}
+            Some([]) => {}
             Some(ids) => {
                 for rel in ids {
                     for edge in snapshot.incoming_neighbors(src, Some(*rel)) {
@@ -608,7 +609,7 @@ fn candidate_edges<S: GraphSnapshot>(
             }
         },
         RelationshipDirection::Undirected => match rel_type_ids {
-            Some(ids) if ids.is_empty() => {}
+            Some([]) => {}
             Some(ids) => {
                 for rel in ids {
                     for edge in snapshot.neighbors(src, Some(*rel)) {

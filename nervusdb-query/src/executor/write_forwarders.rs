@@ -3,6 +3,7 @@ use super::{
     WriteableGraph, create_delete_ops, foreach_ops, merge_execution, write_path,
 };
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn execute_merge_create_from_rows<S: GraphSnapshot>(
     snapshot: &S,
     input_rows: Vec<Row>,

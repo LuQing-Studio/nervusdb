@@ -2,20 +2,20 @@ use crate::idmap::InternalNodeId;
 use crate::snapshot::EdgeKey;
 use std::collections::BTreeMap;
 
-pub(crate) fn edges_for_src<'a>(
-    edges_by_src: &'a BTreeMap<InternalNodeId, Vec<EdgeKey>>,
+pub(crate) fn edges_for_src(
+    edges_by_src: &BTreeMap<InternalNodeId, Vec<EdgeKey>>,
     src: InternalNodeId,
-) -> &'a [EdgeKey] {
+) -> &[EdgeKey] {
     edges_by_src
         .get(&src)
         .map(|edges| edges.as_slice())
         .unwrap_or(&[])
 }
 
-pub(crate) fn edges_for_dst<'a>(
-    edges_by_dst: &'a BTreeMap<InternalNodeId, Vec<EdgeKey>>,
+pub(crate) fn edges_for_dst(
+    edges_by_dst: &BTreeMap<InternalNodeId, Vec<EdgeKey>>,
     dst: InternalNodeId,
-) -> &'a [EdgeKey] {
+) -> &[EdgeKey] {
     edges_by_dst
         .get(&dst)
         .map(|edges| edges.as_slice())

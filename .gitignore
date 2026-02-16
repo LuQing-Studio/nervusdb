@@ -64,3 +64,10 @@ tck_results.txt
 
 # Local generated artifacts
 artifacts/
+
+# Local integration examples (generated files)
+examples/ts-local/node_modules/
+examples/ts-local/dist/
+examples/ts-local/native/
+examples/py-local/.venv/
+examples/py-local/__pycache__/

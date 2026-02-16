@@ -14,6 +14,7 @@ use super::{
 };
 use crate::ast::{Expression, PathElement, Pattern};
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn execute_merge_create_from_rows<S: GraphSnapshot>(
     snapshot: &S,
     input_rows: Vec<Row>,
@@ -436,6 +437,7 @@ fn find_create_plan(plan: &Plan) -> Option<&Plan> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn execute_merge<S: GraphSnapshot>(
     plan: &Plan,
     snapshot: &S,

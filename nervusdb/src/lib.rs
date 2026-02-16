@@ -506,6 +506,7 @@ fn derive_paths(path: &Path) -> (PathBuf, PathBuf) {
     }
 }
 
+#[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
     use super::{BulkNode, Db, Error, PropertyValue, backup, bulkload, vacuum};

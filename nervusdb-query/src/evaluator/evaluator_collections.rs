@@ -311,6 +311,7 @@ fn evaluate_slice(args: &[Value]) -> Value {
     }
 }
 
+#[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
     use super::{evaluate_range, evaluate_slice};

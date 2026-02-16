@@ -3,7 +3,9 @@ use super::WriteTxn;
 use crate::{classify_nervus_error, QueryStream};
 use nervusdb::Db as RustDb;
 use pyo3::prelude::*;
+use pyo3::types::PyType;
 use std::collections::HashMap;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -15,10 +17,19 @@ use std::sync::Arc;
 pub struct Db {
     pub(crate) inner: Option<RustDb>,
     ndb_path: PathBuf,
+    wal_path: PathBuf,
     active_write_txns: Arc<AtomicUsize>,
 }
 
 impl Db {
+    fn derive_paths(path: &Path) -> (PathBuf, PathBuf) {
+        match path.extension().and_then(|e| e.to_str()) {
+            Some("ndb") => (path.to_path_buf(), path.with_extension("wal")),
+            Some("wal") => (path.with_extension("ndb"), path.to_path_buf()),
+            _ => (path.with_extension("ndb"), path.with_extension("wal")),
+        }
+    }
+
     fn execute_query_rows(
         &self,
         query: &str,
@@ -71,10 +82,25 @@ impl Db {
     /// Returns an error if the database cannot be opened.
     #[new]
     pub(crate) fn new(path: &str) -> PyResult<Self> {
-        let inner = RustDb::open(path).map_err(classify_nervus_error)?;
+        let (ndb_path, wal_path) = Self::derive_paths(Path::new(path));
+        let inner = RustDb::open_paths(&ndb_path, &wal_path).map_err(classify_nervus_error)?;
         Ok(Self {
             inner: Some(inner),
-            ndb_path: PathBuf::from(path),
+            ndb_path,
+            wal_path,
+            active_write_txns: Arc::new(AtomicUsize::new(0)),
+        })
+    }
+
+    /// Open with explicit ndb/wal paths.
+    #[classmethod]
+    #[pyo3(signature = (ndb_path, wal_path))]
+    fn open_paths(_cls: &Bound<'_, PyType>, ndb_path: &str, wal_path: &str) -> PyResult<Self> {
+        let inner = RustDb::open_paths(ndb_path, wal_path).map_err(classify_nervus_error)?;
+        Ok(Self {
+            inner: Some(inner),
+            ndb_path: PathBuf::from(ndb_path),
+            wal_path: PathBuf::from(wal_path),
             active_write_txns: Arc::new(AtomicUsize::new(0)),
         })
     }
@@ -160,6 +186,35 @@ impl Db {
             .map_err(classify_nervus_error)
     }
 
+    /// Trigger compaction.
+    fn compact(&self) -> PyResult<()> {
+        let inner = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| classify_nervus_error("database is closed"))?;
+        inner.compact().map_err(classify_nervus_error)
+    }
+
+    /// Trigger checkpoint.
+    fn checkpoint(&self) -> PyResult<()> {
+        let inner = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| classify_nervus_error("database is closed"))?;
+        inner.checkpoint().map_err(classify_nervus_error)
+    }
+
+    /// Create index by (label, property).
+    fn create_index(&self, label: &str, property: &str) -> PyResult<()> {
+        let inner = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| classify_nervus_error("database is closed"))?;
+        inner
+            .create_index(label, property)
+            .map_err(classify_nervus_error)
+    }
+
     /// Begin a write transaction.
     ///
     /// Returns:
@@ -196,5 +251,17 @@ impl Db {
     #[getter]
     fn path(&self) -> String {
         self.ndb_path.to_string_lossy().to_string()
+    }
+
+    /// Get resolved ndb file path.
+    #[getter]
+    fn ndb_path(&self) -> String {
+        self.ndb_path.to_string_lossy().to_string()
+    }
+
+    /// Get resolved wal file path.
+    #[getter]
+    fn wal_path(&self) -> String {
+        self.wal_path.to_string_lossy().to_string()
     }
 }
