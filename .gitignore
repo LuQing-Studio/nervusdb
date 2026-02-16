@@ -71,6 +71,3 @@ examples/ts-local/dist/
 examples/ts-local/native/
 examples/py-local/.venv/
 examples/py-local/__pycache__/
-
-# Local scratch playgrounds
-eaamples-test/

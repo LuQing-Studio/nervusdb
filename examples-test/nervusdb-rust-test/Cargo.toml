@@ -1,0 +1,13 @@
+[package]
+name = "nervusdb-rust-test"
+version = "0.1.0"
+edition = "2021"
+
+# 注意：此项目需要在 nervusdb workspace 中运行。
+# 将此目录复制到 rust/nervusdb/nervusdb-rust-test/ 并添加到 workspace members 中。
+# 或者直接使用 workspace 中的副本运行测试。
+
+[dev-dependencies]
+nervusdb = { path = "../nervusdb" }
+nervusdb-query = { path = "../nervusdb-query" }
+tempfile = "3"
