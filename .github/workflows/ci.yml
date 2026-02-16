@@ -50,6 +50,12 @@ jobs:
       - name: Runtime guard hotspot audit
         run: bash scripts/runtime_guard_audit.sh --fail-on-hotspot
 
+      - name: Setup Node.js
+        if: runner.os == 'Linux'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: TCK Tier-0 (smoke)
         if: runner.os == 'Linux'
         run: make tck-tier0
@@ -65,6 +71,10 @@ jobs:
       - name: Binding smoke (Python + Node scaffold)
         if: runner.os == 'Linux'
         run: bash scripts/binding_smoke.sh
+
+      - name: Examples smoke (TS + Python local)
+        if: runner.os == 'Linux'
+        run: bash scripts/examples_smoke.sh
 
       - name: Cross-language contract smoke
         if: runner.os == 'Linux'
