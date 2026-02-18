@@ -77,6 +77,26 @@ fn test_size_of_empty_list() -> nervusdb::Result<()> {
 }
 
 #[test]
+fn test_left_and_right_string_functions() -> nervusdb::Result<()> {
+    let dir = tempdir()?;
+    let db_path = dir.path().join("t313.ndb");
+    let db = Db::open(&db_path)?;
+
+    let query = "RETURN left('hello', 3) AS l, right('hello', 2) AS r";
+    let prep = nervusdb::query::prepare(query)?;
+    let snapshot = db.snapshot();
+    let results: Vec<_> = prep
+        .execute_streaming(&snapshot, &Default::default())
+        .collect::<Result<Vec<_>, _>>()?;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].get("l").unwrap(), &Value::String("hel".into()));
+    assert_eq!(results[0].get("r").unwrap(), &Value::String("lo".into()));
+
+    Ok(())
+}
+
+#[test]
 fn test_size_of_path_is_compile_error() {
     let err = nervusdb::query::prepare("MATCH p = (a)-[*]->(b) RETURN size(p)")
         .expect_err("size(path) should be rejected at compile time")

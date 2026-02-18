@@ -83,7 +83,7 @@
 | M4-10         | [Query/CI] Merge Core Semantics + TCK Smoke Gate          | High   | Done   | feat/M4-10-merge-core       | Added binding conflict validation + varlen `<-/->/-` + CI smoke gate |
 | M4-11         | [Query] MERGE Regression Hardening                         | High   | Done   | feat/M4-10-merge-core       | Fixed MERGE execution on wrapped plans, rel source indexing, ON CREATE/ON MATCH updates, correlated MATCH binding typing |
 | **M5**        | **Bindings + Docs + Perf 基础设施**                        |        |        |                             |                                                          |
-| M5-01         | [Binding] Python + Node.js 可用性收敛（PyO3 + N-API）      | High   | WIP    | feat/M5-01-bindings         | 已补齐 Rust 基线 API 面（Db/WriteTxn/maintenance）与 zero-skip capability 套件；新增 `docs/binding-parity.md` + `scripts/binding_parity_gate.sh` + CI parity 阻断；已清零首批核心缺口（多标签子集匹配、MERGE 关系幂等），剩余核心缺口聚焦 `left/right` 与 `shortestPath` |
+| M5-01         | [Binding] Python + Node.js 可用性收敛（PyO3 + N-API）      | High   | Done   | feat/M5-01-bindings         | Rust 基线 API 面与 parity 门禁已全量对齐；三端 capability 套件已改为硬断言并全绿；剩余核心缺口 `left/right`、`shortestPath` 已于 2026-02-18 清零。 |
 | M5-02         | [Docs] 用户文档与支持矩阵对齐                             | High   | WIP    | feat/M5-02-user-guide       | 已切换到 Beta 收敛口径；待补 95%/7天稳定窗发布说明与日报模板 |
 | M5-03         | [Benchmark] NervusDB vs Neo4j/Memgraph 对标               | Medium | WIP    | feat/M5-03-benchmark        | 已有流程；待绑定 Beta 发布 SLO 阻断 |
 | M5-04         | [Performance] 并发读热点优化                               | Medium | WIP    | feat/M5-04-concurrency      | 已有基线；待收敛到 Beta P99 门槛 |
@@ -106,7 +106,7 @@
 | BETA-03R7     | [TCK] 主干攻坚（Temporal/Aggregation/Set/Remove/Create/Subquery） | High   | Done   | codex/feat/phase1b1c-bigbang | 2026-02-13 已清零 `Temporal4`、`Aggregation6`、`Remove1/3`、`Set2/4/5`、`Create3`，修复 correlated subquery 作用域回归，Tier-3 提升至 94.48%（3682/3897）。 |
 | BETA-03R13    | [Hardening] `TypeError` 断言收紧（compile-time + any-time + runtime） | High   | Done   | codex/feat/beta-04-r13w2-anytime-hardening | R13-W1/W2/W3 已全部完成：compile-time、any-time、runtime 三类 `TypeError` 断言均切换为严格模式；补齐递归运行期表达式类型守卫（含 list comprehension 作用域）与属性写入非法 list 元素拦截，定向簇与基线门禁全绿。 |
 | BETA-03R14    | [Hardening] runtime 语义一致性收口（WHERE guard + type(rel)） | High   | Done   | codex/feat/beta-04-r14w2-unwind-guard | R14-W1~W13 已完成：`WHERE/UNWIND/SET/MERGE/FOREACH/DELETE/CREATE/CALL/Aggregate/IndexSeek` 入口 runtime guard 全覆盖，`runtime_guard_audit` 热点清零并接入 CI；W13-A 全量证据：core gates 全绿、Tier-3 全量 `3897/3897` 全通过。 |
-| BETA-04       | [Stability] 连续 7 天主 CI + nightly 稳定窗                | High   | WIP    | feat/TB1-stability-window   | strict 稳定窗基建已落地（`ci-daily-snapshot` + `stability_window.sh --mode strict` + `beta_release_gate.sh` + release 接线）；Day1/Day2（2026-02-15~2026-02-16）快照与回填修复已完成，当前 `consecutive_days=2/7`（发布门禁仍阻断，继续累计）。 |
+| BETA-04       | [Stability] 连续 7 天主 CI + nightly 稳定窗                | High   | WIP    | feat/TB1-stability-window   | strict 稳定窗基建已落地（`ci-daily-snapshot` + `stability_window.sh --mode strict` + `beta_release_gate.sh` + release 接线）；截至 2026-02-18 `consecutive_days=3/7`，发布门禁仍阻断，继续累计。 |
 | BETA-05       | [Perf] 大规模 SLO 封板（读120/写180/向量220 ms P99）       | High   | WIP    | codex/feat/w13-perf-guard-stream | W13-PERF 已落地资源护栏+高内存算子收敛；待主分支 Nightly 8h 复测并累计稳定窗证据。 |
 
 ### BETA-03R4 子进展（2026-02-13）
@@ -479,7 +479,7 @@
   - `Aggregate` 增加 group/rows/collect distinct 规模限制；
   - `Apply` 增加每外层行子查询输出上限。
 - W13-C（CI/Fuzz 策略）：
-  - `fuzz-nightly.yml` 中 `query_execute` 增加 `-timeout=5`，保留 `rss_limit_mb=4096`。
+  - `fuzz-nightly.yml` 中 `query_execute` 参数已收敛到 `-max_len=1024 -timeout=10`，保留 `rss_limit_mb=4096`。
   - Node/Python 错误分类补齐 `ResourceLimitExceeded` 路径（归类 execution）。
   - 监控后追加 `query_parse` timeout 收口：parser 增加复杂度步数预算（`ParserComplexityLimitExceeded`），并将 failing 样本固化到
     `fuzz/regressions/query_parse/timeout-0150b9c6c52d68d4492ee8debb67edad1c52a05f`。
@@ -516,6 +516,27 @@
   - `cargo test -p nervusdb --test tck_harness -- --input clauses/merge/Merge1.feature`
   - `cargo test -p nervusdb --test tck_harness -- --input clauses/merge/Merge2.feature`
   - 结果：全部通过。
+
+### BETA-04 子进展（2026-02-18，核心缺口二批清零 + Fuzz timeout 止血）
+- 核心缺口清零（left/right + shortestPath）：
+  - `left()` / `right()` 已在核心 evaluator 落地，并加入编译期函数白名单；
+  - `MATCH p = shortestPath((...)-[*]->(...))` 已支持解析执行（不再报 `Expected '('`）；
+  - 新增核心回归：
+    - `nervusdb/tests/t313_functions.rs::test_left_and_right_string_functions`
+    - `nervusdb/tests/t318_paths.rs::test_shortest_path_in_match_assignment`
+  - 三端 capability 改为硬断言后全绿：
+    - `examples-test/nervusdb-rust-test/tests/test_capabilities.rs`
+    - `examples-test/nervusdb-node-test/src/test-capabilities.ts`
+    - `examples-test/nervusdb-python-test/test_capabilities.py`
+- Fuzz Nightly `query_execute` timeout 止血：
+  - `fuzz/fuzz_targets/query_execute.rs` 增加执行预算（`ExecuteOptions`）并将输入长度收敛到 `<=1024`；
+  - `.github/workflows/fuzz-nightly.yml` 调整 `query_execute` 参数为 `-max_len=1024 -timeout=10`，降低单样本超时误报；
+  - 本地 smoke 验证：`cargo +nightly fuzz run query_execute -- -max_total_time=5 -max_len=1024 -timeout=10 -rss_limit_mb=4096` 通过。
+- 本轮回归：
+  - `bash examples-test/run_all.sh` 全绿（Rust/Node/Python 三端通过）；
+  - `cargo test -p nervusdb --test t313_functions test_left_and_right_string_functions` 通过；
+  - `cargo test -p nervusdb --test t318_paths test_shortest_path_in_match_assignment` 通过；
+  - `cargo fmt --all -- --check` 与 `cargo clippy --workspace --exclude nervusdb-pyo3 --all-targets -- -W warnings` 通过。
 
 ## Archived (v1/Alpha)
 

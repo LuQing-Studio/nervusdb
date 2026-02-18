@@ -1,6 +1,6 @@
 # NervusDB Python Binding — Capability Test Report
 
-> Updated: 2026-02-17
+> Updated: 2026-02-18
 > Test entry: `examples-test/nervusdb-python-test/test_capabilities.py`
 
 ## Summary
@@ -25,9 +25,9 @@
 |  6 | Aggregation (count/sum/avg/min/max/collect/DISTINCT/GROUP BY) | 7 | Pass |
 |  7 | MERGE (node/ON CREATE/ON MATCH) | 5 | Pass |
 |  8 | CASE expressions (simple/generic) | 2 | Pass |
-|  9 | String functions (toString/toUpper/toLower/trim/size) [CORE-BUG: left/right] | 7 | Pass* |
+|  9 | String functions (toString/toUpper/toLower/trim/size/left/right) | 7 | Pass |
 | 10 | Math operations (arithmetic/modulo/abs/toInteger) | 4 | Pass |
-| 11 | Variable-length paths [CORE-BUG: shortestPath] | 4 | Pass* |
+| 11 | Variable-length paths (incl. shortestPath) | 4 | Pass |
 | 12 | EXISTS subquery | 1 | Pass |
 | 13 | FOREACH | 1 | Pass |
 | 14 | Write transactions (begin_write/query/commit/rollback) | 4 | Pass |
@@ -64,8 +64,6 @@
 | 45 | Error handling expanded (type/division/missing property) | 3 | Pass |
 | 46 | Concurrent snapshot isolation | 1 | Pass |
 
-\* Tests touching known core gaps handle errors gracefully and print diagnostics.
-
 ## Scope
 
 - Categories 1-20: Mirrors Node.js shared capability surface.
@@ -73,16 +71,15 @@
 - The Rust core engine is the sole authoritative baseline.
 - Binding parity is enforced by `binding_parity_gate.sh`.
 
-## Known Core Gaps (Engine-Level, Not Python Binding Issues)
+## Core Gap Status
 
-These issues reproduce identically across Rust/Node/Python:
+- No remaining engine-level core gaps in this capability suite.
 
-1. **`left()` / `right()` not implemented** — returns `UnknownFunction` error
-2. **`shortestPath` incomplete** — may panic on valid shortest-path queries
-
-Resolved in this cycle:
+Resolved in recent cycles:
 - Multi-label subset matching (`MATCH (n:Manager)` on multi-label nodes)
 - Relationship `MERGE` idempotence (`MERGE (a)-[:REL]->(b)` duplicate prevention)
+- `left()` / `right()` string functions
+- `MATCH p = shortestPath((...)-[*]->(...))` parsing and execution path
 
 ## Verification Commands
 

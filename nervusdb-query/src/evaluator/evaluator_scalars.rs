@@ -15,6 +15,8 @@ pub(super) fn evaluate_scalar_function(name: &str, args: &[Value]) -> Option<Val
         "ltrim" => Some(evaluate_ltrim(args)),
         "rtrim" => Some(evaluate_rtrim(args)),
         "substring" => Some(evaluate_substring(args)),
+        "left" => Some(evaluate_left(args)),
+        "right" => Some(evaluate_right(args)),
         "replace" => Some(evaluate_replace(args)),
         "split" => Some(evaluate_split(args)),
         "coalesce" => Some(evaluate_coalesce(args)),
@@ -158,6 +160,37 @@ fn evaluate_substring(args: &[Value]) -> Value {
     }
 }
 
+fn evaluate_left(args: &[Value]) -> Value {
+    match (args.first(), args.get(1)) {
+        (Some(Value::String(s)), Some(Value::Int(len))) => {
+            if *len <= 0 {
+                return Value::String(String::new());
+            }
+            let chars: Vec<char> = s.chars().collect();
+            let take = (*len as usize).min(chars.len());
+            Value::String(chars[..take].iter().collect())
+        }
+        (Some(Value::Null), _) | (_, Some(Value::Null)) => Value::Null,
+        _ => Value::Null,
+    }
+}
+
+fn evaluate_right(args: &[Value]) -> Value {
+    match (args.first(), args.get(1)) {
+        (Some(Value::String(s)), Some(Value::Int(len))) => {
+            if *len <= 0 {
+                return Value::String(String::new());
+            }
+            let chars: Vec<char> = s.chars().collect();
+            let take = (*len as usize).min(chars.len());
+            let start = chars.len().saturating_sub(take);
+            Value::String(chars[start..].iter().collect())
+        }
+        (Some(Value::Null), _) | (_, Some(Value::Null)) => Value::Null,
+        _ => Value::Null,
+    }
+}
+
 fn evaluate_replace(args: &[Value]) -> Value {
     if let (
         Some(Value::String(orig)),
@@ -252,6 +285,18 @@ mod tests {
         assert_eq!(
             evaluate_scalar_function("ceil", &[Value::Int(2)]),
             Some(Value::Float(2.0))
+        );
+    }
+
+    #[test]
+    fn left_and_right_return_expected_substrings() {
+        assert_eq!(
+            evaluate_scalar_function("left", &[Value::String("hello".into()), Value::Int(3)]),
+            Some(Value::String("hel".into()))
+        );
+        assert_eq!(
+            evaluate_scalar_function("right", &[Value::String("hello".into()), Value::Int(2)]),
+            Some(Value::String("lo".into()))
         );
     }
 }

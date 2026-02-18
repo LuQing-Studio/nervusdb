@@ -120,6 +120,44 @@ fn test_path_var_len() -> Result<()> {
 }
 
 #[test]
+fn test_shortest_path_in_match_assignment() -> Result<()> {
+    let dir = tempdir()?;
+    let db = Db::open(dir.path())?;
+    let mut txn = db.begin_write();
+
+    let node_label = txn.get_or_create_label("V")?;
+    let a = txn.create_node(401, node_label)?;
+    let b = txn.create_node(402, node_label)?;
+    let c = txn.create_node(403, node_label)?;
+    let d = txn.create_node(404, node_label)?;
+    let rel = txn.get_or_create_rel_type("NEXT")?;
+    txn.create_edge(a, rel, b);
+    txn.create_edge(b, rel, c);
+    txn.create_edge(c, rel, d);
+
+    txn.set_node_property(a, "name".to_string(), PropertyValue::String("A".into()))?;
+    txn.set_node_property(d, "name".to_string(), PropertyValue::String("D".into()))?;
+    txn.commit()?;
+
+    let snapshot = db.snapshot();
+    let prep = nervusdb::query::prepare(
+        "MATCH p = shortestPath((a:V {name: 'A'})-[:NEXT*]->(d:V {name: 'D'})) RETURN length(p) AS len",
+    )?;
+    let results: Vec<_> = prep
+        .execute_streaming(&snapshot, &Default::default())
+        .collect::<nervusdb::query::error::Result<Vec<_>>>()?;
+
+    assert!(!results.is_empty());
+    assert!(
+        results
+            .iter()
+            .any(|row| row.get("len") == Some(&Value::Int(3)))
+    );
+
+    Ok(())
+}
+
+#[test]
 fn test_path_incoming_undirected() -> Result<()> {
     let dir = tempdir()?;
     let db = Db::open(dir.path())?;

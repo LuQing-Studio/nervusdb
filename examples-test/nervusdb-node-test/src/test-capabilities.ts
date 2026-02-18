@@ -635,18 +635,9 @@ console.log("\n── 9. 字符串函数 ──");
   });
 
   test("left / right", () => {
-    try {
-      const rows = db.query("RETURN left('hello', 3) AS l, right('hello', 3) AS r");
-      assertEq(rows[0].l, "hel");
-      assertEq(rows[0].r, "llo");
-    } catch (e: any) {
-      const msg = String(e?.message || e);
-      if (msg.includes("UnknownFunction")) {
-        console.log("    [CORE-BUG] left()/right() not implemented");
-        return;
-      }
-      throw e;
-    }
+    const rows = db.query("RETURN left('hello', 3) AS l, right('hello', 3) AS r");
+    assertEq(rows[0].l, "hel");
+    assertEq(rows[0].r, "llo");
   });
 
   db.close();
@@ -711,13 +702,9 @@ console.log("\n── 11. 变长路径 ──");
     assertEq(rows.length, 2);
   });
 
-  test("shortest path (if supported)", () => {
-    try {
-      const rows = db.query("MATCH p = shortestPath((a:V {name: 'A'})-[:NEXT*]->(d:V {name: 'D'})) RETURN length(p) AS len");
-      assertEq(rows[0].len, 3);
-    } catch (e: any) {
-      console.log(`    (shortestPath unsupported: ${String(e?.message || e).slice(0, 60)})`);
-    }
+  test("shortest path", () => {
+    const rows = db.query("MATCH p = shortestPath((a:V {name: 'A'})-[:NEXT*]->(d:V {name: 'D'})) RETURN length(p) AS len");
+    assertEq(rows[0].len, 3);
   });
 
   db.close();

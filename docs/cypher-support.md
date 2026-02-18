@@ -83,7 +83,7 @@ Integer, Float, String, Boolean, Null, List `[]`, Map `{}`.
 | Category | Functions |
 |----------|-----------|
 | Scalar | `id()`, `type()`, `labels()`, `head()`, `last()`, `size()`, `length()`, `coalesce()`, `properties()`, `keys()` |
-| String | `toString()`, `toUpper()`, `toLower()`, `trim()`, `replace()`, `split()`, `reverse()`, `substring()` |
+| String | `toString()`, `toUpper()`, `toLower()`, `trim()`, `replace()`, `split()`, `reverse()`, `substring()`, `left()`, `right()` |
 | Math | `abs()`, `ceil()`, `floor()`, `round()`, `sign()`, `sqrt()`, `log()`, `rand()`, `e()`, `pi()`, `toInteger()`, `toFloat()` |
 | Aggregation | `count()`, `collect()`, `min()`, `max()`, `sum()`, `avg()` |
 | List | `range()`, `reduce()`, `tail()`, `nodes()`, `relationships()` |
@@ -92,12 +92,8 @@ Integer, Float, String, Boolean, Null, List `[]`, Map `{}`.
 
 ## Known Limitations
 
-These are known core engine gaps, not binding-level issues:
-
-1. **`left()` / `right()`** — not yet implemented (`UnknownFunction` error).
-2. **`shortestPath`** — not fully supported.
-
-These gaps are tracked and will be addressed in future releases.
+No open engine-level core gaps are currently tracked for `left()/right()` and
+`MATCH p = shortestPath((...)-[*]->(...))` parsing/execution in this document scope.
 
 ## Gate Model
 

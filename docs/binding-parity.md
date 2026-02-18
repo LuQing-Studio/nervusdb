@@ -74,16 +74,15 @@ This matrix covers three API layers:
 
 Rule: same input must produce the same error category on all three platforms.
 
-## Known Core Gaps (Not Binding Gaps)
+## Core Gap Status (Engine-Level, Cross-Binding)
 
-These are Rust core behavior gaps. All three platforms assert the same behavior:
+No open engine-level core gaps are currently tracked in the parity suite.
 
-1. `left()` / `right()` not yet implemented (`UnknownFunction`).
-2. `shortestPath` not fully supported.
-
-Resolved in this cycle:
+Resolved in recent cycles:
 - Multi-label subset matching now works for multi-label nodes (`MATCH (n:Manager)`).
 - Relationship `MERGE` now enforces idempotent creation semantics.
+- `left()` / `right()` string functions are implemented and asserted on all bindings.
+- `MATCH p = shortestPath((...)-[*]->(...))` parsing/execution is enabled and asserted on all bindings.
 
 ## Alignment Status
 

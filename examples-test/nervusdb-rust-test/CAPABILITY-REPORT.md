@@ -1,6 +1,6 @@
 # NervusDB Rust Core Engine — Capability Test Report
 
-> Updated: 2026-02-17
+> Updated: 2026-02-18
 > Test entry: `examples-test/nervusdb-rust-test/tests/test_capabilities.rs`
 
 ## Summary
@@ -26,9 +26,9 @@
 |  6 | Aggregation (count/sum/avg/min/max/collect/DISTINCT/GROUP BY) | 7 | Pass |
 |  7 | MERGE (node/ON CREATE SET/ON MATCH SET) | 5 | Pass |
 |  8 | CASE expressions (simple/generic) | 2 | Pass |
-|  9 | String functions (toString/toUpper/toLower/trim/size) [CORE-BUG: left/right] | 7 | Pass* |
+|  9 | String functions (toString/toUpper/toLower/trim/size/left/right) | 7 | Pass |
 | 10 | Math operations (arithmetic/modulo/abs/toInteger) | 4 | Pass |
-| 11 | Variable-length paths (range/exact/path return) [CORE-BUG: shortestPath] | 4 | Pass* |
+| 11 | Variable-length paths (range/exact/path return/shortestPath) | 4 | Pass |
 | 12 | EXISTS subquery | 1 | Pass |
 | 13 | FOREACH | 1 | Pass |
 | 14 | Write transactions (commit/rollback-via-drop/multi-write) | 4 | Pass |
@@ -71,8 +71,6 @@
 | 51 | Concurrent reads (snapshot isolation) | 2 | Pass |
 | 52 | Error handling expanded (syntax/type/division/missing property) | 6 | Pass |
 
-\* Tests touching known core gaps use `catch_unwind` and print diagnostics instead of failing.
-
 ## Scope
 
 - Categories 1-20: Shared capability surface with Node/Python bindings.
@@ -80,14 +78,15 @@
 - Categories 36-52: Extended capability tests (UNWIND, UNION, WITH pipeline, pagination, null handling, type conversion, math/string/list/map functions, multiple MATCH, REMOVE, parameters, EXPLAIN, index ops, concurrent reads, error handling).
 - This report is the authoritative baseline for Node/Python binding parity.
 
-## Known Core Gaps (Pending Engine Fix)
+## Core Gap Status
 
-1. **`left()` / `right()` not implemented** — returns `UnknownFunction` error
-2. **`shortestPath` incomplete** — may panic on valid shortest-path queries
+- No remaining engine-level core gaps in this capability suite.
 
-Resolved in this cycle:
+Resolved in recent cycles:
 - Multi-label subset matching (`MATCH (n:Manager)` on multi-label nodes)
 - Relationship `MERGE` idempotence (`MERGE (a)-[:REL]->(b)` duplicate prevention)
+- `left()` / `right()` string functions
+- `MATCH p = shortestPath((...)-[*]->(...))` parsing and execution path
 
 ## Verification Commands
 

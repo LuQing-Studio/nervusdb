@@ -1379,3 +1379,50 @@ TCK ≥95% → 7天稳定窗 → 性能 SLO 封板 → Beta 发布
 - `examples-test` 三端 `CAPABILITY-REPORT.md` 已同步：
   - 移除“多标签子集匹配”和“MERGE 关系不稳定”的已知缺口标记；
   - 保留尚未清零缺口：`left/right`、`shortestPath`。
+
+## 35. 续更快照（2026-02-18，核心缺口收口 + Fuzz query_execute timeout 止血）
+
+### 35.1 本轮目标与范围
+
+- 目标 1：清零剩余核心缺口 `left/right`、`shortestPath`（三端硬断言口径）。
+- 目标 2：修复 `Fuzz Nightly` 中 `query_execute` 单样本 timeout 失败告警。
+- 范围：函数实现、解析兼容、examples-test 硬断言收口、fuzz 目标与 workflow 参数收敛。
+
+### 35.2 核心修复
+
+- 字符串函数补齐：
+  - 新增 `left()`、`right()` 实现并接入函数分发；
+  - 编译期函数白名单同步加入 `left/right`，消除 `UnknownFunction`。
+  - 文件：`nervusdb-query/src/evaluator/evaluator_scalars.rs`、`nervusdb-query/src/query_api/type_validation.rs`
+- `shortestPath` 解析兼容修复：
+  - `parse_pattern` 支持 `MATCH p = shortestPath((...)-[*]->(...))` 与 `allShortestPaths(...)` 包装语法；
+  - 修复此前 `Expected '('` 解析失败。
+  - 文件：`nervusdb-query/src/parser.rs`
+- 核心回归新增：
+  - `nervusdb/tests/t313_functions.rs::test_left_and_right_string_functions`
+  - `nervusdb/tests/t318_paths.rs::test_shortest_path_in_match_assignment`
+- 三端 capability 硬断言收口：
+  - Rust/Node/Python capability 测试移除 `left/right` 与 `shortestPath` 的 soft-skip 分支。
+  - 文件：
+    - `examples-test/nervusdb-rust-test/tests/test_capabilities.rs`
+    - `examples-test/nervusdb-node-test/src/test-capabilities.ts`
+    - `examples-test/nervusdb-python-test/test_capabilities.py`
+- Fuzz timeout 止血：
+  - `query_execute` fuzz target 加执行预算（`ExecuteOptions`）并限制输入长度 `<=1024`；
+  - nightly 参数调整为 `-max_len=1024 -timeout=10`。
+  - 文件：`fuzz/fuzz_targets/query_execute.rs`、`.github/workflows/fuzz-nightly.yml`
+
+### 35.3 验证结果
+
+- `cargo test -p nervusdb --test t313_functions test_left_and_right_string_functions`：通过。
+- `cargo test -p nervusdb --test t318_paths test_shortest_path_in_match_assignment`：通过。
+- `bash examples-test/run_all.sh`：Rust/Node/Python 全绿（0 fail）。
+- `cargo fmt --all -- --check`：通过。
+- `cargo clippy --workspace --exclude nervusdb-pyo3 --all-targets -- -W warnings`：通过。
+- `cargo +nightly fuzz run query_execute -- -max_total_time=5 -max_len=1024 -timeout=10 -rss_limit_mb=4096`：通过（本地 smoke）。
+
+### 35.4 状态更新
+
+- 核心缺口 `left/right`、`shortestPath` 已清零；
+- `examples-test` 不再保留这两项已知缺口；
+- `BETA-04` 稳定窗继续累计（截至 2026-02-18：`consecutive_days=3/7`）。

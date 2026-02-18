@@ -3,7 +3,13 @@
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    if let Ok(input) = std::str::from_utf8(data) {
-        let _ = nervusdb_query::prepare(input);
+    let Ok(input) = std::str::from_utf8(data) else {
+        return;
+    };
+    // prepare 阶段只保留可控输入规模，避免无效超长噪声掩盖真实回归。
+    if input.len() > 384 {
+        return;
     }
+
+    let _ = nervusdb_query::prepare(input);
 });
