@@ -284,6 +284,8 @@ fn is_supported_function_name(name: &str) -> bool {
             | "ltrim"
             | "rtrim"
             | "substring"
+            | "left"
+            | "right"
             | "replace"
             | "split"
             | "coalesce"

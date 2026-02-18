@@ -582,6 +582,29 @@ impl TokenParser {
             None
         };
 
+        if self.peek_is_identifier()
+            && self.check_next(&TokenType::LeftParen)
+            && let TokenType::Identifier(name) = &self.peek().token_type
+            && (name.eq_ignore_ascii_case("shortestPath")
+                || name.eq_ignore_ascii_case("allShortestPaths"))
+        {
+            self.advance(); // shortestPath / allShortestPaths
+            self.consume(&TokenType::LeftParen, "Expected '(' after shortestPath")?;
+            let mut inner = self.parse_pattern()?;
+            self.consume(
+                &TokenType::RightParen,
+                "Expected ')' after shortestPath pattern",
+            )?;
+
+            if inner.variable.is_some() {
+                return Err(Error::Other(
+                    "syntax error: Invalid shortestPath pattern".to_string(),
+                ));
+            }
+            inner.variable = variable;
+            return Ok(inner);
+        }
+
         let mut elements = Vec::new();
         elements.push(PathElement::Node(self.parse_node_pattern()?));
 

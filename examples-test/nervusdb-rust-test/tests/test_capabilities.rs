@@ -788,28 +788,16 @@ fn t09_size() {
 
 #[test]
 fn t09_left() {
-    // [CORE-BUG] left() 未实现
     let (db, _dir) = fresh_db("strfn");
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        query_rows(&db, "RETURN left('hello', 3) AS s")
-    }));
-    match result {
-        Ok(rows) => assert_eq!(val_str(&rows, 0, "s"), "hel"),
-        Err(_) => println!("    [CORE-BUG] left() not implemented in Rust core"),
-    }
+    let rows = query_rows(&db, "RETURN left('hello', 3) AS s");
+    assert_eq!(val_str(&rows, 0, "s"), "hel");
 }
 
 #[test]
 fn t09_right() {
-    // [CORE-BUG] right() 未实现
     let (db, _dir) = fresh_db("strfn");
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        query_rows(&db, "RETURN right('hello', 3) AS s")
-    }));
-    match result {
-        Ok(rows) => assert_eq!(val_str(&rows, 0, "s"), "llo"),
-        Err(_) => println!("    [CORE-BUG] right() not implemented in Rust core"),
-    }
+    let rows = query_rows(&db, "RETURN right('hello', 3) AS s");
+    assert_eq!(val_str(&rows, 0, "s"), "llo");
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -896,20 +884,18 @@ fn t11_path_return() {
 }
 
 #[test]
-fn t11_shortest_path_skip() {
-    // shortestPath may not be implemented — skip gracefully
+fn t11_shortest_path() {
     let (db, _dir) = fresh_db("vpath");
-    exec_write(&db, "CREATE (a:V {name: 'a'})-[:NEXT]->(b:V {name: 'b'})");
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        query_rows(
-            &db,
-            "MATCH p = shortestPath((a:V {name: 'a'})-[:NEXT*]->(b:V {name: 'b'})) RETURN p",
-        )
-    }));
-    match result {
-        Ok(rows) => assert!(rows.len() >= 1),
-        Err(_) => println!("    (skipped: shortestPath not implemented)"),
-    }
+    exec_write(
+        &db,
+        "CREATE (a:V {name: 'a'})-[:NEXT]->(b:V {name: 'b'})-[:NEXT]->(c:V {name: 'c'})",
+    );
+    let rows = query_rows(
+        &db,
+        "MATCH p = shortestPath((a:V {name: 'a'})-[:NEXT*]->(c:V {name: 'c'})) RETURN length(p) AS len",
+    );
+    assert!(!rows.is_empty());
+    assert_eq!(val_i64(&rows, 0, "len"), 2);
 }
 
 // ═══════════════════════════════════════════════════════════════

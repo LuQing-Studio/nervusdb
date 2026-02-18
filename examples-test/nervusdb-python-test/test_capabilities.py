@@ -589,17 +589,10 @@ def test_replace():
 test("replace()", test_replace)
 
 def test_left_right():
-    try:
-        rows = db.query("RETURN left('hello', 3) AS l, right('hello', 3) AS r")
-        assert_eq(rows[0]["l"], "hel")
-        assert_eq(rows[0]["r"], "llo")
-    except Exception as e:
-        msg = str(e)
-        if "UnknownFunction" in msg:
-            print("    [CORE-BUG] left()/right() not implemented")
-            return
-        raise
-test("left / right [NODE-BUG?]", test_left_right)
+    rows = db.query("RETURN left('hello', 3) AS l, right('hello', 3) AS r")
+    assert_eq(rows[0]["l"], "hel")
+    assert_eq(rows[0]["r"], "llo")
+test("left / right", test_left_right)
 
 db.close()
 
@@ -663,14 +656,11 @@ def test_var_len_upper():
 test("variable length path *..2", test_var_len_upper)
 
 def test_shortest_path():
-    try:
-        rows = db.query(
-            "MATCH p = shortestPath((a:V {name: 'A'})-[:NEXT*]->(d:V {name: 'D'})) "
-            "RETURN length(p) AS len"
-        )
-        assert_eq(rows[0]["len"], 3)
-    except Exception as e:
-        print(f"    (shortestPath unsupported: {str(e)[:60]})")
+    rows = db.query(
+        "MATCH p = shortestPath((a:V {name: 'A'})-[:NEXT*]->(d:V {name: 'D'})) "
+        "RETURN length(p) AS len"
+    )
+    assert_eq(rows[0]["len"], 3)
 test("shortest path", test_shortest_path)
 
 db.close()
