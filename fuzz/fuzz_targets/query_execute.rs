@@ -1,7 +1,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use nervusdb_query::{EdgeKey, GraphSnapshot, InternalNodeId, Params, RelTypeId};
+use nervusdb_query::{EdgeKey, ExecuteOptions, GraphSnapshot, InternalNodeId, Params, RelTypeId};
 
 struct EmptySnapshot;
 
@@ -32,13 +32,23 @@ fuzz_target!(|data: &[u8]| {
     let Ok(input) = std::str::from_utf8(data) else {
         return;
     };
+    // query_execute 目标聚焦执行器稳定性。超长随机输入主要覆盖 parser/prepare，
+    // 会显著放大单样本耗时并掩盖执行期信号。
+    if input.len() > 1024 {
+        return;
+    }
 
     let Ok(prepared) = nervusdb_query::prepare(input) else {
         return;
     };
 
     let snapshot = EmptySnapshot;
-    let params = Params::new();
+    let params = Params::with_execute_options(ExecuteOptions {
+        max_intermediate_rows: 100_000,
+        max_collection_items: 100_000,
+        soft_timeout_ms: 250,
+        max_apply_rows_per_outer: 50_000,
+    });
 
     let _ = prepared
         .execute_streaming(&snapshot, &params)
