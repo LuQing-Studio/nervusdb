@@ -15,6 +15,7 @@ targets=(
   "examples-test/nervusdb-rust-test/tests/test_capabilities.rs"
   "examples-test/nervusdb-node-test/src/test-capabilities.ts"
   "examples-test/nervusdb-python-test/test_capabilities.py"
+  "examples-test/nervusdb-c-test/test_capabilities.c"
 )
 
 patterns=(

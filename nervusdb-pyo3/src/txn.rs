@@ -1,81 +1,39 @@
 use crate::classify_nervus_error;
 use crate::db::Db;
-use nervusdb::PropertyValue;
-use nervusdb::WriteTxn as RustWriteTxn;
+use crate::types::py_to_json;
+use nervusdb_capi as capi;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
-use std::mem::transmute;
+use std::ffi::CString;
+use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-fn py_to_property_value(obj: &Bound<'_, PyAny>) -> PyResult<PropertyValue> {
-    if obj.is_none() {
-        return Ok(PropertyValue::Null);
-    }
-
-    if let Ok(b) = obj.extract::<bool>() {
-        return Ok(PropertyValue::Bool(b));
-    }
-
-    if let Ok(i) = obj.extract::<i64>() {
-        return Ok(PropertyValue::Int(i));
-    }
-
-    if let Ok(f) = obj.extract::<f64>() {
-        return Ok(PropertyValue::Float(f));
-    }
-
-    if let Ok(s) = obj.extract::<String>() {
-        return Ok(PropertyValue::String(s));
-    }
-
-    if let Ok(list) = obj.downcast::<PyList>() {
-        let mut out = Vec::with_capacity(list.len());
-        for item in list.iter() {
-            out.push(py_to_property_value(&item)?);
-        }
-        return Ok(PropertyValue::List(out));
-    }
-
-    if let Ok(dict) = obj.downcast::<PyDict>() {
-        let mut out = std::collections::BTreeMap::new();
-        for (k, v) in dict.iter() {
-            let key = k.extract::<String>().map_err(|_| {
-                pyo3::exceptions::PyTypeError::new_err("Dictionary keys must be strings")
-            })?;
-            out.insert(key, py_to_property_value(&v)?);
-        }
-        return Ok(PropertyValue::Map(out));
-    }
-
-    Err(pyo3::exceptions::PyTypeError::new_err(
-        "Unsupported type for PropertyValue",
-    ))
-}
-
-/// Write transaction for NervusDB.
-///
-/// All modifications are buffered until commit() is called.
 #[pyclass(unsendable)]
 pub struct WriteTxn {
-    inner: Option<RustWriteTxn<'static>>,
-    db: Py<Db>,
+    raw: Option<*mut capi::ndb_txn_t>,
+    _db: Py<Db>,
     active_write_txns: Arc<AtomicUsize>,
     active: bool,
 }
 
 impl WriteTxn {
-    pub fn new(txn: RustWriteTxn<'_>, db: Py<Db>, active_write_txns: Arc<AtomicUsize>) -> Self {
-        // SAFETY: We hold a strong reference to `db` in the struct, ensuring the owner
-        // stays alive as long as this transaction exists. The 'static lifetime is
-        // a lie to the compiler, but it's safe because we enforce the lifetime relationship manually.
-        let extended_txn = unsafe { transmute::<RustWriteTxn<'_>, RustWriteTxn<'static>>(txn) };
+    pub fn new(txn: *mut capi::ndb_txn_t, db: Py<Db>, active_write_txns: Arc<AtomicUsize>) -> Self {
         Self {
-            inner: Some(extended_txn),
-            db,
+            raw: Some(txn),
+            _db: db,
             active_write_txns,
             active: true,
         }
+    }
+
+    fn with_txn_ptr<T>(
+        &mut self,
+        f: impl FnOnce(*mut capi::ndb_txn_t) -> PyResult<T>,
+    ) -> PyResult<T> {
+        let raw = self
+            .raw
+            .ok_or_else(|| classify_nervus_error("Transaction already finished"))?;
+        f(raw)
     }
 
     fn finish(&mut self) {
@@ -83,129 +41,138 @@ impl WriteTxn {
             return;
         }
         self.active = false;
-        self.inner = None;
+        self.raw = None;
         self.active_write_txns.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
 impl Drop for WriteTxn {
     fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        if let Some(raw) = self.raw.take() {
+            let _ = capi::ndb_txn_rollback(raw);
+        }
         self.finish();
     }
 }
 
 #[pymethods]
 impl WriteTxn {
-    /// Execute a Cypher write query.
-    fn query(&mut self, py: Python<'_>, query: &str) -> PyResult<()> {
-        let txn = self
-            .inner
-            .as_mut()
-            .ok_or_else(|| classify_nervus_error("Transaction already finished"))?;
-
-        // Get snapshot from the parent Db
-        let db_ref = self.db.borrow(py);
-        let inner_db = db_ref
-            .inner
-            .as_ref()
-            .ok_or_else(|| classify_nervus_error("Database is closed"))?;
-        let snapshot = inner_db.snapshot();
-
-        let prepared = nervusdb_query::prepare(query).map_err(classify_nervus_error)?;
-
-        prepared
-            .execute_write(&snapshot, txn, &nervusdb_query::Params::new())
-            .map_err(classify_nervus_error)?;
-
-        Ok(())
+    fn query(&mut self, _py: Python<'_>, query: &str) -> PyResult<()> {
+        let query_c = CString::new(query)
+            .map_err(|_| classify_nervus_error("query contains interior NUL"))?;
+        self.with_txn_ptr(|raw| {
+            let rc = capi::ndb_txn_query(raw, query_c.as_ptr(), ptr::null());
+            if rc == capi::NDB_OK {
+                Ok(())
+            } else {
+                Err(crate::capi_last_error())
+            }
+        })
     }
 
-    /// Commit the transaction.
     fn commit(&mut self) -> PyResult<()> {
-        let txn = self
-            .inner
+        let raw = self
+            .raw
             .take()
             .ok_or_else(|| classify_nervus_error("Transaction already finished"))?;
-
-        let res = txn.commit().map_err(classify_nervus_error);
+        let rc = capi::ndb_txn_commit(raw);
+        if rc != capi::NDB_OK {
+            return Err(crate::capi_last_error());
+        }
         self.finish();
-        res
+        Ok(())
     }
 
-    /// Set vector embedding for a node.
-    ///
-    /// Args:
-    ///     node_id: Internal Node ID (u32)
-    ///     vector: List of floats
     fn set_vector(&mut self, node_id: u32, vector: Vec<f32>) -> PyResult<()> {
-        let txn = self
-            .inner
-            .as_mut()
-            .ok_or_else(|| classify_nervus_error("Transaction already finished"))?;
-        txn.set_vector(node_id, vector)
-            .map_err(classify_nervus_error)
+        self.with_txn_ptr(|raw| {
+            let rc = capi::ndb_txn_set_vector(raw, node_id, vector.as_ptr(), vector.len());
+            if rc == capi::NDB_OK {
+                Ok(())
+            } else {
+                Err(crate::capi_last_error())
+            }
+        })
     }
 
-    /// Create node with (external_id, label_id), returns internal node id.
     fn create_node(&mut self, external_id: u64, label_id: u32) -> PyResult<u32> {
-        let txn = self
-            .inner
-            .as_mut()
-            .ok_or_else(|| classify_nervus_error("Transaction already finished"))?;
-        txn.create_node(external_id, label_id)
-            .map_err(classify_nervus_error)
+        let mut node_id: u32 = 0;
+        self.with_txn_ptr(|raw| {
+            let rc = capi::ndb_txn_create_node(raw, external_id, label_id, &mut node_id);
+            if rc == capi::NDB_OK {
+                Ok(())
+            } else {
+                Err(crate::capi_last_error())
+            }
+        })?;
+        Ok(node_id)
     }
 
-    /// Get or create label id.
     fn get_or_create_label(&mut self, name: &str) -> PyResult<u32> {
-        let txn = self
-            .inner
-            .as_mut()
-            .ok_or_else(|| classify_nervus_error("Transaction already finished"))?;
-        txn.get_or_create_label(name).map_err(classify_nervus_error)
+        let name_c = CString::new(name)
+            .map_err(|_| classify_nervus_error("label name contains interior NUL"))?;
+        let mut label: u32 = 0;
+        self.with_txn_ptr(|raw| {
+            let rc = capi::ndb_txn_get_or_create_label(raw, name_c.as_ptr(), &mut label);
+            if rc == capi::NDB_OK {
+                Ok(())
+            } else {
+                Err(crate::capi_last_error())
+            }
+        })?;
+        Ok(label)
     }
 
-    /// Get or create relationship type id.
     fn get_or_create_rel_type(&mut self, name: &str) -> PyResult<u32> {
-        let txn = self
-            .inner
-            .as_mut()
-            .ok_or_else(|| classify_nervus_error("Transaction already finished"))?;
-        txn.get_or_create_rel_type(name)
-            .map_err(classify_nervus_error)
+        let name_c = CString::new(name)
+            .map_err(|_| classify_nervus_error("rel type name contains interior NUL"))?;
+        let mut rel: u32 = 0;
+        self.with_txn_ptr(|raw| {
+            let rc = capi::ndb_txn_get_or_create_rel_type(raw, name_c.as_ptr(), &mut rel);
+            if rc == capi::NDB_OK {
+                Ok(())
+            } else {
+                Err(crate::capi_last_error())
+            }
+        })?;
+        Ok(rel)
     }
 
-    /// Create directed edge.
     fn create_edge(&mut self, src: u32, rel: u32, dst: u32) -> PyResult<()> {
-        let txn = self
-            .inner
-            .as_mut()
-            .ok_or_else(|| classify_nervus_error("Transaction already finished"))?;
-        txn.create_edge(src, rel, dst);
-        Ok(())
+        self.with_txn_ptr(|raw| {
+            let rc = capi::ndb_txn_create_edge(raw, src, rel, dst);
+            if rc == capi::NDB_OK {
+                Ok(())
+            } else {
+                Err(crate::capi_last_error())
+            }
+        })
     }
 
-    /// Tombstone node.
     fn tombstone_node(&mut self, node: u32) -> PyResult<()> {
-        let txn = self
-            .inner
-            .as_mut()
-            .ok_or_else(|| classify_nervus_error("Transaction already finished"))?;
-        txn.tombstone_node(node);
-        Ok(())
+        self.with_txn_ptr(|raw| {
+            let rc = capi::ndb_txn_tombstone_node(raw, node);
+            if rc == capi::NDB_OK {
+                Ok(())
+            } else {
+                Err(crate::capi_last_error())
+            }
+        })
     }
 
-    /// Tombstone edge.
     fn tombstone_edge(&mut self, src: u32, rel: u32, dst: u32) -> PyResult<()> {
-        let txn = self
-            .inner
-            .as_mut()
-            .ok_or_else(|| classify_nervus_error("Transaction already finished"))?;
-        txn.tombstone_edge(src, rel, dst);
-        Ok(())
+        self.with_txn_ptr(|raw| {
+            let rc = capi::ndb_txn_tombstone_edge(raw, src, rel, dst);
+            if rc == capi::NDB_OK {
+                Ok(())
+            } else {
+                Err(crate::capi_last_error())
+            }
+        })
     }
 
-    /// Set node property.
     fn set_node_property(
         &mut self,
         py: Python<'_>,
@@ -213,16 +180,23 @@ impl WriteTxn {
         key: String,
         value: Py<PyAny>,
     ) -> PyResult<()> {
-        let txn = self
-            .inner
-            .as_mut()
-            .ok_or_else(|| classify_nervus_error("Transaction already finished"))?;
-        let value = py_to_property_value(value.bind(py))?;
-        txn.set_node_property(node, key, value)
-            .map_err(classify_nervus_error)
+        let key_c = CString::new(key)
+            .map_err(|_| classify_nervus_error("property key contains interior NUL"))?;
+        let value_json = serde_json::to_string(&py_to_json(value.bind(py))?)
+            .map_err(|e| classify_nervus_error(e.to_string()))?;
+        let value_c = CString::new(value_json)
+            .map_err(|_| classify_nervus_error("property value contains interior NUL"))?;
+
+        self.with_txn_ptr(|raw| {
+            let rc = capi::ndb_txn_set_node_property(raw, node, key_c.as_ptr(), value_c.as_ptr());
+            if rc == capi::NDB_OK {
+                Ok(())
+            } else {
+                Err(crate::capi_last_error())
+            }
+        })
     }
 
-    /// Set edge property.
     fn set_edge_property(
         &mut self,
         py: Python<'_>,
@@ -232,37 +206,67 @@ impl WriteTxn {
         key: String,
         value: Py<PyAny>,
     ) -> PyResult<()> {
-        let txn = self
-            .inner
-            .as_mut()
-            .ok_or_else(|| classify_nervus_error("Transaction already finished"))?;
-        let value = py_to_property_value(value.bind(py))?;
-        txn.set_edge_property(src, rel, dst, key, value)
-            .map_err(classify_nervus_error)
+        let key_c = CString::new(key)
+            .map_err(|_| classify_nervus_error("property key contains interior NUL"))?;
+        let value_json = serde_json::to_string(&py_to_json(value.bind(py))?)
+            .map_err(|e| classify_nervus_error(e.to_string()))?;
+        let value_c = CString::new(value_json)
+            .map_err(|_| classify_nervus_error("property value contains interior NUL"))?;
+
+        self.with_txn_ptr(|raw| {
+            let rc = capi::ndb_txn_set_edge_property(
+                raw,
+                src,
+                rel,
+                dst,
+                key_c.as_ptr(),
+                value_c.as_ptr(),
+            );
+            if rc == capi::NDB_OK {
+                Ok(())
+            } else {
+                Err(crate::capi_last_error())
+            }
+        })
     }
 
-    /// Remove node property.
     fn remove_node_property(&mut self, node: u32, key: &str) -> PyResult<()> {
-        let txn = self
-            .inner
-            .as_mut()
-            .ok_or_else(|| classify_nervus_error("Transaction already finished"))?;
-        txn.remove_node_property(node, key)
-            .map_err(classify_nervus_error)
+        let key_c = CString::new(key)
+            .map_err(|_| classify_nervus_error("property key contains interior NUL"))?;
+        self.with_txn_ptr(|raw| {
+            let rc = capi::ndb_txn_remove_node_property(raw, node, key_c.as_ptr());
+            if rc == capi::NDB_OK {
+                Ok(())
+            } else {
+                Err(crate::capi_last_error())
+            }
+        })
     }
 
-    /// Remove edge property.
     fn remove_edge_property(&mut self, src: u32, rel: u32, dst: u32, key: &str) -> PyResult<()> {
-        let txn = self
-            .inner
-            .as_mut()
-            .ok_or_else(|| classify_nervus_error("Transaction already finished"))?;
-        txn.remove_edge_property(src, rel, dst, key)
-            .map_err(classify_nervus_error)
+        let key_c = CString::new(key)
+            .map_err(|_| classify_nervus_error("property key contains interior NUL"))?;
+        self.with_txn_ptr(|raw| {
+            let rc = capi::ndb_txn_remove_edge_property(raw, src, rel, dst, key_c.as_ptr());
+            if rc == capi::NDB_OK {
+                Ok(())
+            } else {
+                Err(crate::capi_last_error())
+            }
+        })
     }
 
-    /// Rollback the transaction.
-    pub(crate) fn rollback(&mut self) {
+    pub(crate) fn rollback(&mut self) -> PyResult<()> {
+        if !self.active {
+            return Ok(());
+        }
+        if let Some(raw) = self.raw.take() {
+            let rc = capi::ndb_txn_rollback(raw);
+            if rc != capi::NDB_OK {
+                return Err(crate::capi_last_error());
+            }
+        }
         self.finish();
+        Ok(())
     }
 }
