@@ -1,6 +1,6 @@
-use nervusdb_query::Value;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyAny, PyDict, PyList};
+use serde_json::{Map as JsonMap, Number as JsonNumber, Value as JsonValue};
 use std::collections::BTreeMap;
 
 #[pyclass]
@@ -97,161 +97,195 @@ impl Path {
     }
 }
 
-/// Convert a generic Python object to a NervusDB Value.
-pub fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
+pub fn py_to_json(obj: &Bound<'_, PyAny>) -> PyResult<JsonValue> {
     if obj.is_none() {
-        return Ok(Value::Null);
+        return Ok(JsonValue::Null);
     }
 
     if let Ok(b) = obj.extract::<bool>() {
-        return Ok(Value::Bool(b));
+        return Ok(JsonValue::Bool(b));
     }
 
     if let Ok(i) = obj.extract::<i64>() {
-        return Ok(Value::Int(i));
+        return Ok(JsonValue::Number(JsonNumber::from(i)));
     }
 
     if let Ok(f) = obj.extract::<f64>() {
-        return Ok(Value::Float(f));
+        return JsonNumber::from_f64(f)
+            .map(JsonValue::Number)
+            .ok_or_else(|| pyo3::exceptions::PyTypeError::new_err("float parameter is NaN/inf"));
     }
 
     if let Ok(s) = obj.extract::<String>() {
-        return Ok(Value::String(s));
+        return Ok(JsonValue::String(s));
     }
 
-    if let Ok(list) = obj.downcast::<pyo3::types::PyList>() {
-        let mut vec = Vec::new();
-        for item in list {
-            vec.push(py_to_value(&item)?);
+    if let Ok(list) = obj.downcast::<PyList>() {
+        let mut out = Vec::with_capacity(list.len());
+        for item in list.iter() {
+            out.push(py_to_json(&item)?);
         }
-        return Ok(Value::List(vec));
+        return Ok(JsonValue::Array(out));
     }
 
-    // Note: PyDict check should handle string keys
-    if let Ok(dict) = obj.downcast::<pyo3::types::PyDict>() {
-        let mut map = std::collections::BTreeMap::new();
-        for (k, v) in dict {
+    if let Ok(dict) = obj.downcast::<PyDict>() {
+        let mut out = JsonMap::new();
+        for (k, v) in dict.iter() {
             let key = k.extract::<String>().map_err(|_| {
                 pyo3::exceptions::PyTypeError::new_err("Dictionary keys must be strings")
             })?;
-            map.insert(key, py_to_value(&v)?);
+            out.insert(key, py_to_json(&v)?);
         }
-        return Ok(Value::Map(map));
+        return Ok(JsonValue::Object(out));
     }
 
     Err(pyo3::exceptions::PyTypeError::new_err(
-        "Unsupported type for PropertyValue",
+        "Unsupported type for parameter/property value",
     ))
 }
 
-/// Convert a NervusDB Value to a Python object.
-pub fn value_to_py(val: Value, py: Python<'_>) -> Py<PyAny> {
+fn json_to_py_map(map: JsonMap<String, JsonValue>, py: Python<'_>) -> Py<PyAny> {
+    let dict = PyDict::new_bound(py);
+    for (k, v) in map {
+        let _ = dict.set_item(k, json_to_py(v, py));
+    }
+    dict.into()
+}
+
+fn node_from_json(obj: &JsonMap<String, JsonValue>, py: Python<'_>) -> Node {
+    let id = obj
+        .get("id")
+        .and_then(JsonValue::as_u64)
+        .unwrap_or_default();
+    let labels = obj
+        .get("labels")
+        .and_then(JsonValue::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(JsonValue::as_str)
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let properties = obj
+        .get("properties")
+        .and_then(JsonValue::as_object)
+        .map(|props| {
+            let mut out = BTreeMap::new();
+            for (k, v) in props {
+                out.insert(k.clone(), json_to_py(v.clone(), py));
+            }
+            out
+        })
+        .unwrap_or_default();
+
+    Node {
+        id,
+        labels,
+        properties,
+    }
+}
+
+fn relationship_from_json(obj: &JsonMap<String, JsonValue>, py: Python<'_>) -> Relationship {
+    let src = obj
+        .get("src")
+        .and_then(JsonValue::as_u64)
+        .unwrap_or_default();
+    let dst = obj
+        .get("dst")
+        .and_then(JsonValue::as_u64)
+        .unwrap_or_default();
+    let rel_type = obj
+        .get("rel_type")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("")
+        .to_string();
+
+    let properties = obj
+        .get("properties")
+        .and_then(JsonValue::as_object)
+        .map(|props| {
+            let mut out = BTreeMap::new();
+            for (k, v) in props {
+                out.insert(k.clone(), json_to_py(v.clone(), py));
+            }
+            out
+        })
+        .unwrap_or_default();
+
+    Relationship {
+        id: Some(src ^ dst ^ 0x0102_0304_0506_0708),
+        start_node_id: src,
+        end_node_id: dst,
+        rel_type,
+        properties,
+    }
+}
+
+fn path_from_json(obj: &JsonMap<String, JsonValue>, py: Python<'_>) -> Path {
+    let nodes = obj
+        .get("nodes")
+        .and_then(JsonValue::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(JsonValue::as_object)
+                .map(|o| node_from_json(o, py))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let relationships = obj
+        .get("relationships")
+        .and_then(JsonValue::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(JsonValue::as_object)
+                .map(|o| relationship_from_json(o, py))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Path {
+        nodes,
+        relationships,
+    }
+}
+
+pub fn json_to_py(val: JsonValue, py: Python<'_>) -> Py<PyAny> {
     match val {
-        Value::Null => py.None(),
-        Value::Bool(b) => b.into_py(py),
-        Value::Int(i) => i.into_py(py),
-        Value::Float(f) => f.into_py(py),
-        Value::String(s) => s.into_py(py),
-        Value::List(list) => {
-            let py_list =
-                pyo3::types::PyList::new_bound(py, list.into_iter().map(|v| value_to_py(v, py)));
+        JsonValue::Null => py.None(),
+        JsonValue::Bool(b) => b.into_py(py),
+        JsonValue::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                i.into_py(py)
+            } else if let Some(u) = n.as_u64() {
+                u.into_py(py)
+            } else if let Some(f) = n.as_f64() {
+                f.into_py(py)
+            } else {
+                py.None()
+            }
+        }
+        JsonValue::String(s) => s.into_py(py),
+        JsonValue::Array(arr) => {
+            let py_list = PyList::new_bound(py, arr.into_iter().map(|v| json_to_py(v, py)));
             py_list.into()
         }
-        Value::Map(map) => {
-            let py_dict = pyo3::types::PyDict::new_bound(py);
-            for (k, v) in map {
-                let _ = py_dict.set_item(k, value_to_py(v, py));
-            }
-            py_dict.into()
-        }
-        Value::Node(n) => {
-            let mut props = BTreeMap::new();
-            for (k, v) in n.properties {
-                props.insert(k, value_to_py(v, py));
-            }
-            Node {
-                id: n.id as u64,
-                labels: n.labels,
-                properties: props,
-            }
-            .into_py(py)
-        }
-        Value::Relationship(r) => {
-            let mut props = BTreeMap::new();
-            for (k, v) in r.properties {
-                props.insert(k, value_to_py(v, py));
-            }
-            Relationship {
-                id: Some((r.key.src as u64) ^ (r.key.dst as u64) ^ 0x0102030405060708), // Dummy stable ID
-                start_node_id: r.key.src as u64,
-                end_node_id: r.key.dst as u64,
-                rel_type: r.rel_type,
-                properties: props,
-            }
-            .into_py(py)
-        }
-        Value::ReifiedPath(p) => {
-            let nodes = p
-                .nodes
-                .into_iter()
-                .map(|n| {
-                    let mut props = BTreeMap::new();
-                    for (k, v) in n.properties {
-                        props.insert(k, value_to_py(v, py));
+        JsonValue::Object(obj) => {
+            if let Some(kind) = obj.get("type").and_then(JsonValue::as_str) {
+                match kind {
+                    "node" => return node_from_json(&obj, py).into_py(py),
+                    "relationship" => return relationship_from_json(&obj, py).into_py(py),
+                    "path" => return path_from_json(&obj, py).into_py(py),
+                    "node_id" | "external_id" => {
+                        let value = obj.get("value").cloned().unwrap_or(JsonValue::Null);
+                        return json_to_py(value, py);
                     }
-                    Node {
-                        id: n.id as u64,
-                        labels: n.labels,
-                        properties: props,
-                    }
-                })
-                .collect();
-            let rels = p
-                .relationships
-                .into_iter()
-                .map(|r| {
-                    let mut props = BTreeMap::new();
-                    for (k, v) in r.properties {
-                        props.insert(k, value_to_py(v, py));
-                    }
-                    Relationship {
-                        id: Some((r.key.src as u64) ^ (r.key.dst as u64) ^ 0x0102030405060708),
-                        start_node_id: r.key.src as u64,
-                        end_node_id: r.key.dst as u64,
-                        rel_type: r.rel_type,
-                        properties: props,
-                    }
-                })
-                .collect();
-            Path {
-                nodes,
-                relationships: rels,
+                    _ => {}
+                }
             }
-            .into_py(py)
+            json_to_py_map(obj, py)
         }
-        Value::NodeId(id) => (id as u64).into_py(py),
-        Value::EdgeKey(key) => format!("{key:?}").into_py(py),
-        Value::Path(p) => {
-            // Deprecated Path representation, but let's keep it for compatibility if needed
-            let mut out = BTreeMap::new();
-            out.insert(
-                "nodes".to_string(),
-                p.nodes
-                    .iter()
-                    .map(|id| *id as u64)
-                    .collect::<Vec<_>>()
-                    .into_py(py),
-            );
-            out.insert(
-                "edges".to_string(),
-                p.edges
-                    .iter()
-                    .map(|k| format!("{k:?}"))
-                    .collect::<Vec<_>>()
-                    .into_py(py),
-            );
-            out.into_py(py)
-        }
-        _ => py.None(),
     }
 }

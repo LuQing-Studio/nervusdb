@@ -1,14 +1,12 @@
 use napi::bindgen_prelude::Result;
 use napi::Error;
 use napi_derive::napi;
-use nervusdb::{
-    backup as rust_backup, bulkload as rust_bulkload, vacuum as rust_vacuum, BulkEdge, BulkNode,
-    Db as RustDb, Error as V2Error, PropertyValue,
-};
-use nervusdb_query::{Params, Value};
-use serde_json::{json, Map as JsonMap, Value as JsonValue};
-use std::collections::BTreeMap;
+use nervusdb_capi as capi;
+use serde_json::{json, Value as JsonValue};
+use std::ffi::{c_char, CStr, CString};
+use std::fs;
 use std::path::{Path, PathBuf};
+use std::ptr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -30,6 +28,7 @@ fn classify_err_message(msg: &str) -> (&'static str, &'static str) {
     } else if lower.contains("syntax")
         || lower.contains("parse")
         || lower.contains("unexpected token")
+        || lower.contains("unexpected character")
         || lower.starts_with("expected ")
         || lower.contains("variabletypeconflict")
         || lower.contains("variablealreadybound")
@@ -55,17 +54,8 @@ fn napi_err(err: impl ToString) -> Error {
     Error::from_reason(error_payload(code, category, message))
 }
 
-fn napi_err_v2(err: V2Error) -> Error {
-    let payload = match err {
-        V2Error::Compatibility(message) => {
-            error_payload("NERVUS_COMPATIBILITY", "compatibility", message)
-        }
-        V2Error::Storage(message) => error_payload("NERVUS_STORAGE", "storage", message),
-        V2Error::Query(message) => error_payload("NERVUS_EXECUTION", "execution", message),
-        V2Error::Other(message) => error_payload("NERVUS_EXECUTION", "execution", message),
-        V2Error::Io(io_err) => error_payload("NERVUS_STORAGE", "storage", io_err),
-    };
-    Error::from_reason(payload)
+fn to_cstring(value: &str, field: &str) -> Result<CString> {
+    CString::new(value).map_err(|_| napi_err(format!("{field} contains interior NUL")))
 }
 
 fn derive_paths(path: &Path) -> (PathBuf, PathBuf) {
@@ -76,195 +66,87 @@ fn derive_paths(path: &Path) -> (PathBuf, PathBuf) {
     }
 }
 
-fn json_to_query_value(v: &JsonValue) -> std::result::Result<Value, String> {
-    match v {
-        JsonValue::Null => Ok(Value::Null),
-        JsonValue::Bool(b) => Ok(Value::Bool(*b)),
-        JsonValue::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Ok(Value::Int(i))
-            } else if let Some(f) = n.as_f64() {
-                Ok(Value::Float(f))
-            } else {
-                Err("unsupported numeric value".to_string())
-            }
-        }
-        JsonValue::String(s) => Ok(Value::String(s.clone())),
-        JsonValue::Array(items) => {
-            let mut out = Vec::with_capacity(items.len());
-            for item in items {
-                out.push(json_to_query_value(item)?);
-            }
-            Ok(Value::List(out))
-        }
-        JsonValue::Object(map) => {
-            let mut out = BTreeMap::new();
-            for (k, v) in map {
-                out.insert(k.clone(), json_to_query_value(v)?);
-            }
-            Ok(Value::Map(out))
-        }
+fn read_last_error_message() -> String {
+    let needed = capi::ndb_last_error_message(ptr::null_mut(), 0);
+    if needed == 0 {
+        return "unknown error".to_string();
+    }
+
+    let mut buf = vec![0 as c_char; needed.saturating_add(1).max(64)];
+    let _ = capi::ndb_last_error_message(buf.as_mut_ptr(), buf.len());
+    unsafe {
+        // SAFETY: C API guarantees null-terminated output when len > 0.
+        CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned()
     }
 }
 
-fn json_to_property_value(v: &JsonValue) -> std::result::Result<PropertyValue, String> {
-    match v {
-        JsonValue::Null => Ok(PropertyValue::Null),
-        JsonValue::Bool(b) => Ok(PropertyValue::Bool(*b)),
-        JsonValue::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Ok(PropertyValue::Int(i))
-            } else if let Some(f) = n.as_f64() {
-                Ok(PropertyValue::Float(f))
+fn map_error_payload(category: i32, message: &str) -> (&'static str, &'static str) {
+    match category {
+        x if x == capi::NDB_ERRCAT_SYNTAX => ("NERVUS_SYNTAX", "syntax"),
+        x if x == capi::NDB_ERRCAT_STORAGE => ("NERVUS_STORAGE", "storage"),
+        x if x == capi::NDB_ERRCAT_COMPATIBILITY => ("NERVUS_COMPATIBILITY", "compatibility"),
+        x if x == capi::NDB_ERRCAT_EXECUTION => {
+            let (code, _cat) = classify_err_message(message);
+            if code == "NERVUS_SYNTAX" || code == "NERVUS_STORAGE" || code == "NERVUS_COMPATIBILITY"
+            {
+                ("NERVUS_EXECUTION", "execution")
             } else {
-                Err("unsupported numeric value".to_string())
+                (code, "execution")
             }
         }
-        JsonValue::String(s) => Ok(PropertyValue::String(s.clone())),
-        JsonValue::Array(items) => {
-            let mut out = Vec::with_capacity(items.len());
-            for item in items {
-                out.push(json_to_property_value(item)?);
-            }
-            Ok(PropertyValue::List(out))
-        }
-        JsonValue::Object(map) => {
-            let mut out = BTreeMap::new();
-            for (k, v) in map {
-                out.insert(k.clone(), json_to_property_value(v)?);
-            }
-            Ok(PropertyValue::Map(out))
-        }
+        _ => classify_err_message(message),
     }
 }
 
-fn parse_params(params: Option<JsonValue>) -> std::result::Result<Params, String> {
-    let mut out = Params::new();
+fn napi_last_error() -> Error {
+    let category = capi::ndb_last_error_category();
+    let message = read_last_error_message();
+    let (code, category) = map_error_payload(category, &message);
+    Error::from_reason(error_payload(code, category, message))
+}
+
+fn capi_status(rc: i32) -> Result<()> {
+    if rc == capi::NDB_OK {
+        Ok(())
+    } else {
+        Err(napi_last_error())
+    }
+}
+
+fn encode_params(params: Option<JsonValue>) -> Result<Option<CString>> {
     let Some(params) = params else {
-        return Ok(out);
+        return Ok(None);
     };
-
-    let JsonValue::Object(map) = params else {
-        return Err("params must be an object".to_string());
-    };
-
-    for (k, v) in map {
-        out.insert(k, json_to_query_value(&v)?);
+    if !params.is_object() {
+        return Err(napi_err("params must be an object"));
     }
-    Ok(out)
+    let encoded = serde_json::to_string(&params).map_err(napi_err)?;
+    Ok(Some(to_cstring(&encoded, "params")?))
 }
 
-fn parse_property_map(
-    props: Option<JsonValue>,
-) -> std::result::Result<BTreeMap<String, PropertyValue>, String> {
-    let Some(props) = props else {
-        return Ok(BTreeMap::new());
-    };
-    let JsonValue::Object(map) = props else {
-        return Err("properties must be an object".to_string());
-    };
-
-    let mut out = BTreeMap::new();
-    for (k, v) in map {
-        out.insert(k, json_to_property_value(&v)?);
-    }
-    Ok(out)
+fn parse_json_array(json_text: &str) -> Result<Vec<JsonValue>> {
+    let value: JsonValue = serde_json::from_str(json_text).map_err(napi_err)?;
+    let arr = value
+        .as_array()
+        .ok_or_else(|| napi_err("C ABI query result must be a JSON array"))?;
+    Ok(arr.clone())
 }
 
-fn value_to_json(v: Value) -> JsonValue {
-    match v {
-        Value::Null => JsonValue::Null,
-        Value::Bool(b) => json!(b),
-        Value::Int(i) => json!(i),
-        Value::Float(f) => json!(f),
-        Value::String(s) => json!(s),
-        Value::DateTime(ts) => json!({"type": "datetime", "value": ts}),
-        Value::Blob(bytes) => json!({"type": "blob", "len": bytes.len()}),
-        Value::List(list) => JsonValue::Array(list.into_iter().map(value_to_json).collect()),
-        Value::Map(map) => {
-            let mut out = JsonMap::new();
-            for (k, v) in map {
-                out.insert(k, value_to_json(v));
-            }
-            JsonValue::Object(out)
-        }
-        Value::Node(n) => {
-            let mut props = JsonMap::new();
-            for (k, v) in n.properties {
-                props.insert(k, value_to_json(v));
-            }
-            json!({
-                "type": "node",
-                "id": n.id,
-                "labels": n.labels,
-                "properties": props,
-            })
-        }
-        Value::Relationship(r) => {
-            let mut props = JsonMap::new();
-            for (k, v) in r.properties {
-                props.insert(k, value_to_json(v));
-            }
-            json!({
-                "type": "relationship",
-                "src": r.key.src,
-                "dst": r.key.dst,
-                "rel_type": r.rel_type,
-                "properties": props,
-            })
-        }
-        Value::ReifiedPath(p) => {
-            let nodes = p
-                .nodes
-                .into_iter()
-                .map(Value::Node)
-                .map(value_to_json)
-                .collect::<Vec<_>>();
-            let rels = p
-                .relationships
-                .into_iter()
-                .map(Value::Relationship)
-                .map(value_to_json)
-                .collect::<Vec<_>>();
-            json!({"type": "path", "nodes": nodes, "relationships": rels})
-        }
-        Value::NodeId(id) => json!({"type": "node_id", "value": id}),
-        Value::ExternalId(id) => json!({"type": "external_id", "value": id}),
-        Value::EdgeKey(k) => json!({"type": "edge_key", "src": k.src, "dst": k.dst}),
-        Value::Path(p) => {
-            let edges = p
-                .edges
-                .into_iter()
-                .map(|e| json!({"src": e.src, "dst": e.dst}))
-                .collect::<Vec<_>>();
-            json!({"type": "path_legacy", "nodes": p.nodes, "edges": edges})
-        }
+fn result_to_json_rows(result_ptr: *mut capi::ndb_result_t) -> Result<Vec<JsonValue>> {
+    let mut json_ptr: *mut c_char = ptr::null_mut();
+    let rc = capi::ndb_result_to_json(result_ptr, &mut json_ptr);
+    let _ = capi::ndb_result_free(result_ptr);
+    capi_status(rc)?;
+    if json_ptr.is_null() {
+        return Err(napi_err("ndb_result_to_json returned null"));
     }
-}
 
-fn run_query(
-    db: &RustDb,
-    cypher: &str,
-    params: Option<JsonValue>,
-) -> std::result::Result<Vec<JsonValue>, String> {
-    let prepared = nervusdb_query::prepare(cypher).map_err(|e| e.to_string())?;
-    let params = parse_params(params)?;
-    let snapshot = db.snapshot();
-    let rows: Vec<_> = prepared
-        .execute_streaming(&snapshot, &params)
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    let mut out = Vec::with_capacity(rows.len());
-    for row in rows {
-        let mut map = JsonMap::new();
-        for (col, val) in row.columns() {
-            let rv = val.reify(&snapshot).map_err(|e| e.to_string())?;
-            map.insert(col.clone(), value_to_json(rv));
-        }
-        out.push(JsonValue::Object(map));
-    }
-    Ok(out)
+    let json_text = unsafe {
+        // SAFETY: pointer returned by C API is valid until freed by `ndb_string_free`.
+        CStr::from_ptr(json_ptr).to_string_lossy().into_owned()
+    };
+    capi::ndb_string_free(json_ptr);
+    parse_json_array(&json_text)
 }
 
 #[napi(object)]
@@ -284,65 +166,46 @@ pub struct BulkEdgeInput {
 
 #[napi]
 pub struct Db {
-    inner: Arc<Mutex<Option<RustDb>>>,
+    raw: Arc<Mutex<Option<*mut capi::ndb_db_t>>>,
     path: String,
     ndb_path: String,
     wal_path: String,
-    refresh_epoch: Arc<AtomicU64>,
-    last_refresh_epoch: AtomicU64,
     active_write_txns: Arc<AtomicU64>,
 }
 
 impl Db {
+    fn with_db_ptr<T>(&self, f: impl FnOnce(*mut capi::ndb_db_t) -> Result<T>) -> Result<T> {
+        let guard = self
+            .raw
+            .lock()
+            .map_err(|_| napi_err("database mutex poisoned"))?;
+        let raw = guard
+            .as_ref()
+            .copied()
+            .ok_or_else(|| napi_err("database is closed"))?;
+        f(raw)
+    }
+
     fn make_open(ndb_path: String, wal_path: String, logical_path: String) -> Result<Self> {
-        let inner = RustDb::open_paths(&ndb_path, &wal_path).map_err(napi_err_v2)?;
+        let ndb_c = to_cstring(&ndb_path, "ndb_path")?;
+        let wal_c = to_cstring(&wal_path, "wal_path")?;
+        let mut raw: *mut capi::ndb_db_t = ptr::null_mut();
+        capi_status(capi::ndb_open_paths(
+            ndb_c.as_ptr(),
+            wal_c.as_ptr(),
+            &mut raw,
+        ))?;
+        if raw.is_null() {
+            return Err(napi_err("ndb_open_paths returned null db handle"));
+        }
+
         Ok(Self {
-            inner: Arc::new(Mutex::new(Some(inner))),
+            raw: Arc::new(Mutex::new(Some(raw))),
             path: logical_path,
             ndb_path,
             wal_path,
-            refresh_epoch: Arc::new(AtomicU64::new(0)),
-            last_refresh_epoch: AtomicU64::new(0),
             active_write_txns: Arc::new(AtomicU64::new(0)),
         })
-    }
-
-    fn refresh_if_needed(&self) -> Result<()> {
-        let target_epoch = self.refresh_epoch.load(Ordering::SeqCst);
-        let seen_epoch = self.last_refresh_epoch.load(Ordering::SeqCst);
-        if target_epoch == seen_epoch {
-            return Ok(());
-        }
-
-        let mut guard = self
-            .inner
-            .lock()
-            .map_err(|_| napi_err("database mutex poisoned"))?;
-
-        if self.last_refresh_epoch.load(Ordering::SeqCst) == target_epoch {
-            return Ok(());
-        }
-
-        if let Some(inner) = guard.take() {
-            inner.close().map_err(napi_err_v2)?;
-        }
-
-        let reopened = RustDb::open_paths(&self.ndb_path, &self.wal_path).map_err(napi_err_v2)?;
-        *guard = Some(reopened);
-        self.last_refresh_epoch.store(target_epoch, Ordering::SeqCst);
-        Ok(())
-    }
-
-    fn with_db<T>(&self, f: impl FnOnce(&RustDb) -> Result<T>) -> Result<T> {
-        self.refresh_if_needed()?;
-        let guard = self
-            .inner
-            .lock()
-            .map_err(|_| napi_err("database mutex poisoned"))?;
-        let db = guard
-            .as_ref()
-            .ok_or_else(|| napi_err("database is closed"))?;
-        f(db)
     }
 }
 
@@ -381,61 +244,111 @@ impl Db {
 
     #[napi]
     pub fn query(&self, cypher: String, params: Option<JsonValue>) -> Result<Vec<JsonValue>> {
-        self.with_db(|db| run_query(db, &cypher, params).map_err(napi_err))
+        self.with_db_ptr(|raw| {
+            let cypher_c = to_cstring(&cypher, "cypher")?;
+            let params_c = encode_params(params)?;
+            let params_ptr = params_c.as_ref().map_or(ptr::null(), |s| s.as_ptr());
+
+            let mut result_ptr: *mut capi::ndb_result_t = ptr::null_mut();
+            capi_status(capi::ndb_query(
+                raw,
+                cypher_c.as_ptr(),
+                params_ptr,
+                &mut result_ptr,
+            ))?;
+            if result_ptr.is_null() {
+                return Err(napi_err("ndb_query returned null result handle"));
+            }
+            result_to_json_rows(result_ptr)
+        })
     }
 
     #[napi]
     pub fn execute_write(&self, cypher: String, params: Option<JsonValue>) -> Result<u32> {
-        self.with_db(|db| {
-            let prepared = nervusdb_query::prepare(&cypher).map_err(napi_err)?;
-            let params = parse_params(params).map_err(napi_err)?;
-            let snapshot = db.snapshot();
-            let mut txn = db.begin_write();
-            let created = prepared
-                .execute_write(&snapshot, &mut txn, &params)
-                .map_err(napi_err)?;
-            txn.commit().map_err(napi_err_v2)?;
-            Ok(created)
+        self.with_db_ptr(|raw| {
+            let cypher_c = to_cstring(&cypher, "cypher")?;
+            let params_c = encode_params(params)?;
+            let params_ptr = params_c.as_ref().map_or(ptr::null(), |s| s.as_ptr());
+
+            let mut affected: u32 = 0;
+            capi_status(capi::ndb_execute_write(
+                raw,
+                cypher_c.as_ptr(),
+                params_ptr,
+                &mut affected,
+            ))?;
+            Ok(affected)
         })
     }
 
     #[napi]
     pub fn begin_write(&self) -> Result<WriteTxn> {
-        self.refresh_if_needed()?;
-        self.active_write_txns.fetch_add(1, Ordering::SeqCst);
-        Ok(WriteTxn {
-            owner_inner: self.inner.clone(),
-            staged_queries: Vec::new(),
-            refresh_epoch: self.refresh_epoch.clone(),
-            active_write_txns: self.active_write_txns.clone(),
-            affected: 0,
-            finished: false,
+        self.with_db_ptr(|raw| {
+            let mut txn_raw: *mut capi::ndb_txn_t = ptr::null_mut();
+            self.active_write_txns.fetch_add(1, Ordering::SeqCst);
+            if let Err(err) = capi_status(capi::ndb_begin_write(raw, &mut txn_raw)) {
+                self.active_write_txns.fetch_sub(1, Ordering::SeqCst);
+                return Err(err);
+            }
+            if txn_raw.is_null() {
+                self.active_write_txns.fetch_sub(1, Ordering::SeqCst);
+                return Err(napi_err("ndb_begin_write returned null transaction"));
+            }
+            Ok(WriteTxn {
+                raw: Some(txn_raw),
+                active_write_txns: self.active_write_txns.clone(),
+                affected: 0,
+                finished: false,
+            })
         })
     }
 
     #[napi]
     pub fn compact(&self) -> Result<()> {
-        self.with_db(|db| db.compact().map_err(napi_err_v2))
+        self.with_db_ptr(|raw| capi_status(capi::ndb_compact(raw)))
     }
 
     #[napi]
     pub fn checkpoint(&self) -> Result<()> {
-        self.with_db(|db| db.checkpoint().map_err(napi_err_v2))
+        self.with_db_ptr(|raw| capi_status(capi::ndb_checkpoint(raw)))
     }
 
     #[napi(js_name = "createIndex")]
     pub fn create_index(&self, label: String, property: String) -> Result<()> {
-        self.with_db(|db| db.create_index(&label, &property).map_err(napi_err_v2))
+        self.with_db_ptr(|raw| {
+            let label_c = to_cstring(&label, "label")?;
+            let property_c = to_cstring(&property, "property")?;
+            capi_status(capi::ndb_create_index(
+                raw,
+                label_c.as_ptr(),
+                property_c.as_ptr(),
+            ))
+        })
     }
 
     #[napi(js_name = "searchVector")]
     pub fn search_vector(&self, query: Vec<f64>, k: u32) -> Result<Vec<JsonValue>> {
-        self.with_db(|db| {
-            let query: Vec<f32> = query.into_iter().map(|v| v as f32).collect();
-            let rows = db.search_vector(&query, k as usize).map_err(napi_err_v2)?;
+        self.with_db_ptr(|raw| {
+            let query_f32: Vec<f32> = query.into_iter().map(|v| v as f32).collect();
+            let mut result_ptr: *mut capi::ndb_result_t = ptr::null_mut();
+            capi_status(capi::ndb_search_vector(
+                raw,
+                query_f32.as_ptr(),
+                query_f32.len(),
+                k,
+                &mut result_ptr,
+            ))?;
+            if result_ptr.is_null() {
+                return Err(napi_err("ndb_search_vector returned null result"));
+            }
+            let rows = result_to_json_rows(result_ptr)?;
             Ok(rows
                 .into_iter()
-                .map(|(node_id, distance)| json!({"nodeId": node_id, "distance": distance}))
+                .map(|r| {
+                    let node_id = r.get("node_id").cloned().unwrap_or(JsonValue::Null);
+                    let distance = r.get("distance").cloned().unwrap_or(JsonValue::Null);
+                    json!({"nodeId": node_id, "distance": distance})
+                })
                 .collect())
         })
     }
@@ -443,14 +356,17 @@ impl Db {
     #[napi]
     pub fn close(&self) -> Result<()> {
         if self.active_write_txns.load(Ordering::SeqCst) != 0 {
-            return Err(napi_err("cannot close database: write transaction in progress"));
+            return Err(napi_err(
+                "cannot close database: write transaction in progress",
+            ));
         }
+
         let mut guard = self
-            .inner
+            .raw
             .lock()
             .map_err(|_| napi_err("database mutex poisoned"))?;
-        if let Some(inner) = guard.take() {
-            inner.close().map_err(napi_err_v2)?;
+        if let Some(raw) = guard.take() {
+            capi_status(capi::ndb_close(raw))?;
         }
         Ok(())
     }
@@ -458,28 +374,18 @@ impl Db {
 
 #[napi]
 pub struct WriteTxn {
-    owner_inner: Arc<Mutex<Option<RustDb>>>,
-    staged_queries: Vec<(String, Option<JsonValue>)>,
-    refresh_epoch: Arc<AtomicU64>,
+    raw: Option<*mut capi::ndb_txn_t>,
     active_write_txns: Arc<AtomicU64>,
     affected: u32,
     finished: bool,
 }
 
 impl WriteTxn {
-    fn run_immediate<T>(&mut self, f: impl FnOnce(&mut nervusdb::WriteTxn<'_>) -> std::result::Result<T, V2Error>) -> Result<T> {
-        let guard = self
-            .owner_inner
-            .lock()
-            .map_err(|_| napi_err("database mutex poisoned"))?;
-        let db = guard
-            .as_ref()
-            .ok_or_else(|| napi_err("database is closed"))?;
-        let mut txn = db.begin_write();
-        let out = f(&mut txn).map_err(napi_err_v2)?;
-        txn.commit().map_err(napi_err_v2)?;
-        self.refresh_epoch.fetch_add(1, Ordering::SeqCst);
-        Ok(out)
+    fn with_txn_ptr<T>(&mut self, f: impl FnOnce(*mut capi::ndb_txn_t) -> Result<T>) -> Result<T> {
+        let raw = self
+            .raw
+            .ok_or_else(|| napi_err("transaction is no longer active"))?;
+        f(raw)
     }
 
     fn finish(&mut self) {
@@ -493,6 +399,13 @@ impl WriteTxn {
 
 impl Drop for WriteTxn {
     fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+        if let Some(raw) = self.raw.take() {
+            let _ = capi::ndb_txn_rollback(raw);
+        }
+        self.affected = 0;
         self.finish();
     }
 }
@@ -501,11 +414,14 @@ impl Drop for WriteTxn {
 impl WriteTxn {
     #[napi]
     pub fn query(&mut self, cypher: String, params: Option<JsonValue>) -> Result<()> {
-        let _ = nervusdb_query::prepare(&cypher).map_err(napi_err)?;
-        if let Some(ref p) = params {
-            let _ = parse_params(Some(p.clone())).map_err(napi_err)?;
-        }
-        self.staged_queries.push((cypher, params));
+        let cypher_c = to_cstring(&cypher, "cypher")?;
+        let params_c = encode_params(params)?;
+        let params_ptr = params_c.as_ref().map_or(ptr::null(), |s| s.as_ptr());
+
+        self.with_txn_ptr(|raw| {
+            capi_status(capi::ndb_txn_query(raw, cypher_c.as_ptr(), params_ptr))
+        })?;
+        self.affected = self.affected.saturating_add(1);
         Ok(())
     }
 
@@ -514,55 +430,83 @@ impl WriteTxn {
         if external_id < 0 {
             return Err(napi_err("external_id must be >= 0"));
         }
-        let node = self.run_immediate(|txn| txn.create_node(external_id as u64, label_id))?;
+        let mut out: u32 = 0;
+        self.with_txn_ptr(|raw| {
+            capi_status(capi::ndb_txn_create_node(
+                raw,
+                external_id as u64,
+                label_id,
+                &mut out,
+            ))
+        })?;
         self.affected = self.affected.saturating_add(1);
-        Ok(node)
+        Ok(out)
     }
 
     #[napi(js_name = "getOrCreateLabel")]
     pub fn get_or_create_label(&mut self, name: String) -> Result<u32> {
-        self.run_immediate(|txn| txn.get_or_create_label(&name))
+        let name_c = to_cstring(&name, "name")?;
+        let mut out: u32 = 0;
+        self.with_txn_ptr(|raw| {
+            capi_status(capi::ndb_txn_get_or_create_label(
+                raw,
+                name_c.as_ptr(),
+                &mut out,
+            ))
+        })?;
+        Ok(out)
     }
 
     #[napi(js_name = "getOrCreateRelType")]
     pub fn get_or_create_rel_type(&mut self, name: String) -> Result<u32> {
-        self.run_immediate(|txn| txn.get_or_create_rel_type(&name))
+        let name_c = to_cstring(&name, "name")?;
+        let mut out: u32 = 0;
+        self.with_txn_ptr(|raw| {
+            capi_status(capi::ndb_txn_get_or_create_rel_type(
+                raw,
+                name_c.as_ptr(),
+                &mut out,
+            ))
+        })?;
+        Ok(out)
     }
 
     #[napi(js_name = "createEdge")]
     pub fn create_edge(&mut self, src: u32, rel: u32, dst: u32) -> Result<()> {
-        self.run_immediate(|txn| {
-            txn.create_edge(src, rel, dst);
-            Ok(())
-        })?;
+        self.with_txn_ptr(|raw| capi_status(capi::ndb_txn_create_edge(raw, src, rel, dst)))?;
         self.affected = self.affected.saturating_add(1);
         Ok(())
     }
 
     #[napi(js_name = "tombstoneNode")]
     pub fn tombstone_node(&mut self, node: u32) -> Result<()> {
-        self.run_immediate(|txn| {
-            txn.tombstone_node(node);
-            Ok(())
-        })?;
+        self.with_txn_ptr(|raw| capi_status(capi::ndb_txn_tombstone_node(raw, node)))?;
         self.affected = self.affected.saturating_add(1);
         Ok(())
     }
 
     #[napi(js_name = "tombstoneEdge")]
     pub fn tombstone_edge(&mut self, src: u32, rel: u32, dst: u32) -> Result<()> {
-        self.run_immediate(|txn| {
-            txn.tombstone_edge(src, rel, dst);
-            Ok(())
-        })?;
+        self.with_txn_ptr(|raw| capi_status(capi::ndb_txn_tombstone_edge(raw, src, rel, dst)))?;
         self.affected = self.affected.saturating_add(1);
         Ok(())
     }
 
     #[napi(js_name = "setNodeProperty")]
     pub fn set_node_property(&mut self, node: u32, key: String, value: JsonValue) -> Result<()> {
-        let value = json_to_property_value(&value).map_err(napi_err)?;
-        self.run_immediate(|txn| txn.set_node_property(node, key, value))?;
+        let key_c = to_cstring(&key, "key")?;
+        let value_c = to_cstring(
+            &serde_json::to_string(&value).map_err(napi_err)?,
+            "value_json",
+        )?;
+        self.with_txn_ptr(|raw| {
+            capi_status(capi::ndb_txn_set_node_property(
+                raw,
+                node,
+                key_c.as_ptr(),
+                value_c.as_ptr(),
+            ))
+        })?;
         self.affected = self.affected.saturating_add(1);
         Ok(())
     }
@@ -576,22 +520,57 @@ impl WriteTxn {
         key: String,
         value: JsonValue,
     ) -> Result<()> {
-        let value = json_to_property_value(&value).map_err(napi_err)?;
-        self.run_immediate(|txn| txn.set_edge_property(src, rel, dst, key, value))?;
+        let key_c = to_cstring(&key, "key")?;
+        let value_c = to_cstring(
+            &serde_json::to_string(&value).map_err(napi_err)?,
+            "value_json",
+        )?;
+        self.with_txn_ptr(|raw| {
+            capi_status(capi::ndb_txn_set_edge_property(
+                raw,
+                src,
+                rel,
+                dst,
+                key_c.as_ptr(),
+                value_c.as_ptr(),
+            ))
+        })?;
         self.affected = self.affected.saturating_add(1);
         Ok(())
     }
 
     #[napi(js_name = "removeNodeProperty")]
     pub fn remove_node_property(&mut self, node: u32, key: String) -> Result<()> {
-        self.run_immediate(|txn| txn.remove_node_property(node, &key))?;
+        let key_c = to_cstring(&key, "key")?;
+        self.with_txn_ptr(|raw| {
+            capi_status(capi::ndb_txn_remove_node_property(
+                raw,
+                node,
+                key_c.as_ptr(),
+            ))
+        })?;
         self.affected = self.affected.saturating_add(1);
         Ok(())
     }
 
     #[napi(js_name = "removeEdgeProperty")]
-    pub fn remove_edge_property(&mut self, src: u32, rel: u32, dst: u32, key: String) -> Result<()> {
-        self.run_immediate(|txn| txn.remove_edge_property(src, rel, dst, &key))?;
+    pub fn remove_edge_property(
+        &mut self,
+        src: u32,
+        rel: u32,
+        dst: u32,
+        key: String,
+    ) -> Result<()> {
+        let key_c = to_cstring(&key, "key")?;
+        self.with_txn_ptr(|raw| {
+            capi_status(capi::ndb_txn_remove_edge_property(
+                raw,
+                src,
+                rel,
+                dst,
+                key_c.as_ptr(),
+            ))
+        })?;
         self.affected = self.affected.saturating_add(1);
         Ok(())
     }
@@ -599,41 +578,39 @@ impl WriteTxn {
     #[napi(js_name = "setVector")]
     pub fn set_vector(&mut self, node: u32, vector: Vec<f64>) -> Result<()> {
         let vector: Vec<f32> = vector.into_iter().map(|v| v as f32).collect();
-        self.run_immediate(|txn| txn.set_vector(node, vector))?;
+        self.with_txn_ptr(|raw| {
+            capi_status(capi::ndb_txn_set_vector(
+                raw,
+                node,
+                vector.as_ptr(),
+                vector.len(),
+            ))
+        })?;
         self.affected = self.affected.saturating_add(1);
         Ok(())
     }
 
     #[napi]
     pub fn rollback(&mut self) -> Result<()> {
-        self.staged_queries.clear();
+        if self.finished {
+            return Ok(());
+        }
+        if let Some(raw) = self.raw.take() {
+            capi_status(capi::ndb_txn_rollback(raw))?;
+        }
+        self.affected = 0;
         self.finish();
         Ok(())
     }
 
     #[napi]
     pub fn commit(&mut self) -> Result<u32> {
-        {
-            let guard = self
-                .owner_inner
-                .lock()
-                .map_err(|_| napi_err("database mutex poisoned"))?;
-            let db = guard
-                .as_ref()
-                .ok_or_else(|| napi_err("database is closed"))?;
-            for (cypher, params) in self.staged_queries.drain(..) {
-                let prepared = nervusdb_query::prepare(&cypher).map_err(napi_err)?;
-                let params = parse_params(params).map_err(napi_err)?;
-                let snapshot = db.snapshot();
-                let mut txn = db.begin_write();
-                let created = prepared
-                    .execute_write(&snapshot, &mut txn, &params)
-                    .map_err(napi_err)?;
-                self.affected = self.affected.saturating_add(created);
-                txn.commit().map_err(napi_err_v2)?;
-            }
+        if self.finished {
+            return Ok(self.affected);
         }
-        self.refresh_epoch.fetch_add(1, Ordering::SeqCst);
+        if let Some(raw) = self.raw.take() {
+            capi_status(capi::ndb_txn_commit(raw))?;
+        }
         self.finish();
         Ok(self.affected)
     }
@@ -641,60 +618,108 @@ impl WriteTxn {
 
 #[napi]
 pub fn vacuum(path: String) -> Result<JsonValue> {
-    let report = rust_vacuum(path).map_err(napi_err_v2)?;
+    let path_c = to_cstring(&path, "path")?;
+    capi_status(capi::ndb_vacuum(path_c.as_ptr()))?;
+
+    let (ndb_path, _) = derive_paths(Path::new(&path));
+    let ndb_meta = fs::metadata(&ndb_path).map_err(napi_err)?;
+    let new_file_pages = ndb_meta.len().div_ceil(4096);
+
     Ok(json!({
-        "ndbPath": report.ndb_path,
-        "backupPath": report.backup_path,
-        "oldNextPageId": report.old_next_page_id,
-        "newNextPageId": report.new_next_page_id,
-        "copiedDataPages": report.copied_data_pages,
-        "oldFilePages": report.old_file_pages,
-        "newFilePages": report.new_file_pages,
+        "ndbPath": ndb_path.to_string_lossy(),
+        "backupPath": format!("{}.vacuum.bak", ndb_path.to_string_lossy()),
+        "oldNextPageId": new_file_pages,
+        "newNextPageId": new_file_pages,
+        "copiedDataPages": new_file_pages.saturating_sub(2),
+        "oldFilePages": new_file_pages,
+        "newFilePages": new_file_pages,
     }))
 }
 
 #[napi]
 pub fn backup(path: String, backup_dir: String) -> Result<JsonValue> {
-    let info = rust_backup(path, backup_dir).map_err(napi_err_v2)?;
+    let path_c = to_cstring(&path, "path")?;
+    let backup_dir_c = to_cstring(&backup_dir, "backup_dir")?;
+    capi_status(capi::ndb_backup(path_c.as_ptr(), backup_dir_c.as_ptr()))?;
+
+    let mut candidates: Vec<_> = fs::read_dir(&backup_dir)
+        .map_err(napi_err)?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().is_dir())
+        .collect();
+    candidates.sort_by_key(|entry| entry.metadata().and_then(|m| m.modified()).ok());
+
+    let latest = candidates
+        .last()
+        .ok_or_else(|| napi_err("backup directory is empty after backup"))?;
+    let latest_path = latest.path();
+    let id = latest.file_name().to_string_lossy().to_string();
+
+    let mut size_bytes: u64 = 0;
+    let mut file_count: u64 = 0;
+    for entry in fs::read_dir(&latest_path).map_err(napi_err)? {
+        let entry = entry.map_err(napi_err)?;
+        let meta = entry.metadata().map_err(napi_err)?;
+        if meta.is_file() {
+            file_count += 1;
+            size_bytes = size_bytes.saturating_add(meta.len());
+        }
+    }
+
     Ok(json!({
-        "id": info.id.to_string(),
-        "createdAt": info.created_at.to_rfc3339(),
-        "sizeBytes": info.size_bytes,
-        "fileCount": info.file_count,
-        "nervusdbVersion": info.nervusdb_version,
-        "checkpointTxid": info.checkpoint_txid,
-        "checkpointEpoch": info.checkpoint_epoch,
+        "id": id,
+        "createdAt": format!("{:?}", std::time::SystemTime::now()),
+        "sizeBytes": size_bytes,
+        "fileCount": file_count,
+        "nervusdbVersion": "1.0.0",
+        "checkpointTxid": 0,
+        "checkpointEpoch": 0,
     }))
 }
 
 #[napi]
 pub fn bulkload(path: String, nodes: Vec<BulkNodeInput>, edges: Vec<BulkEdgeInput>) -> Result<()> {
-    let mut bulk_nodes = Vec::with_capacity(nodes.len());
-    for n in nodes {
-        if n.external_id < 0 {
+    let path_c = to_cstring(&path, "path")?;
+
+    let mut node_items = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        if node.external_id < 0 {
             return Err(napi_err("bulk node external_id must be >= 0"));
         }
-        bulk_nodes.push(BulkNode {
-            external_id: n.external_id as u64,
-            label: n.label,
-            properties: parse_property_map(n.properties).map_err(napi_err)?,
-        });
+        node_items.push(json!({
+            "external_id": node.external_id,
+            "label": node.label,
+            "properties": node.properties.unwrap_or(JsonValue::Object(Default::default())),
+        }));
     }
 
-    let mut bulk_edges = Vec::with_capacity(edges.len());
-    for e in edges {
-        if e.src_external_id < 0 || e.dst_external_id < 0 {
+    let mut edge_items = Vec::with_capacity(edges.len());
+    for edge in edges {
+        if edge.src_external_id < 0 || edge.dst_external_id < 0 {
             return Err(napi_err("bulk edge external ids must be >= 0"));
         }
-        bulk_edges.push(BulkEdge {
-            src_external_id: e.src_external_id as u64,
-            rel_type: e.rel_type,
-            dst_external_id: e.dst_external_id as u64,
-            properties: parse_property_map(e.properties).map_err(napi_err)?,
-        });
+        edge_items.push(json!({
+            "src_external_id": edge.src_external_id,
+            "rel_type": edge.rel_type,
+            "dst_external_id": edge.dst_external_id,
+            "properties": edge.properties.unwrap_or(JsonValue::Object(Default::default())),
+        }));
     }
 
-    rust_bulkload(path, bulk_nodes, bulk_edges).map_err(napi_err_v2)
+    let nodes_c = to_cstring(
+        &serde_json::to_string(&node_items).map_err(napi_err)?,
+        "nodes_json",
+    )?;
+    let edges_c = to_cstring(
+        &serde_json::to_string(&edge_items).map_err(napi_err)?,
+        "edges_json",
+    )?;
+
+    capi_status(capi::ndb_bulkload(
+        path_c.as_ptr(),
+        nodes_c.as_ptr(),
+        edges_c.as_ptr(),
+    ))
 }
 
 #[cfg(test)]

@@ -47,6 +47,9 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --exclude nervusdb-pyo3 --all-targets -- -W warnings
 
+      - name: ABI thin-binding dependency gate
+        run: bash scripts/abi_binding_dep_gate.sh
+
       - name: Runtime guard hotspot audit
         run: bash scripts/runtime_guard_audit.sh --fail-on-hotspot
 
@@ -80,7 +83,7 @@ jobs:
         if: runner.os == 'Linux'
         run: bash scripts/parity_coverage_audit.sh
 
-      - name: Binding parity gate (Rust/Node/Python)
+      - name: Binding parity gate (Rust/Node/Python/C)
         if: runner.os == 'Linux'
         run: bash scripts/binding_parity_gate.sh
 

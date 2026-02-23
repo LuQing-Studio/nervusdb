@@ -13,5 +13,5 @@ gil-refs = []
 
 [dependencies]
 pyo3 = { version = "0.22.6", features = ["extension-module"] }
-nervusdb = { path = "../nervusdb" }
-nervusdb-query = { path = "../nervusdb-query" }
+nervusdb_capi = { package = "nervusdb-capi", path = "../nervusdb-capi" }
+serde_json = "1"
